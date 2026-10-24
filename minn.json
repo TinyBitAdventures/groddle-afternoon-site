@@ -28,6 +28,8 @@
     "groddle/restoration-recent",
     "groddle/restoration-lost",
     "groddle/restoration-legend",
-    "groddle/restoration-stamp"
+    "groddle/restoration-stamp",
+    "groddle/musicblocks",
+    "groddle/musicblocks-rules"
   ]
 }

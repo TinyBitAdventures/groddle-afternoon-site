@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/musicblocks-rules",
+	"title": "Musicblock rules",
+	"category": "widgets",
+	"description": "What playing a musicblock costs and pays, read from the game itself.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"musicblock",
+		"music"
+	]
+}

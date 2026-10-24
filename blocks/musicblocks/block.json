@@ -1,0 +1,32 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/musicblocks",
+	"title": "Musicblocks",
+	"category": "widgets",
+	"description": "One musicblock series, or the rare blocks, as cards to play, with the series' collector trophy.",
+	"attributes": {
+		"set": {
+			"type": "string",
+			"enum": [
+				"DG",
+				"DR",
+				"DB",
+				"BB",
+				"XS",
+				"rare"
+			],
+			"default": "DG"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"musicblock",
+		"music"
+	]
+}

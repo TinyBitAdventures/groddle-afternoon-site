@@ -52,3 +52,32 @@ p.jump { margin-bottom: 0; }
 .note-body .wrap > .wp-block-post-content > * + * { margin-top: 40px; }
 /* The restoration report's jump links in the Notes chip colour: the same in light, and readable in dark (the built page is light only). */
 .jump a { background: var(--chip-bg); }
+/* The Musicblocks page (src/Musicblocks.php, public/musicblocks/musicblocks.js): a card per block in its series' glow colour. */
+.mb-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mb-trophy { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; padding: 12px 16px; max-width: 44em; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--chip-bg); }
+.mb-trophy p { margin: 0; color: var(--muted); }
+.mb-trophy strong { color: var(--fg); }
+.mb-badge { flex: none; width: 60px; height: 60px; }
+.mb-set { margin-top: 20px; }
+.mb-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.mb-card { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--border); border-top: 4px solid var(--mb-glow); border-radius: var(--radius-lg); background: var(--surface); }
+.mb-card.is-playing { box-shadow: 0 0 0 3px var(--mb-glow); }
+.mb-face { display: flex; align-items: center; gap: 12px; }
+.mb-icon { flex: none; width: 37px; height: 37px; image-rendering: auto; }
+.mb-name { margin: 0; flex: 1; font-size: 20px; }
+.mb-desc { margin: 0; flex: 1; font-size: 15px; line-height: 1.45; }
+.mb-meta { margin: 0; font-size: 13px; color: var(--muted); }
+.mb-audio { width: 100%; height: 36px; }
+.mb-ready .mb-audio { display: none; }
+.mb-play { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--accent); color: #1f1407; cursor: pointer; }
+.mb-play svg { width: 22px; height: 22px; }
+.mb-play:hover { filter: brightness(1.08); }
+.mb-play:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+.mb-bar { height: 6px; border-radius: 3px; background: var(--row-line); overflow: hidden; }
+.mb-bar span { display: block; height: 100%; width: 0; background: var(--mb-glow); }
+.mb-set:not(.mb-ready) .mb-bar, .mb-set:not(.mb-ready) .mb-time { display: none; }
+.mb-time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.mb-time:empty { display: none; }
+.mb-rules { margin: 0 0 8px; padding-left: 1.2em; max-width: 44em; }
+.mb-rules li + li { margin-top: 6px; }
+@media (prefers-reduced-motion: no-preference) { .mb-card { transition: box-shadow 0.2s; } }
