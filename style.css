@@ -1,0 +1,33 @@
+/*
+Theme Name: Groddle Afternoon
+Description: The Groddle Afternoon site on Minn: notes, pages and posts in the site's own look, with the game and the generated restoration pages served beside them by the theme's minn.json.
+Version: 0.1.0
+License: MIT
+Text Domain: groddle
+*/
+
+/* Block output that the static site's stylesheets (restoration.css, changelog.css, site-nav.css) did not have to meet. */
+.wp-site-blocks { padding: 0; }
+.wp-site-blocks > * + * { margin-block-start: 0; }
+.note-head .kicker { display: flex; flex-wrap: wrap; gap: 0 0.5em; align-items: baseline; }
+.note-head .kicker > * { margin: 0; }
+.note-head .kicker > * + *::before { content: "·"; margin-right: 0.5em; }
+.note-head h1 { margin: 0 0 14px; }
+.note-head .wp-block-post-excerpt__excerpt { margin: 0; }
+.note-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.note-tags .wp-block-post-terms__separator { display: none; }
+.note-tags a {
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none;
+  padding: 4px 11px; border-radius: 999px; background: var(--chip-bg); border: 1px solid var(--border); color: var(--muted);
+}
+/* Every page the theme draws is a Notes page (the game and the generated pages are served beside it). */
+.site-nav-links a[href="/changelog/"] { color: var(--fg); border-bottom-color: var(--accent); }
+.note-cards .wp-block-post-title { margin: 6px 0; }
+.note-cards .wp-block-post-title a { color: inherit; }
+.note-pager .wp-block-post-navigation-link { margin: 0; }
+.note-cards { list-style: none; padding: 0; }
+.note-cards > * { margin-block: 0; }
+.note-card-meta { display: flex; flex-wrap: wrap; gap: 0 0.5em; text-transform: uppercase; }
+.note-card-meta > * { margin: 0; }
+.note-card-meta > * + *::before { content: "·"; margin-right: 0.5em; }
+.note-card-meta a { color: inherit; text-decoration: none; position: relative; z-index: 1; }

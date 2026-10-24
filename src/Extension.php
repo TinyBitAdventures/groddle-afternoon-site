@@ -4,19 +4,44 @@ declare(strict_types=1);
 
 namespace Groddle\Minn;
 
+use Minn\Blocks\Block;
 use Minn\Extension\Extension as MinnExtension;
 use Minn\Extension\Seams;
 
 /**
- * Groddle Afternoon on Minn: the game and its site, served by the engine
- * with no WordPress API. The built game (the files groddle.localhost
- * serves) sits beside the engine in the webroot; this extension answers
- * the pages a static server answered by itself.
+ * Groddle Afternoon on Minn, the theme's own extension (its minn.json): on
+ * while Groddle is the theme. The templates draw notes, pages and posts in
+ * the site's look; this adds what templates cannot: the site's stylesheets,
+ * and the built game and generated pages served beside the content.
  */
 final class Extension implements MinnExtension
 {
+    /** The built site's stylesheets the templates are drawn against, then the theme's own fixes. */
+    private const STYLESHEETS = [
+        '/restoration/restoration.css',
+        '/changelog/changelog.css',
+        '/site/site-nav.css',
+        '/wp-content/themes/groddle/style.css',
+    ];
+
     public function register(Seams $minn): void
     {
-        $minn->routes(new StaticPages(StaticRoot::fromSite($minn)));
+        $minn->head(static fn (): string => self::head());
+        $minn->bodyClass('notes');
+        // The Notes list under month headings (the query loop draws one list).
+        $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
+        $minn->routes(new StaticPages($minn, StaticRoot::fromSite($minn)));
+    }
+
+    private static function head(): string
+    {
+        $out = '';
+        foreach (self::STYLESHEETS as $href) {
+            $out .= '<link rel="stylesheet" href="' . $href . '" />' . "\n";
+        }
+        return $out
+            . '<link rel="icon" href="/favicon.svg?v=quoin" type="image/svg+xml" />' . "\n"
+            . '<link rel="icon" href="/favicon.ico?v=quoin" sizes="32x32" />' . "\n"
+            . '<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=quoin" />' . "\n";
     }
 }

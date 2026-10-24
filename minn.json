@@ -2,7 +2,6 @@
   "name": "Groddle Afternoon",
   "version": "0.1.0",
   "license": "MIT",
-  "replaces": [],
   "autoload": {"Groddle\\Minn\\": "src/"},
   "extension": "Groddle\\Minn\\Extension"
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Groddle\Minn;
 
+use Minn\Extension\Seams;
 use Minn\Http\Access;
 use Minn\Http\Method;
 use Minn\Http\Policy;
@@ -13,14 +14,15 @@ use Minn\Http\Route;
 use Minn\Http\RouteMiss;
 
 /**
- * The built site's folder pages (/, /play/, /restoration/, /changelog/...):
+ * The built site's folder pages (/, /play/, /restoration/, /compare/...):
  * a static server answers a folder with its index.html, and on Minn the
  * folder path reaches the engine, so this answers it the same way. Files
  * themselves are still served by the web server straight from disk.
+ * A signed-in editor sees the Minn bar on each page (Seams::frontBar).
  */
 final readonly class StaticPages
 {
-    public function __construct(private StaticRoot $root)
+    public function __construct(private Seams $minn, private StaticRoot $root)
     {
     }
 
@@ -40,10 +42,15 @@ final readonly class StaticPages
 
     private function serve(string $folder): Response
     {
+        // Notes are Minn content now, drawn by the theme's templates.
+        if ($folder === 'changelog' || str_starts_with($folder, 'changelog/')) {
+            throw new RouteMiss();
+        }
         $file = $this->root->indexFor($folder);
         if ($file === null) {
             throw new RouteMiss();
         }
-        return Response::html((string) file_get_contents($file))->withHeader('Cache-Control', 'no-cache');
+        // A signed-in editor gets the Minn bar, as on any themed page.
+        return Response::html($this->minn->frontBar((string) file_get_contents($file)))->withHeader('Cache-Control', 'no-cache');
     }
 }
