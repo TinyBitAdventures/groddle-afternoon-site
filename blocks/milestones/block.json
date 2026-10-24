@@ -1,0 +1,36 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/milestones",
+	"title": "Milestones",
+	"category": "text",
+	"description": "A numbered run of steps, each with a kind, a title and a line.",
+	"attributes": {
+		"label": {
+			"type": "string",
+			"default": ""
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"allowedBlocks": [
+		"groddle/milestone"
+	],
+	"example": {
+		"attributes": {},
+		"innerBlocks": [
+			{
+				"name": "groddle/milestone",
+				"attributes": {
+					"kind": "Step",
+					"title": "What happened",
+					"text": "How it went."
+				}
+			}
+		]
+	}
+}

@@ -1,0 +1,39 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/signpost",
+	"title": "Signpost",
+	"category": "text",
+	"description": "A signpost drawing with arms pointing left and right, and a caption.",
+	"attributes": {
+		"label": {
+			"type": "string",
+			"default": ""
+		},
+		"caption": {
+			"type": "string",
+			"default": ""
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"allowedBlocks": [
+		"groddle/sign"
+	],
+	"example": {
+		"attributes": {},
+		"innerBlocks": [
+			{
+				"name": "groddle/sign",
+				"attributes": {
+					"side": "left",
+					"text": "Somewhere"
+				}
+			}
+		]
+	}
+}

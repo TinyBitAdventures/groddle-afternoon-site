@@ -1,0 +1,51 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/quest",
+	"title": "Quest",
+	"category": "text",
+	"description": "One quest card.",
+	"parent": [
+		"groddle/quests"
+	],
+	"attributes": {
+		"n": {
+			"type": "string",
+			"default": "1"
+		},
+		"kind": {
+			"type": "string",
+			"default": "Quest"
+		},
+		"short": {
+			"type": "string",
+			"default": ""
+		},
+		"title": {
+			"type": "string",
+			"default": "A quest"
+		},
+		"text": {
+			"type": "string",
+			"default": "What it asks."
+		},
+		"source": {
+			"type": "string",
+			"default": ""
+		},
+		"play": {
+			"type": "string",
+			"default": ""
+		},
+		"finish": {
+			"type": "string",
+			"default": ""
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle"
+}

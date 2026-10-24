@@ -1,0 +1,91 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/feature",
+	"title": "Feature card",
+	"category": "text",
+	"description": "One card: an icon, a title and a line.",
+	"parent": [
+		"groddle/features"
+	],
+	"attributes": {
+		"icon": {
+			"type": "string",
+			"enum": [
+				"every-glitch-drawn-sharp",
+				"a-butler-of-your-own-making",
+				"the-hall-of-rejected-concepts",
+				"rooms-as-players-saw-them",
+				"sky-plunge-lands-softly",
+				"crowded-streets",
+				"shake-the-elemental-pouch",
+				"lanterns-loading-cards-and-chatty-plots",
+				"true-parallax-and-skies",
+				"the-magic-rocks-quests",
+				"a-full-kitchen",
+				"every-street-spirit",
+				"a-world-to-harvest",
+				"seven-races-and-game-of-crowns",
+				"the-rooks-return",
+				"friends-stay-grounded",
+				"a-physical-search-path",
+				"the-whole-round-trip",
+				"please-wait",
+				"beige-or-other",
+				"the-owl-speaks-again",
+				"eight-pale-rewards",
+				"the-way-home-hangs-overhead",
+				"snow-to-stone",
+				"homeward-light",
+				"stars-with-a-cue",
+				"a-moon-sized-payoff",
+				"crisp-at-course-scale",
+				"a-familiar-welcome",
+				"viewport-scale-tunnels",
+				"still-fair-to-fly",
+				"echoes-materialize",
+				"a-complete-handoff",
+				"awards-wait-their-turn",
+				"ground-stays-legible",
+				"a-real-follow-verb",
+				"the-group-carries-on",
+				"empty-by-source",
+				"openings-preserved",
+				"course-verified",
+				"original-client-art",
+				"authored-cadence",
+				"reward-pills-restored",
+				"the-street-stays-alive",
+				"every-response-restored",
+				"original-vertical-anchor",
+				"all-trees-one-plant-each",
+				"deposits-returned",
+				"grounded-feet",
+				"hud-breathing-room",
+				"individual-road-signs",
+				"a-calmer-boot",
+				"source-authored-quests",
+				"persistent-ur",
+				"smooth-movement",
+				"real-streets",
+				"daily-life",
+				"recovered-voice"
+			],
+			"default": "every-glitch-drawn-sharp"
+		},
+		"title": {
+			"type": "string",
+			"default": "A card"
+		},
+		"text": {
+			"type": "string",
+			"default": "What it is about."
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle"
+}

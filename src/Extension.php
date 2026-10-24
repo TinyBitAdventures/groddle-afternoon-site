@@ -12,7 +12,8 @@ use Minn\Extension\Seams;
  * Groddle Afternoon on Minn, the theme's own extension (its minn.json): on
  * while Groddle is the theme. The templates draw notes, pages and posts in
  * the site's look; this adds what templates cannot: the site's stylesheets,
- * and the built game and generated pages served beside the content.
+ * the note blocks (Blocks), and the built game and generated pages served
+ * beside the content.
  */
 final class Extension implements MinnExtension
 {
@@ -28,9 +29,12 @@ final class Extension implements MinnExtension
     {
         $minn->head(static fn (): string => self::head());
         $minn->bodyClass('notes');
+        // The editor's block previews wear the same stylesheets (the theme's own style.css it loads already).
+        $minn->editorStyles(...array_slice(self::STYLESHEETS, 0, -1));
         // The Notes list under month headings (the query loop draws one list).
         $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
         $minn->routes(new StaticPages($minn, StaticRoot::fromSite($minn)));
+        Blocks::register($minn);
     }
 
     private static function head(): string

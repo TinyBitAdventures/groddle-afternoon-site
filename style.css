@@ -31,3 +31,15 @@ Text Domain: groddle
 .note-card-meta > * { margin: 0; }
 .note-card-meta > * + *::before { content: "·"; margin-right: 0.5em; }
 .note-card-meta a { color: inherit; text-decoration: none; position: relative; z-index: 1; }
+/* A note's table is a core table block: the .note-table look, over the block's own borders. Its caption is for screen readers, as the static page's aria-label was. */
+.wp-block-table.note-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); margin: 0; }
+.wp-block-table.note-table-wrap table { width: 100%; border-collapse: collapse; font-size: 15px; border: 0; }
+.wp-block-table.note-table-wrap thead { border: 0; }
+.wp-block-table.note-table-wrap th, .wp-block-table.note-table-wrap td { text-align: left; padding: 10px 16px; border: 0; border-bottom: 1px solid var(--row-line); vertical-align: top; }
+.wp-block-table.note-table-wrap tbody tr:last-child td { border-bottom: 0; }
+.wp-block-table.note-table-wrap th { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.wp-block-table.note-table-wrap .has-text-align-right { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.wp-block-table.note-table-wrap figcaption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 560px) { .wp-block-table.note-table-wrap th, .wp-block-table.note-table-wrap td { padding: 8px 10px; } .wp-block-table.note-table-wrap table { font-size: 14px; } }
+/* Checklist cards are groups side by side: no flow margin above the second. */
+.note-lists > .note-list-card { margin-block: 0; }

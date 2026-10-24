@@ -1,0 +1,40 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/features",
+	"title": "Feature cards",
+	"category": "text",
+	"description": "A row of cards, each an icon, a title and a line.",
+	"attributes": {
+		"variant": {
+			"type": "string",
+			"enum": [
+				"",
+				"fix"
+			],
+			"default": ""
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"allowedBlocks": [
+		"groddle/feature"
+	],
+	"example": {
+		"attributes": {},
+		"innerBlocks": [
+			{
+				"name": "groddle/feature",
+				"attributes": {
+					"icon": "every-glitch-drawn-sharp",
+					"title": "A card",
+					"text": "What it is about."
+				}
+			}
+		]
+	}
+}

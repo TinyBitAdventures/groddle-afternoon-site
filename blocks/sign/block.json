@@ -1,0 +1,31 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/sign",
+	"title": "Sign arm",
+	"category": "text",
+	"description": "One arm of a signpost.",
+	"parent": [
+		"groddle/signpost"
+	],
+	"attributes": {
+		"side": {
+			"type": "string",
+			"enum": [
+				"left",
+				"right"
+			],
+			"default": "left"
+		},
+		"text": {
+			"type": "string",
+			"default": "Somewhere"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle"
+}

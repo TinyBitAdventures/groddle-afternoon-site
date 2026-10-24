@@ -1,0 +1,36 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/quests",
+	"title": "Quest list",
+	"category": "text",
+	"description": "Quests as cards, each with where it came from, how it plays and how it ends.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"allowedBlocks": [
+		"groddle/quest"
+	],
+	"example": {
+		"attributes": {},
+		"innerBlocks": [
+			{
+				"name": "groddle/quest",
+				"attributes": {
+					"n": "1",
+					"kind": "Quest",
+					"short": "",
+					"title": "A quest",
+					"text": "What it asks.",
+					"source": "",
+					"play": "",
+					"finish": ""
+				}
+			}
+		]
+	}
+}

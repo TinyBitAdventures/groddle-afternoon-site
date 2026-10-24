@@ -2,6 +2,21 @@
   "name": "Groddle Afternoon",
   "version": "0.1.0",
   "license": "MIT",
-  "autoload": {"Groddle\\Minn\\": "src/"},
-  "extension": "Groddle\\Minn\\Extension"
+  "autoload": {
+    "Groddle\\Minn\\": "src/"
+  },
+  "extension": "Groddle\\Minn\\Extension",
+  "blocks": [
+    "groddle/stamp",
+    "groddle/features",
+    "groddle/feature",
+    "groddle/milestones",
+    "groddle/milestone",
+    "groddle/ledger",
+    "groddle/figure",
+    "groddle/quests",
+    "groddle/quest",
+    "groddle/signpost",
+    "groddle/sign"
+  ]
 }

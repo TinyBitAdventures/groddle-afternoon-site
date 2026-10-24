@@ -1,0 +1,31 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/figure",
+	"title": "Figure",
+	"category": "text",
+	"description": "One figure in a ledger.",
+	"parent": [
+		"groddle/ledger"
+	],
+	"attributes": {
+		"value": {
+			"type": "string",
+			"default": "0"
+		},
+		"unit": {
+			"type": "string",
+			"default": ""
+		},
+		"caption": {
+			"type": "string",
+			"default": "what the figure counts"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle"
+}

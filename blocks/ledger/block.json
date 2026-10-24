@@ -1,0 +1,47 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/ledger",
+	"title": "Ledger",
+	"category": "text",
+	"description": "A strip of figures, each with a line under it.",
+	"attributes": {
+		"label": {
+			"type": "string",
+			"default": ""
+		},
+		"variant": {
+			"type": "string",
+			"enum": [
+				"",
+				"stats"
+			],
+			"default": ""
+		},
+		"id": {
+			"type": "string",
+			"default": ""
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"allowedBlocks": [
+		"groddle/figure"
+	],
+	"example": {
+		"attributes": {},
+		"innerBlocks": [
+			{
+				"name": "groddle/figure",
+				"attributes": {
+					"value": "0",
+					"caption": "what the figure counts"
+				}
+			}
+		]
+	}
+}
