@@ -17,6 +17,17 @@
     "groddle/quests",
     "groddle/quest",
     "groddle/signpost",
-    "groddle/sign"
+    "groddle/sign",
+    "groddle/restoration-score",
+    "groddle/restoration-street",
+    "groddle/restoration-systems",
+    "groddle/restoration-numbers",
+    "groddle/restoration-rooms",
+    "groddle/restoration-designers",
+    "groddle/restoration-levels",
+    "groddle/restoration-recent",
+    "groddle/restoration-lost",
+    "groddle/restoration-legend",
+    "groddle/restoration-stamp"
   ]
 }

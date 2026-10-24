@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-levels",
+	"title": "Restoration levels from words",
+	"category": "widgets",
+	"description": "Levels rebuilt from text alone, with no recording.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"report"
+	]
+}

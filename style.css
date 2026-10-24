@@ -20,8 +20,6 @@ Text Domain: groddle
   font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; text-decoration: none;
   padding: 4px 11px; border-radius: 999px; background: var(--chip-bg); border: 1px solid var(--border); color: var(--muted);
 }
-/* Every page the theme draws is a Notes page (the game and the generated pages are served beside it). */
-.site-nav-links a[href="/changelog/"] { color: var(--fg); border-bottom-color: var(--accent); }
 .note-cards .wp-block-post-title { margin: 6px 0; }
 .note-cards .wp-block-post-title a { color: inherit; }
 .note-pager .wp-block-post-navigation-link { margin: 0; }
@@ -43,3 +41,14 @@ Text Domain: groddle
 @media (max-width: 560px) { .wp-block-table.note-table-wrap th, .wp-block-table.note-table-wrap td { padding: 8px 10px; } .wp-block-table.note-table-wrap table { font-size: 14px; } }
 /* Checklist cards are groups side by side: no flow margin above the second. */
 .note-lists > .note-list-card { margin-block: 0; }
+/* Full-width pages (the restoration report): bands sit edge to edge, as on the built page. */
+.page-wide > .wp-block-post-content > *, .page-wide .band > .wrap > *:first-child { margin-block-start: 0; }
+.page-wide .band > .wrap > h2 { margin-top: 0; }
+p.jump { margin-bottom: 0; }
+.report-foot { padding-top: 34px; color: var(--muted); font-size: 14px; }
+.report-foot p { margin: 0 0 6px; }
+.report-pending { color: var(--muted); font-size: 15px; margin: 0; }
+/* A note's parts sit 40px apart, as on the built pages (.note-body .wrap > * + *), one level down in post-content. */
+.note-body .wrap > .wp-block-post-content > * + * { margin-top: 40px; }
+/* The restoration report's jump links in the Notes chip colour: the same in light, and readable in dark (the built page is light only). */
+.jump a { background: var(--chip-bg); }

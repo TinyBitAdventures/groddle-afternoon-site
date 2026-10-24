@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-rooms",
+	"title": "Restoration quest rooms",
+	"category": "widgets",
+	"description": "The quest rooms as cards, each opening its story.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"report"
+	]
+}

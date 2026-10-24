@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-legend",
+	"title": "Restoration tag legend",
+	"category": "widgets",
+	"description": "What each status tag means.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"report"
+	]
+}

@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-street",
+	"title": "Restoration street",
+	"category": "widgets",
+	"description": "The street diorama: click anything on it to see what has been restored behind it.",
+	"attributes": {
+		"prompt": {
+			"type": "string",
+			"default": "Pick something on the street: a piggy, the tree, a quoin, the shrine…"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"report"
+	]
+}

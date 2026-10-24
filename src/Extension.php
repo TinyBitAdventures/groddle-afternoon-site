@@ -12,8 +12,9 @@ use Minn\Extension\Seams;
  * Groddle Afternoon on Minn, the theme's own extension (its minn.json): on
  * while Groddle is the theme. The templates draw notes, pages and posts in
  * the site's look; this adds what templates cannot: the site's stylesheets,
- * the note blocks (Blocks), and the built game and generated pages served
- * beside the content.
+ * the note blocks (Blocks), the restoration report's data sections
+ * (Restoration), and the built game and generated pages served beside the
+ * content.
  */
 final class Extension implements MinnExtension
 {
@@ -29,12 +30,29 @@ final class Extension implements MinnExtension
     {
         $minn->head(static fn (): string => self::head());
         $minn->bodyClass('notes');
+        // The nav marks the section being read, as the built pages do (site-nav.css styles aria-current).
+        $minn->filterDocument(static fn (string $html): string => self::current($html, $minn->request->path));
         // The editor's block previews wear the same stylesheets (the theme's own style.css it loads already).
         $minn->editorStyles(...array_slice(self::STYLESHEETS, 0, -1));
         // The Notes list under month headings (the query loop draws one list).
         $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
-        $minn->routes(new StaticPages($minn, StaticRoot::fromSite($minn)));
+        $root = StaticRoot::fromSite($minn);
+        $minn->routes(new StaticPages($minn, $root));
         Blocks::register($minn);
+        Restoration::register($minn, $root);
+    }
+
+    /** aria-current on the first nav link whose section holds the path (the nav comes first in the document). */
+    private static function current(string $html, string $path): string
+    {
+        foreach (['/restoration/', '/compare/', '/changelog/'] as $section) {
+            if (str_starts_with($path, $section)) {
+                $link = '<a href="' . $section . '">';
+                $at = strpos($html, $link);
+                return $at === false ? $html : substr_replace($html, '<a href="' . $section . '" aria-current="page">', $at, strlen($link));
+            }
+        }
+        return $html;
     }
 
     private static function head(): string

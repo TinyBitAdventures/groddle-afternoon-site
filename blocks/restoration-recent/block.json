@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-recent",
+	"title": "Restoration recent changes",
+	"category": "widgets",
+	"description": "The latest additions and fixes from the project's history.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"report"
+	]
+}

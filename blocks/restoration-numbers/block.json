@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-numbers",
+	"title": "Restoration numbers",
+	"category": "widgets",
+	"description": "Figures counted from the repository, and where the original quests stand. {total} in the heading is the number of original quests.",
+	"attributes": {
+		"questsHeading": {
+			"type": "string",
+			"default": "Where the {total} original quests stand"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"report"
+	]
+}
