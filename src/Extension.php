@@ -13,8 +13,9 @@ use Minn\Extension\Seams;
  * while Groddle is the theme. The templates draw notes, pages and posts in
  * the site's look; this adds what templates cannot: the site's stylesheets,
  * the note blocks (Blocks), the restoration report's data sections
- * (Restoration), the Musicblocks page's players (Musicblocks), and the built
- * game and generated pages served beside the content.
+ * (Restoration), the Musicblocks entry's players (Musicblocks), the wiki's
+ * topic strip (Wiki), and the built game and generated pages served beside
+ * the content.
  */
 final class Extension implements MinnExtension
 {
@@ -41,12 +42,13 @@ final class Extension implements MinnExtension
         Blocks::register($minn);
         Restoration::register($minn, $root);
         Musicblocks::register($minn, $root);
+        Wiki::register($minn);
     }
 
     /** aria-current on the first nav link whose section holds the path (the nav comes first in the document). */
     private static function current(string $html, string $path): string
     {
-        foreach (['/restoration/', '/compare/', '/changelog/'] as $section) {
+        foreach (['/restoration/', '/compare/', '/wiki/', '/changelog/'] as $section) {
             if (str_starts_with($path, $section)) {
                 $link = '<a href="' . $section . '">';
                 $at = strpos($html, $link);

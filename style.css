@@ -81,3 +81,6 @@ p.jump { margin-bottom: 0; }
 .mb-rules { margin: 0 0 8px; padding-left: 1.2em; max-width: 44em; }
 .mb-rules li + li { margin-top: 6px; }
 @media (prefers-reduced-motion: no-preference) { .mb-card { transition: box-shadow 0.2s; } }
+/* The wiki's topic strip (src/Wiki.php): the topic being read stands out, counts read as counts. */
+.wiki-topics a[aria-current] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.wiki-count { font-family: var(--font-mono); font-size: 12px; opacity: 0.75; margin-left: 2px; }

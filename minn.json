@@ -6,6 +6,30 @@
     "Groddle\\Minn\\": "src/"
   },
   "extension": "Groddle\\Minn\\Extension",
+  "types": [
+    {
+      "slug": "wiki_entry",
+      "name": "Wiki",
+      "singular": "Wiki entry",
+      "description": "The Groddle Wiki: what was in Tiny Speck's Glitch, entry by entry, with the remake's own data.",
+      "rest_base": "wiki",
+      "has_archive": "wiki",
+      "rewrite": {"slug": "wiki", "with_front": false},
+      "supports": ["title", "editor", "excerpt", "thumbnail", "revisions"],
+      "taxonomies": ["wiki_topic"]
+    }
+  ],
+  "taxonomies": [
+    {
+      "slug": "wiki_topic",
+      "name": "Topics",
+      "singular": "Topic",
+      "types": ["wiki_entry"],
+      "rest_base": "wiki-topics",
+      "hierarchical": true,
+      "rewrite": {"slug": "wiki/topic", "with_front": false}
+    }
+  ],
   "blocks": [
     "groddle/stamp",
     "groddle/features",
@@ -30,6 +54,7 @@
     "groddle/restoration-legend",
     "groddle/restoration-stamp",
     "groddle/musicblocks",
-    "groddle/musicblocks-rules"
+    "groddle/musicblocks-rules",
+    "groddle/wiki-topics"
   ]
 }

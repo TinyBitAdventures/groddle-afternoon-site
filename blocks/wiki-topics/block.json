@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/wiki-topics",
+	"title": "Wiki topics",
+	"category": "widgets",
+	"description": "The wiki's topics as links, each with how many entries it holds; the one being read is marked.",
+	"attributes": {
+		"allLabel": {
+			"type": "string",
+			"default": "All"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"wiki",
+		"topics"
+	]
+}
