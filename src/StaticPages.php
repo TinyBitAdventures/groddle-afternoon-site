@@ -43,6 +43,24 @@ final readonly class StaticPages
         return $this->serve($folder);
     }
 
+    /**
+     * A folder named without its slash (/play, /play/online): sent on to the
+     * slashed path, query kept, as a static server does; anything that is not
+     * a built folder falls through.
+     */
+    #[Route(Method::Get, '/{folder:[a-z0-9][a-z0-9_-]*(?:/[a-z0-9][a-z0-9_-]*)*}', policy: new Policy(Access::Public))]
+    public function bare(Request $request, string $folder): Response
+    {
+        if ($folder === 'changelog' || str_starts_with($folder, 'changelog/') || $this->root->indexFor($folder) === null) {
+            throw new RouteMiss();
+        }
+        if ((new Posts($this->minn->db))->pageByPath(explode('/', $folder)) !== null) {
+            throw new RouteMiss();
+        }
+        $query = $request->query === [] ? '' : '?' . http_build_query($request->query);
+        return Response::redirect("/{$folder}/{$query}", 301);
+    }
+
     private function serve(string $folder): Response
     {
         // Notes are Minn content now, drawn by the theme's templates.
