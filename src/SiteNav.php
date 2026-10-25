@@ -25,6 +25,7 @@ final class SiteNav
     public const FALLBACK = [
         ['Restoration', '/restoration/', ''],
         ['Compare', '/compare/', ''],
+        ['Items', '/items/', ''],
         ['Notes', '/changelog/', ''],
         ['Play', '/play/', 'site-nav-play'],
     ];
