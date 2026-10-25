@@ -42,6 +42,7 @@ final class Extension implements MinnExtension
         Blocks::register($minn);
         Restoration::register($minn, $root);
         Musicblocks::register($minn, $root);
+        StreetMusic::register($minn, $root);
         Wiki::register($minn);
     }
 

@@ -1,0 +1,30 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/street-music",
+	"title": "Street music",
+	"category": "widgets",
+	"description": "One group of Tiny Speck's published tracks, each to play, with where the remake plays it.",
+	"attributes": {
+		"group": {
+			"type": "string",
+			"enum": [
+				"theme",
+				"sketch",
+				"activity",
+				"ringtone"
+			],
+			"default": "theme"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"music",
+		"wiki"
+	]
+}
