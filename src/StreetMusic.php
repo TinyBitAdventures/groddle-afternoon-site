@@ -8,7 +8,7 @@ use Minn\Extension\Seams;
 use Minn\Html;
 
 /**
- * The Street music wiki entry's data block (blocks/street-music), drawn in
+ * The Street music page's data block (blocks/street-music), drawn in
  * full from public/street-music/data.json, which
  * tools/streetmusic/build-data.mjs writes from the game: one group of Tiny
  * Speck's published tracks, each with its title, its CC0 recording and where

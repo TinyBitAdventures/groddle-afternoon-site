@@ -8,7 +8,7 @@ use Minn\Extension\Seams;
 use Minn\Html;
 
 /**
- * The Musicblocks wiki entry's data blocks (blocks/musicblocks, blocks/musicblocks-rules),
+ * The Musicblocks page's data blocks (blocks/musicblocks, blocks/musicblocks-rules),
  * drawn in full from public/musicblocks/data.json, which
  * tools/musicblocks/build-data.mjs writes from the game: each block's card
  * with its Tiny Speck description, icon and CC0 recording, the series'
