@@ -15,7 +15,9 @@ use Minn\Extension\Seams;
  * the note blocks (Blocks), the restoration report's data sections
  * (Restoration), the Musicblocks and Street music pages' players
  * (Musicblocks, StreetMusic), the header's menu (SiteNav), and the built game
- * and generated pages served beside the content.
+ * and generated pages served beside the content. For players: the
+ * groddle/v1 REST routes (Player, MultiplayerSave, SoloBackups) over the
+ * tables minn.json declares, signed-in players only, nonce-checked.
  */
 final class Extension implements MinnExtension
 {
@@ -37,6 +39,7 @@ final class Extension implements MinnExtension
         $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
         $root = StaticRoot::fromSite($minn);
         $minn->routes(new StaticPages($minn, $root));
+        $minn->rest(new Player($minn), new MultiplayerSave($minn), new SoloBackups($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
         Musicblocks::register($minn, $root);
