@@ -1,0 +1,25 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/site-nav",
+	"title": "Site navigation",
+	"category": "theme",
+	"description": "The site header: the wordmark and the links of a Navigation menu (edited under Design, Navigation), the section being read marked.",
+	"attributes": {
+		"ref": {
+			"type": "integer",
+			"default": 0
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"menu",
+		"navigation",
+		"header"
+	]
+}

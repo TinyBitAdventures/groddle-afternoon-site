@@ -14,8 +14,8 @@ use Minn\Extension\Seams;
  * the site's look; this adds what templates cannot: the site's stylesheets,
  * the note blocks (Blocks), the restoration report's data sections
  * (Restoration), the Musicblocks entry's players (Musicblocks), the wiki's
- * topic strip (Wiki), and the built game and generated pages served beside
- * the content.
+ * topic strip (Wiki), the header's menu (SiteNav), and the built game and
+ * generated pages served beside the content.
  */
 final class Extension implements MinnExtension
 {
@@ -31,8 +31,6 @@ final class Extension implements MinnExtension
     {
         $minn->head(static fn (): string => self::head());
         $minn->bodyClass('notes');
-        // The nav marks the section being read, as the built pages do (site-nav.css styles aria-current).
-        $minn->filterDocument(static fn (string $html): string => self::current($html, $minn->request->path));
         // The editor's block previews wear the same stylesheets (the theme's own style.css it loads already).
         $minn->editorStyles(...array_slice(self::STYLESHEETS, 0, -1));
         // The Notes list under month headings (the query loop draws one list).
@@ -44,19 +42,7 @@ final class Extension implements MinnExtension
         Musicblocks::register($minn, $root);
         StreetMusic::register($minn, $root);
         Wiki::register($minn);
-    }
-
-    /** aria-current on the first nav link whose section holds the path (the nav comes first in the document). */
-    private static function current(string $html, string $path): string
-    {
-        foreach (['/restoration/', '/compare/', '/wiki/', '/changelog/'] as $section) {
-            if (str_starts_with($path, $section)) {
-                $link = '<a href="' . $section . '">';
-                $at = strpos($html, $link);
-                return $at === false ? $html : substr_replace($html, '<a href="' . $section . '" aria-current="page">', $at, strlen($link));
-            }
-        }
-        return $html;
+        SiteNav::register($minn);
     }
 
     private static function head(): string
