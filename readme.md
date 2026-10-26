@@ -10,7 +10,8 @@ WordPress's contracts, and the theme carries its own Minn extension. Together th
   and the other folders of the game build),
 - draw the pages written in Minn Admin: the Notes blog, the restoration report, Musicblocks and
   Street music, with blocks for their structured parts,
-- keep player accounts, multiplayer saves and solo save backups,
+- let players make an account and sign in from the game itself, by email (no username, no admin sign-in page),
+- keep multiplayer saves and solo save backups,
 - sign the tickets the [realtime server](https://github.com/TinyBitAdventures/groddle-afternoon-server)
   checks when a multiplayer game connects.
 
@@ -32,6 +33,7 @@ The extension's main pieces:
 | `StaticPages`, `StaticRoot` | Answer the game build's folder pages; a published Minn page at the same path wins |
 | `Blocks`, `Restoration`, `Musicblocks`, `StreetMusic` | Draw the blocks, reading the JSON files the game build writes |
 | `SiteNav` | The header menu, drawn from the site's Navigation menu |
+| `PlayerAccount` | The game's own sign-up, sign-in, sign-out and password reset, by email, through Minn's accounts seam (`$minn->accounts()`) |
 | `Player`, `MultiplayerSave`, `SoloBackups` | The `groddle/v1` REST routes for players |
 | `RealtimeTicket` | Signs a one-use, 60-second ticket for the realtime server |
 
@@ -41,6 +43,9 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 
 | Route | What it does |
 |---|---|
+| `POST players` | A new player: email, password (8 or more characters) and a character name (3 to 19 letters, numbers, spaces, `-` or `_`, unique), then signed straight in. The account is a subscriber whose username is made up (`player-<hex>`) and never shown; the character name is its display name |
+| `POST session`, `DELETE session` | Sign in by email (optionally remembered for two weeks), sign out |
+| `POST password-reset` | Mails a reset link; the answer is the same whether or not the email has an account |
 | `GET me` | Who is signed in (or nobody) |
 | `GET save`, `PUT save` | The multiplayer character's save, with a version check so two windows never overwrite each other |
 | `GET backups`, `GET/PUT/DELETE backups/{slot}` | Three slots to back up a solo save to the account |

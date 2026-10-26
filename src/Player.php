@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Groddle\Minn;
 
+use Minn\Content\UserRecord;
 use Minn\Extension\Seams;
 use Minn\Http\Access;
 use Minn\Http\Method;
@@ -34,8 +35,14 @@ final readonly class Player
         }
         return Response::json([
             'signedIn' => true,
-            'player' => ['id' => $user->id, 'name' => $user->displayName !== '' ? $user->displayName : $user->login],
+            'player' => self::describe($user),
             'backups' => ['slots' => SoloBackups::SLOTS, 'maxBytes' => SaveShape::MAX_BYTES],
         ]);
+    }
+
+    /** The player as the game shows them: the character's name (the display name; the username underneath is never shown). */
+    public static function describe(UserRecord $user): array
+    {
+        return ['id' => $user->id, 'name' => $user->displayName !== '' ? $user->displayName : $user->login];
     }
 }
