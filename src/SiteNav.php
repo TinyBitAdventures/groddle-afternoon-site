@@ -16,7 +16,7 @@ use Minn\Html;
  * link is a core/navigation-link; its className rides along (site-nav-play
  * makes Play the button). The link whose section holds the path being read
  * is marked aria-current, as the built pages mark theirs. The sync writes
- * the same menu into the built pages (tools/site-nav/apply.mjs), so one
+ * the same menu into the built pages (groddle-afternoon tools/site-nav/apply.mjs), so one
  * edit changes every page.
  */
 final class SiteNav

@@ -10,7 +10,7 @@ use Minn\Html;
 /**
  * The Street music page's data block (blocks/street-music), drawn in
  * full from public/street-music/data.json, which
- * tools/streetmusic/build-data.mjs writes from the game: one group of Tiny
+ * groddle-afternoon tools/streetmusic/build-data.mjs writes from the game: one group of Tiny
  * Speck's published tracks, each with its title, its CC0 recording and where
  * the remake plays it. The cards are the Musicblocks entry's, so the same
  * player (musicblocks.js) plays one tune at a time.

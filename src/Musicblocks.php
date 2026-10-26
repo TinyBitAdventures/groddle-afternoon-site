@@ -10,7 +10,7 @@ use Minn\Html;
 /**
  * The Musicblocks page's data blocks (blocks/musicblocks, blocks/musicblocks-rules),
  * drawn in full from public/musicblocks/data.json, which
- * tools/musicblocks/build-data.mjs writes from the game: each block's card
+ * groddle-afternoon tools/musicblocks/build-data.mjs writes from the game: each block's card
  * with its Tiny Speck description, icon and CC0 recording, the series'
  * collector trophy, and what a play pays. Every card carries a plain <audio>
  * player; musicblocks.js, loaded once when a block is on the page, turns them

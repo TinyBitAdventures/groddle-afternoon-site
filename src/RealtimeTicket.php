@@ -15,7 +15,7 @@ use Minn\RestError;
 
 /**
  * groddle/v1/realtime: a short-lived ticket the game hands the realtime
- * server (realtime/, Go) when it opens the /ws socket. The ticket names the
+ * server (groddle-afternoon-server, Go) when it opens the /ws socket. The ticket names the
  * signed-in player and expires in a minute; the server checks its HMAC with
  * the secret both sides read and never asks Minn who someone is.
  *
