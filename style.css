@@ -92,6 +92,7 @@ p.jump { margin-bottom: 0; }
 .player-tile-name { font-weight: 700; font-size: 15px; text-align: center; overflow-wrap: anywhere; }
 .player-ghost { color: var(--border); }
 .players-empty, .profile-empty { color: var(--muted); margin: 0; }
+.profile-private { margin: 0 0 22px; padding: 10px 14px; max-width: 44em; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--chip-bg); color: var(--fg); }
 .players-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 24px; color: var(--muted); }
 .profile-top { display: flex; flex-wrap: wrap; gap: 20px 36px; align-items: flex-end; }
 .profile-avatar { flex: none; margin: 0; width: 172px; height: 248px; display: grid; place-items: end center; }

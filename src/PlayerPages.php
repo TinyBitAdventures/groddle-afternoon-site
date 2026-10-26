@@ -58,11 +58,14 @@ final readonly class PlayerPages
         $characters = $db->table(Characters::TABLE);
         $users = $db->table('users');
         $profiles = $db->table(Profiles::TABLE);
-        $total = (int) $db->value("SELECT COUNT(*) FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id");
+        $saves = $db->table(MultiplayerSave::TABLE);
+        // Only characters at Profiles::LISTED_LEVEL or above are listed.
+        $listed = "JOIN {$saves} s ON s.user_id = c.user_id AND " . Profiles::levelSql('s') . ' >= ' . Profiles::LISTED_LEVEL;
+        $total = (int) $db->value("SELECT COUNT(*) FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id {$listed}");
         $pages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min($page, $pages);
         $order = $byName ? 'c.name_key ASC, c.user_id ASC' : 'c.created_at DESC, c.user_id DESC';
-        $rows = $db->rows("SELECT c.user_id, c.name, p.avatar_at FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id LEFT JOIN {$profiles} p ON p.user_id = c.user_id ORDER BY {$order} LIMIT ? OFFSET ?", [self::PER_PAGE, ($page - 1) * self::PER_PAGE]);
+        $rows = $db->rows("SELECT c.user_id, c.name, p.avatar_at FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id {$listed} LEFT JOIN {$profiles} p ON p.user_id = c.user_id ORDER BY {$order} LIMIT ? OFFSET ?", [self::PER_PAGE, ($page - 1) * self::PER_PAGE]);
         $slugs = Profiles::slugs($db);
 
         $tiles = '';
@@ -85,12 +88,12 @@ final readonly class PlayerPages
         $body = '<header class="masthead note-head">' . "\n  <div class=\"wrap\">\n"
             . "    <p class=\"kicker\">Multiplayer</p>\n"
             . "    <h1>Players</h1>\n"
-            . "    <p class=\"lead\">Every character in Groddle Afternoon's multiplayer, each in their own look. Pick one to see their home and badges.</p>\n"
+            . "    <p class=\"lead\">Every character in Groddle Afternoon's multiplayer from level " . Profiles::LISTED_LEVEL . " up, each in their own look. Pick one to see their home and badges.</p>\n"
             . "  </div>\n</header>\n"
             . "<main class=\"band players\">\n  <div class=\"wrap\">\n"
             . '    <p class="players-bar"><span>' . $count . '</span><span class="players-sort">' . $sort(false, 'Newest') . ' · ' . $sort(true, 'By name') . "</span></p>\n";
         $body .= $tiles === ''
-            ? "    <p class=\"players-empty\">No characters yet. Make one from Play, Multiplayer.</p>\n"
+            ? "    <p class=\"players-empty\">No characters here yet. A character appears once it reaches level " . Profiles::LISTED_LEVEL . ".</p>\n"
             : "    <ul class=\"players-grid\">{$tiles}\n    </ul>\n";
         if ($pages > 1) {
             $link = static fn (int $n): string => '/players/?' . http_build_query(array_filter(['sort' => $byName ? 'name' : null, 'page' => $n > 1 ? $n : null]));
@@ -129,6 +132,11 @@ final readonly class PlayerPages
         $character = $db->row('SELECT name, created_at FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]);
         $profile = $db->row('SELECT about, avatar_at, home_at FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
         $facts = Profiles::fromSave($db, $id);
+        // Below the listed level the page is the owner's alone.
+        $own = $this->minn->reader->userId === $id;
+        if ($facts['level'] < Profiles::LISTED_LEVEL && !$own) {
+            throw new RouteMiss();
+        }
         $name = (string) ($character['name'] ?? '');
         $nameHtml = Html::esc($name);
         $about = trim((string) ($profile['about'] ?? ''));
@@ -156,6 +164,9 @@ final readonly class PlayerPages
                 : '      <p class="profile-bio">' . nl2br(Html::esc($about), false) . "</p>\n")
             . "    </div>\n  </div>\n</header>\n"
             . "<main class=\"band profile\">\n  <div class=\"wrap\">\n"
+            . ($facts['level'] < Profiles::LISTED_LEVEL
+                ? '    <p class="profile-private">Only you can see this page for now. It goes on the Players page when you reach level ' . Profiles::LISTED_LEVEL . ".</p>\n"
+                : '')
             . "    <section class=\"profile-section\" aria-labelledby=\"profile-home\">\n      <h2 id=\"profile-home\">{$nameHtml}'s home street</h2>\n"
             . ($homeAt === null
                 ? "      <p class=\"profile-empty\">No picture of {$nameHtml}'s home yet. It appears after they visit their home street in multiplayer.</p>\n"
@@ -186,13 +197,18 @@ final readonly class PlayerPages
         if (!is_string($row['png'] ?? null) || $row['png'] === '' || !is_string($row['at'] ?? null)) {
             throw new RouteMiss();
         }
+        // An unlisted character's pictures are its owner's alone, so a new account can't host images here.
+        $listed = Profiles::fromSave($db, (int) $id)['level'] >= Profiles::LISTED_LEVEL;
+        if (!$listed && $this->minn->reader->userId !== (int) $id) {
+            throw new RouteMiss();
+        }
         $stamp = Profiles::stamp($row['at']);
         $etag = "\"{$kind}-{$stamp}\"";
         $headers = [
             'Content-Type' => 'image/png',
             'X-Content-Type-Options' => 'nosniff',
             'Content-Security-Policy' => "default-src 'none'; sandbox",
-            'Cache-Control' => $request->query('v') === $stamp ? 'public, max-age=31536000, immutable' : 'public, max-age=60',
+            'Cache-Control' => !$listed ? 'private, no-store' : ($request->query('v') === $stamp ? 'public, max-age=31536000, immutable' : 'public, max-age=60'),
             'ETag' => $etag,
         ];
         if (trim((string) $request->header('if-none-match')) === $etag) {

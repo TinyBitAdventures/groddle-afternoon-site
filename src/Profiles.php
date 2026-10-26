@@ -46,6 +46,19 @@ final readonly class Profiles
     /** Seconds between two uploads of the same picture (the game throttles itself; this stops a loop). */
     public const UPLOAD_GAP = 15;
 
+    /**
+     * The level a character must reach before the Players page lists it and
+     * its page and pictures are public (Austin 2026-10-26: keeps fresh spam
+     * accounts off the site). Below it only the owner sees their page.
+     */
+    public const LISTED_LEVEL = 5;
+
+    /** SQL for a save row's level (s.data: entries.playerState is JSON inside JSON). */
+    public static function levelSql(string $alias): string
+    {
+        return "CAST(JSON_EXTRACT(JSON_UNQUOTE(JSON_EXTRACT({$alias}.data, '$.entries.playerState')), '$.player.level') AS UNSIGNED)";
+    }
+
     public function __construct(private Seams $minn)
     {
     }
