@@ -34,6 +34,30 @@ final readonly class Characters
         return $user->displayName !== '' ? $user->displayName : $user->login;
     }
 
+    /**
+     * The names the game shows for several accounts at once (nameOf's rule,
+     * one query): id => name, leaving out ids with no account.
+     *
+     * @param list<int> $ids
+     * @return array<int, string>
+     */
+    public function namesOf(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $table = $this->db->table(self::TABLE);
+        $users = $this->db->table('users');
+        $rows = $this->db->rows("SELECT u.ID, u.user_login, u.display_name, c.name FROM {$users} u LEFT JOIN {$table} c ON c.user_id = u.ID WHERE u.ID IN (?)", [array_values(array_unique($ids))]);
+        $out = [];
+        foreach ($rows as $row) {
+            $name = (string) ($row['name'] ?? '');
+            $display = (string) ($row['display_name'] ?? '');
+            $out[(int) $row['ID']] = $name !== '' ? $name : ($display !== '' ? $display : (string) $row['user_login']);
+        }
+        return $out;
+    }
+
     /** Whether a character, or any account's display name, already has this name (letter case aside). */
     public function taken(string $name): bool
     {

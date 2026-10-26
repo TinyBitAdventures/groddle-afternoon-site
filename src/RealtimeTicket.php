@@ -70,8 +70,8 @@ final readonly class RealtimeTicket
         return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
     }
 
-    /** The shared secret, or null when this site has none (at least 32 bytes counts). */
-    private function secret(): ?string
+    /** The shared secret, or null when this site has none (at least 32 bytes counts). Buddies signs with it too. */
+    public function secret(): ?string
     {
         if (defined('GRODDLE_REALTIME_SECRET')) {
             $value = (string) constant('GRODDLE_REALTIME_SECRET');

@@ -18,8 +18,9 @@ use Minn\Extension\Seams;
  * and generated pages served beside the content. For players: the
  * groddle/v1 REST routes: the game's own sign-up and sign-in by email
  * (PlayerAccount), who is signed in (Player), the saves over the tables
- * minn.json declares (MultiplayerSave, SoloBackups) and the realtime
- * server's ticket (RealtimeTicket), signed-in players only, nonce-checked.
+ * minn.json declares (MultiplayerSave, SoloBackups), the realtime
+ * server's ticket (RealtimeTicket) and buddy lists (Buddies), signed-in
+ * players only, nonce-checked.
  */
 final class Extension implements MinnExtension
 {
@@ -41,7 +42,7 @@ final class Extension implements MinnExtension
         $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
         $root = StaticRoot::fromSite($minn);
         $minn->routes(new StaticPages($minn, $root));
-        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn));
+        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
         Musicblocks::register($minn, $root);

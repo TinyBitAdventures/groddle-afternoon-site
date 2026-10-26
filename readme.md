@@ -34,7 +34,7 @@ The extension's main pieces:
 | `Blocks`, `Restoration`, `Musicblocks`, `StreetMusic` | Draw the blocks, reading the JSON files the game build writes |
 | `SiteNav` | The header menu, drawn from the site's Navigation menu |
 | `PlayerAccount` | The game's own sign-up, sign-in, sign-out and password reset, by email, through Minn's accounts seam (`$minn->accounts()`) |
-| `Player`, `MultiplayerSave`, `SoloBackups` | The `groddle/v1` REST routes for players |
+| `Player`, `MultiplayerSave`, `SoloBackups`, `Buddies` | The `groddle/v1` REST routes for players |
 | `PlayerMail` | The emails players get, as HTML in the site's look, from "Groddle Afternoon" (the `groddle_mail_from` option names the address, else `noreply@` the site's host) |
 | `RealtimeTicket` | Signs a one-use, 60-second ticket for the realtime server |
 
@@ -52,9 +52,13 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `GET save`, `PUT save` | The multiplayer character's save, with a version check so two windows never overwrite each other |
 | `GET backups`, `GET/PUT/DELETE backups/{slot}` | Three slots to back up a solo save to the account |
 | `POST realtime` | A ticket for the realtime server |
+| `GET/POST buddies`, `DELETE buddies/{id}` | Your buddies (online through the realtime server), who added you, and adding or removing one (1,000 at most, one Buddies group, as in the original) |
+| `POST buddies/ignores`, `DELETE buddies/ignores/{id}` | Blocking a player and un-blocking them |
 
 The tables are declared in `minn.json`: `groddle_players` (each player's character name, unique),
-`groddle_mp_saves` and `groddle_solo_backups` (with the site's table prefix).
+`groddle_mp_saves`, `groddle_solo_backups`, `groddle_buddies` and `groddle_ignores` (with the site's
+table prefix). Each buddies answer carries a list signed with the realtime secret, which the server
+watches for who is online; an add also carries a one-use proof that tells the other player.
 
 ## Install
 
