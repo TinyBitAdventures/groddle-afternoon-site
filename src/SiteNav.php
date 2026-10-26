@@ -27,7 +27,7 @@ final class SiteNav
         ['Compare', '/compare/', ''],
         ['Items', '/items/', ''],
         ['Notes', '/changelog/', ''],
-        ['Play', '/play/online/', 'site-nav-play'],
+        ['Play', '/play/', 'site-nav-play'],
     ];
 
     public static function register(Seams $minn): void
