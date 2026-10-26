@@ -25,7 +25,8 @@ use Minn\Runtime\Refusal;
  * A player signs in with their email. The account still has a username
  * underneath (the site needs one): it is made up here (player-<hex>) and
  * never shown. What other players see is the character's name, chosen at
- * sign-up and kept as the account's display name (Player, RealtimeTicket):
+ * sign-up and kept in the extension's own table (Characters; also the
+ * account's display name):
  * 3 to 19 letters, numbers, spaces, - or _, starting and ending with a
  * letter or a number, and no two players share one. Passwords are at least
  * 8 characters.
@@ -91,7 +92,7 @@ final readonly class PlayerAccount
         }
         if (preg_match(self::NAME, $name) !== 1) {
             $fields['name'] = 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
-        } elseif ($this->nameTaken($name)) {
+        } elseif ((new Characters($this->minn->db))->taken($name)) {
             $fields['name'] = 'Someone already has that name. Try another.';
         }
         if ($fields !== []) {
@@ -102,8 +103,10 @@ final readonly class PlayerAccount
         if ($made instanceof Refusal) {
             return self::fromRefusal($made);
         }
+        // Two sign-ups racing for one name: the first keeps it, the second shows its display name until renamed (G337).
+        (new Characters($this->minn->db))->claim($made->id, $name);
         $signedIn = $accounts->signInRemembered(Response::json([]), $email, $password);
-        return $signedIn instanceof SignedIn ? self::answer($signedIn, 201) : self::fromRefusal($signedIn);
+        return $signedIn instanceof SignedIn ? $this->answer($signedIn, 201) : self::fromRefusal($signedIn);
     }
 
     /** Signs a player in with their email. */
@@ -119,7 +122,7 @@ final readonly class PlayerAccount
         $accounts = $this->minn->accounts();
         $answer = Response::json([]);
         $result = empty($body['remember']) ? $accounts->signIn($answer, $email, $password) : $accounts->signInRemembered($answer, $email, $password);
-        return $result instanceof SignedIn ? self::answer($result, 200) : self::fromRefusal($result);
+        return $result instanceof SignedIn ? $this->answer($result, 200) : self::fromRefusal($result);
     }
 
     /** Signs the player out. */
@@ -172,20 +175,13 @@ final readonly class PlayerAccount
             return self::fromRefusal($user);
         }
         $signedIn = $accounts->signInRemembered(Response::json([]), $user->email, $password);
-        return $signedIn instanceof SignedIn ? self::answer($signedIn, 200) : self::fromRefusal($signedIn);
-    }
-
-    /** Whether another account already shows this name (letter case aside). */
-    private function nameTaken(string $name): bool
-    {
-        $users = $this->minn->db->table('users');
-        return $this->minn->db->value("SELECT ID FROM {$users} WHERE LOWER(display_name) = LOWER(?) LIMIT 1", [$name]) !== null;
+        return $signedIn instanceof SignedIn ? $this->answer($signedIn, 200) : self::fromRefusal($signedIn);
     }
 
     /** The signed-in answer: who, with the session's cookies. */
-    private static function answer(SignedIn $signedIn, int $status): Response
+    private function answer(SignedIn $signedIn, int $status): Response
     {
-        $response = Response::json(['signedIn' => true, 'player' => Player::describe($signedIn->user)], $status);
+        $response = Response::json(['signedIn' => true, 'player' => Player::describe($signedIn->user, new Characters($this->minn->db))], $status);
         foreach ($signedIn->response->cookies as $cookie) {
             $response = $response->withCookie(...$cookie);
         }

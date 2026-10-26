@@ -35,14 +35,14 @@ final readonly class Player
         }
         return Response::json([
             'signedIn' => true,
-            'player' => self::describe($user),
+            'player' => self::describe($user, new Characters($this->minn->db)),
             'backups' => ['slots' => SoloBackups::SLOTS, 'maxBytes' => SaveShape::MAX_BYTES],
         ]);
     }
 
-    /** The player as the game shows them: the character's name (the display name; the username underneath is never shown). */
-    public static function describe(UserRecord $user): array
+    /** The player as the game shows them: the character's name (Characters), never the username underneath. */
+    public static function describe(UserRecord $user, Characters $characters): array
     {
-        return ['id' => $user->id, 'name' => $user->displayName !== '' ? $user->displayName : $user->login];
+        return ['id' => $user->id, 'name' => $characters->nameOf($user)];
     }
 }

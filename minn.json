@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -41,6 +41,14 @@
       "version bigint(20) unsigned NOT NULL DEFAULT 0",
       "updated_at datetime NOT NULL",
       "PRIMARY KEY  (user_id)"
+    ],
+    "groddle_players": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "name varchar(32) NOT NULL",
+      "name_key varchar(32) NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (user_id)",
+      "UNIQUE KEY name_key (name_key)"
     ],
     "groddle_solo_backups": [
       "user_id bigint(20) unsigned NOT NULL",

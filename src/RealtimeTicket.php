@@ -50,7 +50,7 @@ final readonly class RealtimeTicket
         $now = time();
         $payload = [
             'sub' => $user->id,
-            'name' => $user->displayName !== '' ? $user->displayName : $user->login,
+            'name' => (new Characters($this->minn->db))->nameOf($user),
             'iat' => $now,
             'exp' => $now + self::TTL,
             'jti' => bin2hex(random_bytes(8)),

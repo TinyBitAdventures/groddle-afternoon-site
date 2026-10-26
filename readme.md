@@ -53,8 +53,8 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `GET backups`, `GET/PUT/DELETE backups/{slot}` | Three slots to back up a solo save to the account |
 | `POST realtime` | A ticket for the realtime server |
 
-The tables are declared in `minn.json`: `groddle_mp_saves` and `groddle_solo_backups` (with the
-site's table prefix).
+The tables are declared in `minn.json`: `groddle_players` (each player's character name, unique),
+`groddle_mp_saves` and `groddle_solo_backups` (with the site's table prefix).
 
 ## Install
 
