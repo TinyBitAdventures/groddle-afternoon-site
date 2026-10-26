@@ -35,6 +35,7 @@ The extension's main pieces:
 | `SiteNav` | The header menu, drawn from the site's Navigation menu |
 | `PlayerAccount` | The game's own sign-up, sign-in, sign-out and password reset, by email, through Minn's accounts seam (`$minn->accounts()`) |
 | `Player`, `MultiplayerSave`, `SoloBackups` | The `groddle/v1` REST routes for players |
+| `PlayerMail` | The emails players get, as HTML in the site's look, from "Groddle Afternoon" (the `groddle_mail_from` option names the address, else `noreply@` the site's host) |
 | `RealtimeTicket` | Signs a one-use, 60-second ticket for the realtime server |
 
 ### REST routes
@@ -45,7 +46,8 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 |---|---|
 | `POST players` | A new player: email, password (8 or more characters) and a character name (3 to 19 letters, numbers, spaces, `-` or `_`, unique), then signed straight in. The account is a subscriber whose username is made up (`player-<hex>`) and never shown; the character name is its display name |
 | `POST session`, `DELETE session` | Sign in by email (optionally remembered for two weeks), sign out |
-| `POST password-reset` | Mails a reset link; the answer is the same whether or not the email has an account |
+| `POST password-reset` | Mails a reset link back into the game (`/play/online/#reset=<key>&login=<login>`); the answer is the same whether or not the email has an account |
+| `POST password-reset/confirm` | The new password from that link (key, login), then signed straight in |
 | `GET me` | Who is signed in (or nobody) |
 | `GET save`, `PUT save` | The multiplayer character's save, with a version check so two windows never overwrite each other |
 | `GET backups`, `GET/PUT/DELETE backups/{slot}` | Three slots to back up a solo save to the account |

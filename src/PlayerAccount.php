@@ -30,6 +30,10 @@ use Minn\Runtime\Refusal;
  * letter or a number, and no two players share one. Passwords are at least
  * 8 characters.
  *
+ * A password reset mails a link to /play/online/#reset=<key>&login=<login>;
+ * the game's form there sends the new password to password-reset/confirm,
+ * which saves it and signs the player in.
+ *
  * Answers: 201/200 {signedIn, player}, or 400/429 {code, message, fields}
  * with the refusals keyed by the form field they belong to.
  */
@@ -46,6 +50,7 @@ final readonly class PlayerAccount
     private const FIELDS = [
         'empty_email' => 'email', 'invalid_email' => 'email', 'email_exists' => 'email',
         'empty_password' => 'password',
+        'password_refused' => 'password',
     ];
 
     /** Our own words for the engine's refusals. */
@@ -57,6 +62,8 @@ final readonly class PlayerAccount
         'registration_closed' => 'New characters can\'t be made right now.',
         'incorrect_credentials' => 'That email and password don\'t match.',
         'too_many_attempts' => 'Too many tries. Wait a few minutes, then try again.',
+        'invalid_key' => 'This reset link doesn\'t work any more. Ask for a new one.',
+        'expired_key' => 'This reset link has expired. Ask for a new one.',
     ];
 
     public function __construct(private Seams $minn)
@@ -134,11 +141,38 @@ final readonly class PlayerAccount
         if (!str_contains($email, '@')) {
             return self::refused('groddle_invalid', 'Enter your email.', ['email' => 'Enter your email.'], 400);
         }
-        $sent = $this->minn->accounts()->lostPassword($email);
+        // The link opens the game's own reset form: /play/online/#reset=<key>&login=<login> (the fragment never reaches a server log).
+        $home = rtrim((string) ($this->minn->site->option('home') ?? ''), '/');
+        $page = $home . '/play/online/';
+        $link = static fn (string $login, string $key): string => $page . '#reset=' . rawurlencode($key) . '&login=' . rawurlencode($login);
+        // In the site's look, naming the character (PlayerMail).
+        $from = (string) ($this->minn->site->option('groddle_mail_from') ?? '');
+        $words = static fn (string $url, string $character): array => PlayerMail::reset($home, $from, $url, $character);
+        $sent = $this->minn->accounts()->lostPassword($email, $link, $words);
         if ($sent instanceof Refusal && !in_array($sent->code, ['invalid_email', 'invalidcombo'], true)) {
             return self::refused($sent->code, 'The email could not be sent. Try again later.', [], 503);
         }
         return Response::json(['sent' => true]);
+    }
+
+    /** A new password from a reset link's key, then signed straight in. */
+    #[Route(Method::Post, '/groddle/v1/password-reset/confirm', policy: new Policy(Access::Public))]
+    public function confirmReset(Request $request): Response
+    {
+        $body = $request->json();
+        $login = (string) ($body['login'] ?? '');
+        $password = (string) ($body['password'] ?? '');
+        if (strlen($password) < self::MIN_PASSWORD) {
+            $words = 'Passwords need at least ' . self::MIN_PASSWORD . ' characters.';
+            return self::refused('groddle_invalid', $words, ['password' => $words], 400);
+        }
+        $accounts = $this->minn->accounts();
+        $user = $accounts->resetPassword($login, (string) ($body['key'] ?? ''), $password);
+        if ($user instanceof Refusal) {
+            return self::fromRefusal($user);
+        }
+        $signedIn = $accounts->signInRemembered(Response::json([]), $user->email, $password);
+        return $signedIn instanceof SignedIn ? self::answer($signedIn, 200) : self::fromRefusal($signedIn);
     }
 
     /** Whether another account already shows this name (letter case aside). */
