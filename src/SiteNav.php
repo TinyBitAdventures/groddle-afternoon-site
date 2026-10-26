@@ -79,7 +79,8 @@ final class SiteNav
         return '<nav class="site-nav" aria-label="Site">' . "\n"
             . '  <div class="wrap site-nav-row">' . "\n"
             . '    <a class="wordmark" href="/"' . ($path === '/' ? ' aria-current="page"' : '') . '><img src="/favicon.svg?v=quoin" alt="" width="28" height="28" /><span>Groddle Afternoon</span></a>' . "\n"
-            . '    <div class="site-nav-links">' . $items . "\n    </div>\n  </div>\n</nav>";
+            . '    <div class="site-nav-links">' . $items . "\n    </div>\n"
+            . '    <button class="site-nav-theme" type="button" aria-label="Colour theme"></button>' . "\n  </div>\n</nav>";
     }
 
     /**

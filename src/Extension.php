@@ -55,6 +55,8 @@ final class Extension implements MinnExtension
             $out .= '<link rel="stylesheet" href="' . $href . '" />' . "\n";
         }
         return $out
+            // The colour theme before anything paints, and the header's theme button (/site/theme.js).
+            . '<script src="/site/theme.js"></script>' . "\n"
             . '<link rel="icon" href="/favicon.svg?v=quoin" type="image/svg+xml" />' . "\n"
             . '<link rel="icon" href="/favicon.ico?v=quoin" sizes="32x32" />' . "\n"
             . '<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=quoin" />' . "\n";
