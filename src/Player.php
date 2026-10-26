@@ -37,6 +37,8 @@ final readonly class Player
             'signedIn' => true,
             'player' => self::describe($user, new Characters($this->minn->db)),
             'backups' => ['slots' => SoloBackups::SLOTS, 'maxBytes' => SaveShape::MAX_BYTES],
+            // The caller's own sign-in email, for the Account panel (nobody else's is ever sent).
+            'account' => ['email' => $user->email],
         ]);
     }
 

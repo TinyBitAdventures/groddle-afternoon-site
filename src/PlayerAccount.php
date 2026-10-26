@@ -52,6 +52,7 @@ final readonly class PlayerAccount
         'empty_email' => 'email', 'invalid_email' => 'email', 'email_exists' => 'email',
         'empty_password' => 'password',
         'password_refused' => 'password',
+        'incorrect_password' => 'current',
     ];
 
     /** Our own words for the engine's refusals. */
@@ -62,6 +63,7 @@ final readonly class PlayerAccount
         'empty_password' => 'Choose a password.',
         'registration_closed' => 'New characters can\'t be made right now.',
         'incorrect_credentials' => 'That email and password don\'t match.',
+        'incorrect_password' => 'That isn\'t your current password.',
         'too_many_attempts' => 'Too many tries. Wait a few minutes, then try again.',
         'invalid_key' => 'This reset link doesn\'t work any more. Ask for a new one.',
         'expired_key' => 'This reset link has expired. Ask for a new one.',
@@ -178,6 +180,48 @@ final readonly class PlayerAccount
         return $signedIn instanceof SignedIn ? $this->answer($signedIn, 200) : self::fromRefusal($signedIn);
     }
 
+    /** A new password, once the current one checks out: the player stays signed in here, everywhere else is signed out. */
+    #[Route(Method::Put, '/groddle/v1/account/password', policy: new Policy(Access::SignedIn))]
+    public function changePassword(Request $request): Response
+    {
+        $body = $request->json();
+        $password = (string) ($body['password'] ?? '');
+        if (strlen($password) < self::MIN_PASSWORD) {
+            $words = 'Passwords need at least ' . self::MIN_PASSWORD . ' characters.';
+            return self::refused('groddle_invalid', $words, ['password' => $words], 400);
+        }
+        $notice = $this->notice(static fn (string $home, string $from, string $character): array => PlayerMail::passwordChanged($home, $from, $character));
+        $result = $this->minn->accounts()->changePassword(Response::json([]), $this->minn->user(), (string) ($body['current'] ?? ''), $password, $notice);
+        return $result instanceof SignedIn ? $this->answer($result, 200) : self::fromRefusal($result);
+    }
+
+    /** A new email, once the current password checks out; the old address is told. */
+    #[Route(Method::Put, '/groddle/v1/account/email', policy: new Policy(Access::SignedIn))]
+    public function changeEmail(Request $request): Response
+    {
+        $body = $request->json();
+        $email = trim((string) ($body['email'] ?? ''));
+        $contact = (string) ($this->minn->site->option('admin_email') ?? '');
+        $notice = $this->notice(static fn (string $home, string $from, string $character): array => PlayerMail::emailChanged($home, $from, $character, $email, $contact));
+        $result = $this->minn->accounts()->changeEmail($this->minn->user(), (string) ($body['current'] ?? ''), $email, $notice);
+        return $result instanceof Refusal ? self::fromRefusal($result) : Response::json(['email' => $result->email]);
+    }
+
+    /**
+     * The words for an account notice, naming the character (not the
+     * display name the engine passes, which a profile can change).
+     *
+     * @param \Closure(string, string, string): array $mail
+     */
+    private function notice(\Closure $mail): \Closure
+    {
+        $home = rtrim((string) ($this->minn->site->option('home') ?? ''), '/');
+        $from = (string) ($this->minn->site->option('groddle_mail_from') ?? '');
+        $user = $this->minn->user();
+        $character = $user === null ? '' : (new Characters($this->minn->db))->nameOf($user);
+        return static fn (string $shown): array => $mail($home, $from, $character !== '' ? $character : $shown);
+    }
+
     /** The signed-in answer: who, with the session's cookies. */
     private function answer(SignedIn $signedIn, int $status): Response
     {
@@ -196,6 +240,11 @@ final readonly class PlayerAccount
             if ($field !== null && !isset($fields[$field])) {
                 $fields[$field] = self::WORDS[$notice['code']] ?? (string) ($notice['message'] ?? '');
             }
+        }
+        // A refusal of the engine's own (no notices) still belongs to a field: the wrong current password.
+        $own = self::FIELDS[$refusal->code] ?? null;
+        if ($fields === [] && $own !== null) {
+            $fields[$own] = self::WORDS[$refusal->code] ?? $refusal->message;
         }
         $status = $refusal->code === 'too_many_attempts' ? 429 : 400;
         return self::refused($refusal->code, self::WORDS[$refusal->code] ?? $refusal->message, $fields, $status);

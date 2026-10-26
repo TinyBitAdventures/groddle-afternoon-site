@@ -44,6 +44,38 @@ final class PlayerMail
         return [$subject, self::layout($home, 'Choose a new password for ' . $character . '.', $content), self::headers($home, $from)];
     }
 
+    /**
+     * The notice that a password changed, to the account's address.
+     *
+     * @return array{0: string, 1: string, 2: list<string>}
+     */
+    public static function passwordChanged(string $home, string $from, string $character): array
+    {
+        $content = self::heading('Your password changed')
+            . self::paragraph('Hi <strong>' . Html::esc($character) . '</strong>,')
+            . self::paragraph('The password for your Groddle Afternoon character was just changed, and every other device was signed out.')
+            . self::paragraph('If it wasn\'t you, choose a new password now: open the game, Play with others, and "Forgot your password?".')
+            . self::button(rtrim($home, '/') . '/play/online/', 'Open Groddle Afternoon');
+        return ['Your Groddle Afternoon password changed', self::layout($home, 'The password for ' . $character . ' changed.', $content), self::headers($home, $from)];
+    }
+
+    /**
+     * The notice that the sign-in email changed, to the old address.
+     *
+     * @return array{0: string, 1: string, 2: list<string>}
+     */
+    public static function emailChanged(string $home, string $from, string $character, string $newEmail, string $contact = ''): array
+    {
+        $help = filter_var($contact, FILTER_VALIDATE_EMAIL) !== false
+            ? 'If it wasn\'t you, write to <a href="mailto:' . Html::attr($contact) . '" style="color:' . self::INK . ';">' . Html::esc($contact) . '</a> straight away.'
+            : 'If it wasn\'t you, tell the site\'s owner straight away.';
+        $content = self::heading('Your email changed')
+            . self::paragraph('Hi <strong>' . Html::esc($character) . '</strong>,')
+            . self::paragraph('Your Groddle Afternoon character now signs in with <strong>' . Html::esc($newEmail) . '</strong>. This address won\'t get its emails any more.')
+            . self::paragraph($help);
+        return ['Your Groddle Afternoon email changed', self::layout($home, $character . ' signs in with a new email.', $content), self::headers($home, $from)];
+    }
+
     /** From "Groddle Afternoon", sent as HTML. @return list<string> */
     public static function headers(string $home, string $from): array
     {
