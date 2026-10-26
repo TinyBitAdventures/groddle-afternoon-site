@@ -81,3 +81,41 @@ p.jump { margin-bottom: 0; }
 .mb-rules { margin: 0 0 8px; padding-left: 1.2em; max-width: 44em; }
 .mb-rules li + li { margin-top: 6px; }
 @media (prefers-reduced-motion: no-preference) { .mb-card { transition: box-shadow 0.2s; } }
+/* The Players pages (src/PlayerPages.php, G338): the grid of characters and a profile. Colours from the report's tokens, so light and dark both hold. */
+.players-bar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin: 0 0 18px; color: var(--muted); font-size: 15px; }
+.players-sort [aria-current] { font-weight: 700; color: var(--fg); }
+.players-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 14px; }
+.player-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px 12px; height: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); text-decoration: none; }
+.player-tile:hover { border-color: var(--accent); }
+.player-tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.player-tile-art { width: 100px; height: 144px; object-fit: contain; }
+.player-tile-name { font-weight: 700; font-size: 15px; text-align: center; overflow-wrap: anywhere; }
+.player-ghost { color: var(--border); }
+.players-empty, .profile-empty { color: var(--muted); margin: 0; }
+.players-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 24px; color: var(--muted); }
+.profile-top { display: flex; flex-wrap: wrap; gap: 20px 36px; align-items: flex-end; }
+.profile-avatar { flex: none; margin: 0; width: 172px; height: 248px; display: grid; place-items: end center; }
+.profile-avatar-art { width: 172px; height: 248px; object-fit: contain; }
+svg.profile-avatar-art { width: 140px; height: 202px; }
+.profile-who { flex: 1 1 18rem; min-width: 0; }
+.profile-who h1 { overflow-wrap: anywhere; }
+.profile-who .kicker a { color: inherit; }
+.profile-stats { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.profile-stats li { display: flex; flex-direction: column; padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.profile-stats strong { font-size: 20px; line-height: 1.2; }
+.profile-stats span { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.profile-bio { font-size: 18px; max-width: 40em; margin: 0; color: var(--lead); overflow-wrap: anywhere; }
+.profile-section + .profile-section { margin-top: 44px; }
+.profile-section h2 { margin: 0 0 14px; overflow-wrap: anywhere; }
+.profile-home { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
+.profile-home img { display: block; width: 100%; height: auto; }
+.profile-badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.profile-badges li { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); text-align: center; font-size: 14px; font-weight: 600; }
+.profile-badges img { width: 72px; height: 72px; }
+@media (max-width: 560px) {
+  .players-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; }
+  .profile-top { align-items: flex-start; }
+  .profile-badges { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+}
+.players-page .masthead { padding-bottom: 8px; }
+.players-page main.band { padding-top: 32px; }

@@ -19,8 +19,9 @@ use Minn\Extension\Seams;
  * groddle/v1 REST routes: the game's own sign-up and sign-in by email
  * (PlayerAccount), who is signed in (Player), the saves over the tables
  * minn.json declares (MultiplayerSave, SoloBackups), the realtime
- * server's ticket (RealtimeTicket) and buddy lists (Buddies), signed-in
- * players only, nonce-checked.
+ * server's ticket (RealtimeTicket), buddy lists (Buddies) and profiles
+ * (Profiles), signed-in players only, nonce-checked; and the public
+ * Players pages (PlayerPages).
  */
 final class Extension implements MinnExtension
 {
@@ -42,7 +43,9 @@ final class Extension implements MinnExtension
         $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
         $root = StaticRoot::fromSite($minn);
         $minn->routes(new StaticPages($minn, $root));
-        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn));
+        // The Players pages and the pictures on them (G338), after the built folders.
+        $minn->routes(new PlayerPages($minn, $root));
+        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new Profiles($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
         Musicblocks::register($minn, $root);
@@ -50,7 +53,8 @@ final class Extension implements MinnExtension
         SiteNav::register($minn);
     }
 
-    private static function head(): string
+    /** The stylesheets, theme script and icons every page in the site's look carries (PlayerPages draws its own pages with it). */
+    public static function head(): string
     {
         $out = '';
         foreach (self::STYLESHEETS as $href) {

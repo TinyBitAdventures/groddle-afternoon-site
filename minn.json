@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -65,6 +65,19 @@
       "added_at datetime NOT NULL",
       "PRIMARY KEY  (user_id,ignored_id)",
       "KEY ignored_id (ignored_id)"
+    ],
+    "groddle_profiles": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "about varchar(500) NOT NULL DEFAULT ''",
+      "avatar mediumblob NULL",
+      "tile mediumblob NULL",
+      "avatar_key varchar(64) NOT NULL DEFAULT ''",
+      "avatar_at datetime NULL",
+      "home mediumblob NULL",
+      "home_key varchar(64) NOT NULL DEFAULT ''",
+      "home_at datetime NULL",
+      "updated_at datetime NOT NULL",
+      "PRIMARY KEY  (user_id)"
     ],
     "groddle_solo_backups": [
       "user_id bigint(20) unsigned NOT NULL",
