@@ -101,7 +101,8 @@ final readonly class PlayerAccount
             return self::refused('groddle_invalid', (string) reset($fields), $fields, 400);
         }
         $accounts = $this->minn->accounts();
-        $made = $accounts->register('player-' . bin2hex(random_bytes(5)), $email, $password, $name, self::ROLE);
+        // Quietly: the site's admin isn't mailed for every player (Austin 2026-10-26); Minn Admin's users list shows them.
+        $made = $accounts->registerQuietly('player-' . bin2hex(random_bytes(5)), $email, $password, $name, self::ROLE);
         if ($made instanceof Refusal) {
             return self::fromRefusal($made);
         }
