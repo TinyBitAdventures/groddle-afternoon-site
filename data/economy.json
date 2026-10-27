@@ -1305,6 +1305,7 @@
 "vendor_ping_pong_part3":{"c":200},
 "vendor_ping_pong_part4":{"c":500,"i":{"hooch":10}},
 "water_neighbor_garden":{"c":400},
+"watering_time":{"c":500},
 "where_the_blue_grew":{"c":400},
 "winter_walk":{"i":{"ice":23}}},
 "badges":{

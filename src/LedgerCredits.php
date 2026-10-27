@@ -22,7 +22,7 @@ use Minn\RestError;
  * in signed batches (ServiceCall), idempotent per event id:
  *
  *   POST groddle/v1/ledger/credits
- *        {"credits":[{"id":"cr-q-…","user":7,"why":"quoin|shard|race|take","got":Goods,"at":…},…]}
+ *        {"credits":[{"id":"cr-q-…","user":7,"why":"quoin|shard|race|take|charades","got":Goods,"at":…},…]}
  *        200 {"done":["cr-q-…",…]}   every id recorded, now or before, or refused for good
  *
  * A credit is a receipt the player's save may show (table
@@ -68,7 +68,8 @@ final readonly class LedgerCredits
     /** Charges kept per character (the oldest go first). */
     public const CHARGES_KEPT = 40;
 
-    public const WHY = ['quoin', 'shard', 'race', 'take'];
+    // charades: a Charades guess's 250 currants (main.js:1782; the server's verbs.go).
+    public const WHY = ['quoin', 'shard', 'race', 'take', 'charades'];
 
     /**
      * Bounds on one event, against a bug rather than a forger (only the
