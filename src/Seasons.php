@@ -14,12 +14,12 @@ use Minn\Html;
  * season is on is worked out here on every request, from the windows the data
  * names, so the "On now" mark moves without a rebuild: the real-world dates in
  * the site's time zone (as the game uses the player's own date), Pi Day in UTC
- * as the original did, and Zilloween on Ur's own Dametime calendar.
+ * as the original did, and Zilloween on Ur's own Dametime calendar. A season
+ * that runs all year (the Egg Hunt, kind "always") is never marked.
  */
 final class Seasons
 {
     private const DAY_MS = 86_400_000;
-    private const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
     /** The site's time zone (timezone_string, else gmt_offset), UTC when it names none. */
     public static function zone(?string $name, mixed $offset): \DateTimeZone
@@ -39,54 +39,17 @@ final class Seasons
         return new \DateTimeZone(sprintf('%s%02d:%02d', $hours < 0 ? '-' : '+', intdiv($minutes, 60), $minutes % 60));
     }
 
-    /** Easter Sunday of a year as [month, day] (the anonymous Gregorian algorithm, as seasons.js easterSunday). */
-    public static function easter(int $year): array
-    {
-        $a = $year % 19;
-        $b = intdiv($year, 100);
-        $c = $year % 100;
-        $d = intdiv($b, 4);
-        $e = $b % 4;
-        $f = intdiv($b + 8, 25);
-        $g = intdiv($b - $f + 1, 3);
-        $h = (19 * $a + $b - $d - $g + 15) % 30;
-        $i = intdiv($c, 4);
-        $k = $c % 4;
-        $l = (32 + 2 * $e + 2 * $i - $h - $k) % 7;
-        $m = intdiv($a + 11 * $h + 22 * $l, 451);
-        $month = intdiv($h + $l - 7 * $m + 114, 31);
-        $day = (($h + $l - 7 * $m + 114) % 31) + 1;
-        return [$month, $day];
-    }
-
-    private static function dayIndex(int $y, int $m, int $d): int
-    {
-        return intdiv(gmmktime(0, 0, 0, $m, $d, $y), 86_400);
-    }
-
-    /** The Egg Hunt's first and last day in a year, as day indexes. */
-    private static function eggHunt(array $when, int $year): array
-    {
-        [$em, $ed] = self::easter($year);
-        $easter = self::dayIndex($year, $em, $ed);
-        return [$easter - (int) ($when['before'] ?? 7), $easter + (int) ($when['after'] ?? 1)];
-    }
-
     /** Whether a season's real-world window holds the moment $ms (Unix milliseconds). */
     public static function onNow(array $when, int $ms, \DateTimeZone $tz): bool
     {
         $at = (new \DateTimeImmutable('@' . intdiv($ms, 1000)))->setTimezone($tz);
-        [$y, $m, $d] = array_map('intval', explode('-', $at->format('Y-n-j')));
+        [$m, $d] = array_map('intval', explode('-', $at->format('n-j')));
         switch ($when['kind'] ?? '') {
             case 'dates':
                 $v = $m * 100 + $d;
                 $from = (int) $when['from'][0] * 100 + (int) $when['from'][1];
                 $to = (int) $when['to'][0] * 100 + (int) $when['to'][1];
                 return $from <= $to ? $v >= $from && $v <= $to : $v >= $from || $v <= $to;
-            case 'easter':
-                [$first, $last] = self::eggHunt($when, $y);
-                $today = self::dayIndex($y, $m, $d);
-                return $today >= $first && $today <= $last;
             case 'utc-day':
                 // isPiDay: the day in UTC, or twelve hours either side of it.
                 $year = (int) gmdate('Y', intdiv($ms, 1000));
@@ -122,12 +85,6 @@ final class Seasons
         return "about {$days} days";
     }
 
-    private static function date(int $day): string
-    {
-        $ts = $day * 86_400;
-        return self::MONTHS[(int) gmdate('n', $ts)] . ' ' . gmdate('j', $ts);
-    }
-
     /** The section: a card per season, $ms the moment to draw it for (now unless a test names one). */
     public static function draw(array $s, \DateTimeZone $tz, ?int $ms = null): string
     {
@@ -156,15 +113,6 @@ final class Seasons
         $ur = !empty($season['dametime']) && isset($s['dametime']) ? self::dametime($s['dametime'], $ms) : null;
 
         $when = [Html::esc(ucfirst((string) $season['window']) . '.')];
-        if (($season['when']['kind'] ?? '') === 'easter') {
-            $year = (int) (new \DateTimeImmutable('@' . intdiv($ms, 1000)))->setTimezone($tz)->format('Y');
-            $today = intdiv(intdiv($ms, 1000) + $tz->getOffset(new \DateTimeImmutable('@' . intdiv($ms, 1000))), 86_400);
-            [$first, $last] = self::eggHunt($season['when'], $year);
-            if ($today > $last) {
-                [$first, $last] = self::eggHunt($season['when'], ++$year);
-            }
-            $when[] = Html::esc("In {$year}: " . self::date($first) . ' to ' . self::date($last) . '.');
-        }
         if ($ur !== null) {
             $dt = $s['dametime'];
             $line = $ur['on']
