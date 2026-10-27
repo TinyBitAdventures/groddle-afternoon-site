@@ -40,6 +40,17 @@ use Minn\RestError;
  *   answers as recorded; anyone else hears it is gone. A return is the
  *   dropper's own take of a stack nobody picked up (drops.go dropKeep).
  *
+ *   POST groddle/v1/ledger/drop/eat   (signed) {"op":"drop-…","from":3}
+ *        200 {"status":"settled","n":2} | 409 {"status":"refused","why":"gone|stale"}
+ *
+ *   A street Piggy ate one of the stack (GameServerJS items/npc_piggy.js
+ *   onFoodPathing 1489-1500, apiConsume(1); the realtime server's
+ *   objects_pigs.go decides which Piggy and when). The stack is in nobody's
+ *   ledger, so only its count moves; from is the count the server holds, so
+ *   asking again answers as recorded. The last one eaten leaves the row
+ *   'eaten'. A dropper's missed drop still applies what was dropped (the
+ *   trade's goods), a picker's take what was there when they took it.
+ *
  *   POST groddle/v1/ledger/drops      (signed) {}  → {"stacks":[{id, by, name, street, x, y, c, n, r?, at}]}
  *        every stack on the ground, for a realtime server that has just started.
  *
@@ -62,6 +73,7 @@ final readonly class LedgerDrop
     public const DROP = '/groddle/v1/ledger/drop';
     public const TAKE = '/groddle/v1/ledger/drop/take';
     public const GROUND = '/groddle/v1/ledger/drops';
+    public const EAT = '/groddle/v1/ledger/drop/eat';
 
     /** Stacks one list carries (drops.go holds at most 60 a street). */
     public const LIST_MAX = 5000;
@@ -103,6 +115,68 @@ final readonly class LedgerDrop
         }
         $out = Ledger::atomically($this->minn->db, fn () => $this->give($op, $id, $why, time()));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
+    }
+
+    #[Route(Method::Post, self::EAT, policy: new Policy(Access::Public))]
+    public function eat(Request $request): Response
+    {
+        $this->signed($request, self::EAT);
+        $body = json_decode($request->body, true);
+        $op = is_array($body) ? ($body['op'] ?? null) : null;
+        $from = is_array($body) ? ($body['from'] ?? null) : null;
+        if (!self::opId($op) || !is_int($from) || $from < 1 || $from > 9999) {
+            throw new RestError('groddle_ledger_invalid', 'Not a bite.', 400);
+        }
+        $out = Ledger::atomically($this->minn->db, fn () => $this->bite($op, $from, time()));
+        return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
+    }
+
+    /**
+     * One of a stack on the ground eaten, once for each count the server held.
+     *
+     * @param array{status: string, count: int} $row the row as it stands (status, count)
+     * @return array{status: string, n?: int, why?: string, set?: array{status: string, count: int}}
+     */
+    public static function biteOf(array $row, int $from): array
+    {
+        $count = (int) $row['count'];
+        if ($row['status'] === 'eaten' && $count === 0 && $from === 1) {
+            return ['status' => 'settled', 'n' => 0];
+        }
+        if ($row['status'] !== 'ground') {
+            return ['status' => 'refused', 'why' => 'gone'];
+        }
+        if ($count === $from - 1) {
+            return ['status' => 'settled', 'n' => $count];
+        }
+        if ($count !== $from) {
+            return ['status' => 'refused', 'why' => 'stale'];
+        }
+        $left = $count - 1;
+        return ['status' => 'settled', 'n' => $left, 'set' => ['status' => $left > 0 ? 'ground' : 'eaten', 'count' => $left]];
+    }
+
+    /** @return array{status: string, n?: int, why?: string} */
+    private function bite(string $op, int $from, int $now): array
+    {
+        $db = $this->minn->db;
+        $drops = $db->table(self::TABLE);
+        $row = $db->row("SELECT dropper_id, class_tsid, count, status FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
+        if ($row === null) {
+            return ['status' => 'refused', 'why' => 'gone'];
+        }
+        $out = self::biteOf(['status' => (string) $row['status'], 'count' => (int) $row['count']], $from);
+        if (isset($out['set'])) {
+            $set = $out['set'];
+            unset($out['set']);
+            if ($set['status'] === 'eaten') {
+                $db->execute("UPDATE {$drops} SET count = 0, status = 'eaten', why = 'eaten', taken_at = ? WHERE id = ?", [gmdate('Y-m-d H:i:s', $now), $op]);
+            } else {
+                $db->execute("UPDATE {$drops} SET count = ? WHERE id = ?", [$set['count'], $op]);
+            }
+            Ledger::fromSeams($this->minn)->log((int) $row['dropper_id'], 'eaten', ['drop' => $op, 'ate' => [(string) $row['class_tsid'] => 1], 'left' => $set['count']], $now);
+        }
+        return $out;
     }
 
     #[Route(Method::Post, self::GROUND, policy: new Policy(Access::Public))]
@@ -222,16 +296,17 @@ final readonly class LedgerDrop
         $db = $this->minn->db;
         $me = $this->minn->reader->userId;
         $since = gmdate('Y-m-d H:i:s', time() - Ledger::PENDING_FOR);
-        $rows = $db->rows('SELECT t.trade_id, d.id, d.class_tsid, d.count, d.points, d.why FROM ' . $db->table(Ledger::TRADES) . ' t JOIN ' . $db->table(self::TABLE) . " d ON (t.trade_id = d.id OR t.trade_id = CONCAT(d.id, '-t'))
+        $rows = $db->rows('SELECT t.trade_id, t.a_gave, t.b_gave, d.id, d.class_tsid, d.count, d.points, d.why FROM ' . $db->table(Ledger::TRADES) . ' t JOIN ' . $db->table(self::TABLE) . " d ON (t.trade_id = d.id OR t.trade_id = CONCAT(d.id, '-t'))
             WHERE t.status = 'settled' AND t.a_id = ? AND t.a_applied_at IS NULL AND t.created_at >= ? AND t.trade_id LIKE 'drop-%'
             ORDER BY t.created_at, t.trade_id LIMIT 40", [$me, $since]);
         $out = [];
         foreach ($rows as $r) {
-            $item = ['c' => (string) $r['class_tsid'], 'n' => (int) $r['count']];
+            $took = str_ends_with((string) $r['trade_id'], '-t');
+            // What moved is the trade's: a Piggy may have eaten some of a stack since it was dropped.
+            $item = ['c' => (string) $r['class_tsid'], 'n' => self::movedCount((string) ($took ? $r['b_gave'] : $r['a_gave']), (int) $r['count'])];
             if ($r['points'] !== null) {
                 $item['r'] = (int) $r['points'];
             }
-            $took = str_ends_with((string) $r['trade_id'], '-t');
             $entry = ['op' => (string) $r['trade_id'], 'side' => $took ? 'took' : 'dropped', 'id' => (string) $r['id'], 'item' => $item];
             if ($took) {
                 $entry['why'] = (string) $r['why'];
@@ -242,6 +317,76 @@ final readonly class LedgerDrop
     }
 
     // —— Helpers ——
+
+    /** The count a drop's or a take's goods JSON (goodsJson) moved, or $else. */
+    public static function movedCount(string $goods, int $else): int
+    {
+        $g = json_decode($goods, true);
+        $n = is_array($g) ? ($g['items'][0]['n'] ?? null) : null;
+        return is_int($n) && $n > 0 ? $n : $else;
+    }
+
+    /** A take of a stack on the ground (drop-<16 hex>-t), as Ledger::catchUp sees its trade id. */
+    public static function isTake(string $trade): bool
+    {
+        return preg_match('/^drop-[0-9a-f]{16}-t$/', $trade) === 1;
+    }
+
+    /**
+     * Ledger::catchUp for a take: the stack into the pack (LedgerMath::applyTrade) and, for a
+     * tool, its wear (the stack's points), as the game applies one (features/drops-mp-feature.js
+     * apply: a first one takes the stack's points, one more keeps the more worn;
+     * systems.tools.condition, js/tools.js setToolRemaining).
+     *
+     * @param array{trade: string, gave: array, got: array} $p
+     */
+    public static function catchUp(Db $db, array $entries, int $user, array $p): array
+    {
+        $row = $db->row('SELECT class_tsid, points FROM ' . $db->table(self::TABLE) . ' WHERE id = ?', [substr($p['trade'], 0, -2)]);
+        $had = self::packCount($entries, $row === null ? '' : (string) $row['class_tsid']);
+        $entries = LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']);
+        if ($row === null || $row['points'] === null) {
+            return $entries;
+        }
+        return self::withToolPoints($entries, (string) $row['class_tsid'], (int) $row['points'], $had > 0);
+    }
+
+    private static function packCount(array $entries, string $class): int
+    {
+        $raw = $entries['playerState'] ?? null;
+        $state = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+        return LedgerMath::count(is_array($state) ? ($state['inventory'][$class] ?? 0) : 0);
+    }
+
+    /** A tool's points left in a stored save (systems.tools.condition[class]): $points, or the more worn when one was there. */
+    public static function withToolPoints(array $entries, string $class, int $points, bool $hadOne): array
+    {
+        $raw = $entries['playerState'] ?? null;
+        $state = is_string($raw) && $raw !== '' ? json_decode($raw, false) : null;
+        if (!$state instanceof \stdClass) {
+            return $entries;
+        }
+        $at = $state;
+        foreach (['systems', 'tools', 'condition'] as $k) {
+            if (!($at->{$k} ?? null) instanceof \stdClass) {
+                $at->{$k} = new \stdClass();
+            }
+            $at = $at->{$k};
+        }
+        $cond = $at;
+        $row = ($cond->{$class} ?? null) instanceof \stdClass ? $cond->{$class} : null;
+        $mine = $row !== null && is_numeric($row->remaining ?? null) ? (int) $row->remaining : null;
+        $left = max(0, $hadOne && $mine !== null ? min($mine, $points) : $points);
+        if ($row === null) {
+            $row = (object) ['remaining' => $left, 'broken' => $left <= 0, 'uses' => 0, 'repairs' => 0];
+        } else {
+            $row->remaining = $left;
+            $row->broken = $left <= 0;
+        }
+        $cond->{$class} = $row;
+        $entries['playerState'] = (string) json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return $entries;
+    }
 
     /** drops.go: drop- and 16 hex. */
     public static function opId(mixed $op): bool

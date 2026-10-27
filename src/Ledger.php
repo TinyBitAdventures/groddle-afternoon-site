@@ -371,10 +371,12 @@ final readonly class Ledger
         $this->lock($user, $now);
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
         foreach ($pending as $p) {
-            // G332: a give carries a note's writing or a wrapped box (LedgerGift), which a count alone cannot; a furniture sale takes that very piece out of the house (LedgerFurniture).
+            // G332: a give carries a note's writing or a wrapped box (LedgerGift), which a count alone cannot; a furniture sale takes that very piece out of the house (LedgerFurniture); a picked-up tool its wear (LedgerDrop).
             $entries = match (true) {
                 LedgerGift::isGift($p['trade']) => LedgerGift::catchUp($this->db, $entries, $user, $p),
                 LedgerFurniture::isSale($p['trade']) => LedgerFurniture::catchUp($this->db, $entries, $user, $p),
+                // A tool picked up keeps its wear (the stack's points), as a live pickup does.
+                LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
                 default => LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']),
             };
             $this->stamp($p['trade'], $this->sideOf($p['trade'], $user), $now);

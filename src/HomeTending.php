@@ -43,6 +43,10 @@ use Minn\RestError;
  * planted) is their own client's, as any garden is (a crop is a gain the
  * ledger's budget pays for); only the owner's plots are the site's to keep.
  * Words are js/garden.js's (the game's plot answers).
+ *
+ * A harvest on the home street (not the back yard) also adds 5 iMG to the
+ * owner's Magic Rock pool (HomePool, include/garden.js:579: pick by anyone
+ * but the owner on the public half).
  */
 final readonly class HomeTending
 {
@@ -120,6 +124,10 @@ final readonly class HomeTending
                 $db->execute("INSERT INTO {$t} (id, owner_id, visitor_id, yard, garden, plot, act, seed, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [$rowId, $owner, $me, $act['yard'], $act['garden'], $act['plot'], $act['act'], $act['seed'], $at, gmdate('Y-m-d H:i:s')]);
                 $waiting[] = ['id' => $rowId, 'yard' => $act['yard'], 'garden' => $act['garden'], 'plot' => $act['plot'], 'act' => $act['act'], 'seed' => $act['seed'], 'at_ms' => $at];
                 $results[] = $act + ['ok' => true, 'id' => $rowId, 'at' => $at];
+                if ($act['act'] === 'harvest' && $act['yard'] === 'street') {
+                    // G201: a visitor's harvest on the home street fills the owner's Magic Rock pool (include/garden.js:579).
+                    HomePool::add($db, $owner, HomePool::HARVEST, HomePool::today());
+                }
                 $told[] = ['y' => $act['yard'], 'g' => $act['garden'], 'p' => $act['plot'], 'a' => $act['act'], 's' => $act['seed'], 'at' => $at];
             }
             return ['results' => $results, 'told' => $told];
