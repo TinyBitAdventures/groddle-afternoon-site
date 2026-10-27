@@ -32,10 +32,16 @@ final class LedgerMath
     /** js/street-jobs-mp.js APPLIED_KEEP: street project records a save remembers as applied. */
     public const PROJECT_APPLIED_KEEP = 64;
 
+    /** js/feats-mp.js APPLIED_KEEP: Feat records a save remembers as applied. */
+    public const FEAT_APPLIED_KEEP = 48;
+
     /** The save slices that list applied ids, and the prefix of a street project's records. */
     public const TRADE_SLICE = 'trade';
     public const PROJECT_SLICE = 'street-jobs';
     public const PROJECT_PREFIX = 'job-';
+    /** G345: a shared Feat's reward (feats.go feat-r-), remembered in the Feats feature's slice. */
+    public const FEAT_SLICE = 'solo-feats';
+    public const FEAT_PREFIX = 'feat-';
 
     // —— Reading a save ——
 
@@ -103,14 +109,16 @@ final class LedgerMath
      * The trade ids the save says it has applied (js/trade.js normalizeSlice),
      * and the street project ids (G346: a contribution taken out, a phase
      * reward put in; features/street-jobs-feature.js keeps them in its own
-     * slice's `applied`).
+     * slice's `applied`), and the Feat records (G345: a shared Feat's reward,
+     * features/solo-feats-feature.js keeps them in its slice's `applied` in
+     * multiplayer).
      */
     public static function applied(array $entries): array
     {
         $state = self::decode($entries['playerState'] ?? null);
         $features = is_array($state) ? ($state['systems']['features'] ?? []) : [];
         $out = [];
-        foreach ([self::TRADE_SLICE, self::PROJECT_SLICE] as $slice) {
+        foreach ([self::TRADE_SLICE, self::PROJECT_SLICE, self::FEAT_SLICE] as $slice) {
             $list = is_array($features) ? ($features[$slice]['applied'] ?? []) : [];
             foreach (is_array($list) ? $list : [] as $id) {
                 if (is_string($id) && $id !== '') {
@@ -125,6 +133,12 @@ final class LedgerMath
     public static function isProject(string $id): bool
     {
         return str_starts_with($id, self::PROJECT_PREFIX);
+    }
+
+    /** A shared Feat's ledger record (LedgerService::feat): its id starts so (feats.go). */
+    public static function isFeat(string $id): bool
+    {
+        return str_starts_with($id, self::FEAT_PREFIX);
     }
 
     /** A trade's goods from the realtime server as counts, tradeable classes only. */
@@ -389,8 +403,8 @@ final class LedgerMath
         if (!($state->systems->features ?? null) instanceof \stdClass) {
             $state->systems->features = new \stdClass();
         }
-        // A street project's record is remembered in the Job Board's slice, a trade in the trade's.
-        $sliceId = self::isProject($trade) ? self::PROJECT_SLICE : self::TRADE_SLICE;
+        // A street project's record is remembered in the Job Board's slice, a Feat's in the Feats', a trade in the trade's.
+        $sliceId = self::isProject($trade) ? self::PROJECT_SLICE : (self::isFeat($trade) ? self::FEAT_SLICE : self::TRADE_SLICE);
         if (!($state->systems->features->{$sliceId} ?? null) instanceof \stdClass) {
             $state->systems->features->{$sliceId} = new \stdClass();
         }
@@ -419,7 +433,7 @@ final class LedgerMath
         }
         $applied = is_array($slice->applied ?? null) ? $slice->applied : [];
         $applied[] = $trade;
-        $slice->applied = array_values(array_slice($applied, -(self::isProject($trade) ? self::PROJECT_APPLIED_KEEP : self::APPLIED_KEEP)));
+        $slice->applied = array_values(array_slice($applied, -(self::isProject($trade) ? self::PROJECT_APPLIED_KEEP : (self::isFeat($trade) ? self::FEAT_APPLIED_KEEP : self::APPLIED_KEEP))));
         $entries['playerState'] = self::encode($state);
         return $entries;
     }

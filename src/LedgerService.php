@@ -33,6 +33,10 @@ use Minn\RestError;
  *        a street project's contribution out of one ledger or reward into it
  *        (LedgerProject, G346): 200 {"status":"settled"} | 409 {"status":"refused","short":…}
  *        | 200 {"status":"void"}; idempotent per id.
+ *   POST groddle/v1/ledger/feat        {"id":"feat-r-…","user":7,"got":Goods}
+ *        a shared Feat's reward into one ledger (G345, feats.go): only ever
+ *        puts in, 200 {"status":"settled"}; idempotent per id (recorded like a
+ *        project's reward, LedgerProject).
  *
  * And one for the player: GET groddle/v1/ledger, your own ledger (the
  * currants and tradeable things the site holds you to, and your budget).
@@ -42,6 +46,7 @@ final readonly class LedgerService
     public const TRADE = '/groddle/v1/ledger/trade';
     public const VOID = '/groddle/v1/ledger/trade/void';
     public const PROJECT = '/groddle/v1/ledger/project';
+    public const FEAT = '/groddle/v1/ledger/feat';
 
     public function __construct(private Seams $minn)
     {
@@ -101,6 +106,29 @@ final readonly class LedgerService
         $project = new LedgerProject($this->minn);
         $out = Ledger::atomically($this->minn->db, fn () => $project->settle($id, $user, $gave, $got, time()));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
+    }
+
+    #[Route(Method::Post, self::FEAT, policy: new Policy(Access::Public))]
+    public function feat(Request $request): Response
+    {
+        $this->signed($request, self::FEAT);
+        $body = json_decode($request->body, true);
+        $id = is_array($body) ? ($body['id'] ?? null) : null;
+        $user = is_array($body) ? ($body['user'] ?? null) : null;
+        $got = is_array($body) && is_array($body['got'] ?? null) ? LedgerMath::goods($body['got']) : null;
+        // A Feat's reward only pays: nothing is ever taken out here.
+        if (!self::featId($id) || !is_int($user) || $user <= 0 || $got === null || LedgerMath::nothing($got)) {
+            throw new RestError('groddle_ledger_invalid', 'Not a Feat reward.', 400);
+        }
+        $project = new LedgerProject($this->minn);
+        $out = Ledger::atomically($this->minn->db, fn () => $project->settle($id, $user, ['items' => [], 'currants' => 0], $got, time()));
+        return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
+    }
+
+    /** feats.go: feat-r-<run>-<feat>-<player>, lowercase letters, digits and dashes, at most 40. */
+    public static function featId(mixed $id): bool
+    {
+        return is_string($id) && preg_match('/^feat-r-[a-z0-9-]{1,33}$/', $id) === 1;
     }
 
     private function signed(Request $request, string $route): void
