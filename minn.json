@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -48,19 +48,6 @@
     }
   ],
   "tables": {
-    "groddle_group_halls": [
-      "claim_id varchar(40) NOT NULL",
-      "job_id varchar(16) NOT NULL",
-      "group_id bigint(20) unsigned NOT NULL",
-      "claimer_id bigint(20) unsigned NOT NULL",
-      "currants int(10) unsigned NOT NULL DEFAULT 0",
-      "status varchar(8) NOT NULL",
-      "claimed_at datetime NOT NULL",
-      "built_at datetime NULL DEFAULT NULL",
-      "PRIMARY KEY  (claim_id)",
-      "KEY group_id (group_id)",
-      "KEY claimer_id (claimer_id)"
-    ],
     "groddle_groups": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
       "name varchar(32) NOT NULL",
@@ -203,6 +190,19 @@
       "KEY from_id (from_id)",
       "KEY to_id (to_id)"
     ],
+    "groddle_group_halls": [
+      "claim_id varchar(40) NOT NULL",
+      "job_id varchar(16) NOT NULL",
+      "group_id bigint(20) unsigned NOT NULL",
+      "claimer_id bigint(20) unsigned NOT NULL",
+      "currants int(10) unsigned NOT NULL DEFAULT 0",
+      "status varchar(8) NOT NULL",
+      "claimed_at datetime NOT NULL",
+      "built_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (claim_id)",
+      "KEY group_id (group_id)",
+      "KEY claimer_id (claimer_id)"
+    ],
     "groddle_drops": [
       "id varchar(40) NOT NULL",
       "dropper_id bigint(20) unsigned NOT NULL",
@@ -256,6 +256,25 @@
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (user_id)",
       "UNIQUE KEY name_key (name_key)"
+    ],
+    "groddle_signups": [
+      "token_hash char(64) NOT NULL",
+      "email varchar(100) NOT NULL",
+      "email_key varchar(100) NOT NULL",
+      "pass_hash varchar(255) NOT NULL DEFAULT ''",
+      "name varchar(32) NOT NULL",
+      "name_key varchar(32) NOT NULL",
+      "sends tinyint(3) unsigned NOT NULL DEFAULT 0",
+      "sent_at datetime NOT NULL",
+      "created_at datetime NOT NULL",
+      "expires_at datetime NOT NULL",
+      "used_at datetime NULL DEFAULT NULL",
+      "user_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "ip varchar(45) NOT NULL DEFAULT ''",
+      "PRIMARY KEY  (token_hash)",
+      "UNIQUE KEY email_key (email_key)",
+      "KEY name_key (name_key)",
+      "KEY created_ip (ip,created_at)"
     ],
     "groddle_buddies": [
       "user_id bigint(20) unsigned NOT NULL",

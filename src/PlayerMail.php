@@ -45,6 +45,24 @@ final class PlayerMail
     }
 
     /**
+     * The email that proves a new player's address: no account exists until
+     * its link is opened (Signups).
+     *
+     * @return array{0: string, 1: string, 2: list<string>}
+     */
+    public static function verify(string $home, string $from, string $link, string $character): array
+    {
+        $content = self::heading('Check it\'s you')
+            . self::paragraph('Hi <strong>' . Html::esc($character) . '</strong>,')
+            . self::paragraph('Open the link below to finish making your Groddle Afternoon character. It works once, for a day.')
+            . self::button($link, 'Start playing')
+            . self::small('Or paste this into your browser:<br><a href="' . Html::attr($link) . '" style="color:' . self::INK . ';word-break:break-all;">' . Html::esc($link) . '</a>')
+            . self::paragraph('If you didn\'t sign up, ignore this email and no character is made.');
+        $subject = 'Finish making your Groddle Afternoon character';
+        return [$subject, self::layout($home, 'One step left for ' . $character . '.', $content), self::headers($home, $from)];
+    }
+
+    /**
      * The notice that a password changed, to the account's address.
      *
      * @return array{0: string, 1: string, 2: list<string>}
