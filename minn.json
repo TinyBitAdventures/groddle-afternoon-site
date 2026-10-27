@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -36,6 +36,34 @@
     "groddle/site-nav"
   ],
   "tables": {
+    "groddle_groups": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "name varchar(32) NOT NULL",
+      "name_key varchar(32) NOT NULL",
+      "description varchar(300) NOT NULL DEFAULT ''",
+      "mode varchar(8) NOT NULL DEFAULT 'public'",
+      "created_by bigint(20) unsigned NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "UNIQUE KEY name_key (name_key)",
+      "KEY mode (mode)"
+    ],
+    "groddle_group_members": [
+      "group_id bigint(20) unsigned NOT NULL",
+      "user_id bigint(20) unsigned NOT NULL",
+      "role varchar(8) NOT NULL DEFAULT 'member'",
+      "joined_at datetime NOT NULL",
+      "PRIMARY KEY  (group_id,user_id)",
+      "KEY user_id (user_id)"
+    ],
+    "groddle_group_invites": [
+      "group_id bigint(20) unsigned NOT NULL",
+      "user_id bigint(20) unsigned NOT NULL",
+      "invited_by bigint(20) unsigned NOT NULL",
+      "invited_at datetime NOT NULL",
+      "PRIMARY KEY  (group_id,user_id)",
+      "KEY user_id (user_id)"
+    ],
     "groddle_ledger": [
       "user_id bigint(20) unsigned NOT NULL",
       "currants bigint(20) unsigned NOT NULL DEFAULT 0",
