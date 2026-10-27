@@ -76,6 +76,10 @@ watches for who is online; an add also carries a one-use proof that tells the ot
    `GRODDLE_REALTIME_SECRET` constant, or name the file with the `groddle_realtime_secret_file`
    option), run the realtime server with the same secret, and pass `/ws` to it. Without a secret
    the ticket route answers 503 and the game plays on without other players.
+   When the realtime server runs on another host than the site (a site on managed WordPress hosting
+   that cannot pass `/ws` on), set its address in `wp-config.php`:
+   `define( 'GRODDLE_REALTIME_URL', 'wss://play.example.com/ws' );`. Each ticket then carries it as
+   `url` and the game connects there; run that server with the site's host in `-origins`.
 
 The pages that hold words (the restoration report, Musicblocks, Street music, the Notes) are
 created once by scripts in the game repo (`tools/*/to-minn.mjs`) and edited in Minn Admin after

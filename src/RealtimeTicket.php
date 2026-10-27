@@ -24,6 +24,12 @@ use Minn\RestError;
  * the webroot. With none of them the route answers 503 and the game plays
  * on without other players.
  *
+ * Where the socket is: /ws on the site's own host, unless the
+ * GRODDLE_REALTIME_URL constant names the realtime server's own address
+ * (wss://play.example.com/ws, for a server on another host than the site;
+ * that server then needs the site's host in its -origins). The answer's
+ * url carries it; path stays /ws for pages that only know path.
+ *
  * Ticket: base64url(JSON payload) "." base64url(HMAC-SHA256(secret, payload part)).
  */
 final readonly class RealtimeTicket
@@ -55,7 +61,30 @@ final readonly class RealtimeTicket
             'exp' => $now + self::TTL,
             'jti' => bin2hex(random_bytes(8)),
         ];
-        return Response::json(['ticket' => self::sign($payload, $secret), 'expiresIn' => self::TTL, 'path' => '/ws']);
+        $answer = ['ticket' => self::sign($payload, $secret), 'expiresIn' => self::TTL, 'path' => '/ws'];
+        $url = self::socketUrl();
+        if ($url !== null) {
+            $answer['url'] = $url;
+        }
+        return Response::json($answer);
+    }
+
+    /**
+     * The GRODDLE_REALTIME_URL constant when it is a ws:// or wss:// address
+     * with a host and no credentials or fragment, else null (the page's own /ws).
+     */
+    public static function socketUrl(): ?string
+    {
+        if (!defined('GRODDLE_REALTIME_URL')) {
+            return null;
+        }
+        $value = trim((string) constant('GRODDLE_REALTIME_URL'));
+        $parts = parse_url($value);
+        if (!is_array($parts) || !in_array(strtolower($parts['scheme'] ?? ''), ['ws', 'wss'], true) || ($parts['host'] ?? '') === ''
+            || isset($parts['user']) || isset($parts['pass']) || isset($parts['fragment'])) {
+            return null;
+        }
+        return $value;
     }
 
     /** Signs a payload into a ticket. */
