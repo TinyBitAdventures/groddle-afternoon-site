@@ -1183,6 +1183,7 @@
 "cocktailcrafting_make_level1_recipes":{"c":250},
 "cocktailcrafting_make_level2_recipes":{"c":400},
 "croppery_harvest_all_crops":{"c":325},
+"croppery_harvest_and_sell_at_auction":{"c":450},
 "croppery_plant_and_harvest":{"c":300},
 "de_embiggenify_part2":{"c":200,"i":{"emotional_bear":1}},
 "distilling_make_and_distribute_hooch":{"c":350},

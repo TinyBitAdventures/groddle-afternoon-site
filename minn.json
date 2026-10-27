@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -130,6 +130,29 @@
       "PRIMARY KEY  (id)",
       "KEY owner_id (owner_id,taken_at)",
       "KEY from_id (from_id)"
+    ],
+    "groddle_auctions": [
+      "id varchar(16) NOT NULL",
+      "seller_id bigint(20) unsigned NOT NULL",
+      "class_tsid varchar(64) NOT NULL",
+      "count int(10) unsigned NOT NULL",
+      "cost bigint(20) unsigned NOT NULL",
+      "fee int(10) unsigned NOT NULL DEFAULT 0",
+      "r int(10) unsigned NULL DEFAULT NULL",
+      "status varchar(10) NOT NULL DEFAULT 'active'",
+      "buyer_id bigint(20) unsigned NULL DEFAULT NULL",
+      "proceeds bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "expires_at datetime NOT NULL",
+      "ended_at datetime NULL DEFAULT NULL",
+      "deliver_to bigint(20) unsigned NULL DEFAULT NULL",
+      "deliver_at datetime NULL DEFAULT NULL",
+      "collected_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY browse (status,class_tsid)",
+      "KEY seller_id (seller_id,status)",
+      "KEY buyer_id (buyer_id)",
+      "KEY deliver_to (deliver_to,collected_at)"
     ],
     "groddle_gifts": [
       "id varchar(40) NOT NULL",
