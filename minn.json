@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.14",
+  "version": "0.5.15",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -222,6 +222,31 @@
       "KEY status (status)",
       "KEY dropper_id (dropper_id)",
       "KEY taker_id (taker_id)"
+    ],
+    "groddle_home_signposts": [
+      "owner_id bigint(20) unsigned NOT NULL",
+      "position tinyint(3) unsigned NOT NULL",
+      "neighbor_id bigint(20) unsigned NOT NULL",
+      "added_at datetime NOT NULL",
+      "PRIMARY KEY  (owner_id,position)",
+      "KEY neighbor_id (neighbor_id)"
+    ],
+    "groddle_furniture_sales": [
+      "id varchar(40) NOT NULL",
+      "owner_id bigint(20) unsigned NOT NULL",
+      "uid int(10) unsigned NOT NULL",
+      "class_tsid varchar(64) NOT NULL",
+      "price int(10) unsigned NOT NULL",
+      "status varchar(10) NOT NULL",
+      "buyer_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "x int(11) NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "updated_at datetime NOT NULL",
+      "sold_at datetime NULL DEFAULT NULL",
+      "collected_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY owner_id (owner_id,status)",
+      "KEY buyer_id (buyer_id)"
     ],
     "groddle_home_tending": [
       "id varchar(40) NOT NULL",

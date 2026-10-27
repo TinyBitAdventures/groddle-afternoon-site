@@ -371,8 +371,12 @@ final readonly class Ledger
         $this->lock($user, $now);
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
         foreach ($pending as $p) {
-            // G332: a give carries a note's writing or a wrapped box (LedgerGift), which a count alone cannot.
-            $entries = LedgerGift::isGift($p['trade']) ? LedgerGift::catchUp($this->db, $entries, $user, $p) : LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']);
+            // G332: a give carries a note's writing or a wrapped box (LedgerGift), which a count alone cannot; a furniture sale takes that very piece out of the house (LedgerFurniture).
+            $entries = match (true) {
+                LedgerGift::isGift($p['trade']) => LedgerGift::catchUp($this->db, $entries, $user, $p),
+                LedgerFurniture::isSale($p['trade']) => LedgerFurniture::catchUp($this->db, $entries, $user, $p),
+                default => LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']),
+            };
             $this->stamp($p['trade'], $this->sideOf($p['trade'], $user), $now);
             $this->log($user, 'credit', ['trade' => $p['trade'], 'applied' => 'on load'], $now);
         }
