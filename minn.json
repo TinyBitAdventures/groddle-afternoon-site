@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -116,6 +116,35 @@
       "granted_at datetime NOT NULL",
       "PRIMARY KEY  (owner_id,holder_id)",
       "KEY holder_id (holder_id)"
+    ],
+    "groddle_butler_parcels": [
+      "id varchar(40) NOT NULL",
+      "owner_id bigint(20) unsigned NOT NULL",
+      "from_id bigint(20) unsigned NOT NULL",
+      "class_tsid varchar(64) NOT NULL DEFAULT ''",
+      "count int(10) unsigned NOT NULL DEFAULT 0",
+      "message varchar(500) NOT NULL DEFAULT ''",
+      "at_ms bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "taken_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY owner_id (owner_id,taken_at)",
+      "KEY from_id (from_id)"
+    ],
+    "groddle_home_tending": [
+      "id varchar(40) NOT NULL",
+      "owner_id bigint(20) unsigned NOT NULL",
+      "visitor_id bigint(20) unsigned NOT NULL",
+      "yard varchar(8) NOT NULL DEFAULT 'street'",
+      "garden varchar(80) NOT NULL",
+      "plot varchar(8) NOT NULL",
+      "act varchar(8) NOT NULL",
+      "seed varchar(64) NOT NULL DEFAULT ''",
+      "at_ms bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY owner_id (owner_id,at_ms)",
+      "KEY visitor_id (visitor_id)"
     ],
     "groddle_home_visitors": [
       "user_id bigint(20) unsigned NOT NULL",

@@ -264,7 +264,9 @@ final readonly class Neighbours
         return [
             'owner' => ['id' => $owner, 'name' => $name],
             'home' => ['owned' => true, 'style' => self::homeStyle($theirs)],
-            'homes' => $homes,
+            // Slice 2: the gardens with the key-holders' waiting acts on them (HomeTending), and the Butler as it looks.
+            'homes' => HomeTending::overlay($homes, HomeTending::rowsFor($db, $owner)),
+            'butler' => self::butlerView($theirs),
             'key' => $key,
             'pass' => $this->pass($me, $owner, $name, $key),
         ];
@@ -327,6 +329,12 @@ final readonly class Neighbours
     {
         $ignores = $this->minn->db->table(Buddies::IGNORES);
         return $this->minn->db->value("SELECT 1 FROM {$ignores} WHERE user_id = ? AND ignored_id = ?", [$ignorer, $other]) !== null;
+    }
+
+    /** Whether holder has a key to owner's house (HomeTending: a key-holder tends the gardens). */
+    public function holdsKeyTo(int $owner, int $holder): bool
+    {
+        return $owner > 0 && $holder > 0 && $owner !== $holder && $this->holdsKey($owner, $holder);
     }
 
     /** Whether holder has a key to owner's house; a block either way takes it back (acl_keys_handle_ignore). */
@@ -461,6 +469,31 @@ final readonly class Neighbours
             return ['ok' => false, 'error' => 'no_butler', 'reason' => self::TEXT_NO_BUTLER];
         }
         return ['ok' => true];
+    }
+
+    /**
+     * The owner's Butler as a visitor sees it (G328 slice 2: bag_butler.js
+     * stands at its post on the home street): whether it is there, its name,
+     * its eight parts (the customizer's, js/butler.js normalizeButlerParts
+     * checks them) and its post relative to the house. Not what it holds.
+     *
+     * @return array{owned: bool, name?: string, parts?: object, post?: int|null}
+     */
+    public static function butlerView(?object $state): array
+    {
+        $b = self::feature($state, 'butler');
+        if ($b === null || ($b->owned ?? false) !== true) {
+            return ['owned' => false];
+        }
+        $name = is_string($b->name ?? null) ? mb_substr(trim(strip_tags($b->name)), 0, 19) : '';
+        $parts = (object) [];
+        foreach (is_object($b->parts ?? null) ? get_object_vars($b->parts) : [] as $k => $v) {
+            if (is_string($k) && preg_match('/^[a-zA-Z]{1,16}$/', $k) === 1 && is_string($v) && preg_match('/^[a-z0-9_]{1,32}$/', $v) === 1) {
+                $parts->{$k} = $v;
+            }
+        }
+        $post = is_numeric($b->post ?? null) ? (int) round((float) $b->post) : null;
+        return ['owned' => true, 'name' => $name, 'parts' => $parts, 'post' => $post];
     }
 
     /**
