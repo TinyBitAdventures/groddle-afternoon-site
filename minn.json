@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -35,6 +35,44 @@
     "groddle/site-nav"
   ],
   "tables": {
+    "groddle_ledger": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "currants bigint(20) unsigned NOT NULL DEFAULT 0",
+      "budget double NOT NULL DEFAULT 0",
+      "budget_at bigint(20) unsigned NOT NULL DEFAULT 0",
+      "seeded varchar(16) NOT NULL DEFAULT ''",
+      "updated_at datetime NOT NULL",
+      "PRIMARY KEY  (user_id)"
+    ],
+    "groddle_ledger_items": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "class_tsid varchar(64) NOT NULL",
+      "count int(10) unsigned NOT NULL DEFAULT 0",
+      "PRIMARY KEY  (user_id,class_tsid)"
+    ],
+    "groddle_trades": [
+      "trade_id varchar(40) NOT NULL",
+      "status varchar(8) NOT NULL",
+      "a_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "b_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "a_gave text NOT NULL",
+      "b_gave text NOT NULL",
+      "a_applied_at datetime NULL DEFAULT NULL",
+      "b_applied_at datetime NULL DEFAULT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (trade_id)",
+      "KEY a_id (a_id)",
+      "KEY b_id (b_id)"
+    ],
+    "groddle_ledger_log": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "user_id bigint(20) unsigned NOT NULL",
+      "at datetime NOT NULL",
+      "kind varchar(16) NOT NULL",
+      "detail text NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY user_at (user_id,at)"
+    ],
     "groddle_mp_saves": [
       "user_id bigint(20) unsigned NOT NULL",
       "data longtext NOT NULL",
