@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-seasons",
+	"title": "Restoration seasons",
+	"category": "widgets",
+	"description": "A card for each of the game's holidays: when it runs, what it brings, whether it is on today, and a link to try it in solo.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"seasons",
+		"holidays"
+	]
+}

@@ -13,7 +13,7 @@ use Minn\Html;
  * restoration.js fills, from public/restoration/data.json, which
  * build-restoration.mjs computes from the repo: nothing in them is typed in.
  * What can be drawn simply is drawn here too (the score, recent changes, the
- * lost list, the tag legend, the stamp), so the editor's previews and a reader
+ * lost list, the tag legend, the stamp, the seasons), so the editor's previews and a reader
  * without scripts see it; the rest shows a one-line summary until the script
  * runs. The script itself loads once, after the page, when a section is on it.
  */
@@ -50,6 +50,8 @@ final class Restoration
         $section('levels', static fn (array $a, array $d): string => '<div class="levels" id="text-levels">' . self::pending(sprintf('%d levels rebuilt from words alone.', count($d['designers']['text'] ?? []))) . '</div>');
         $section('recent', static fn (array $a, array $d): string => self::recent($d));
         $section('lost', static fn (array $a, array $d): string => self::lost($d));
+        // The holidays, with which is on today (Seasons works that out per request, in the site's time zone).
+        $section('seasons', static fn (array $a, array $d): string => is_array($d['seasons'] ?? null) ? Seasons::draw($d['seasons'], Seasons::zone((string) ($minn->site->option('timezone_string') ?? ''), $minn->site->option('gmt_offset') ?? 0)) : self::pending('The seasons appear once the restoration data is rebuilt.'));
         $section('legend', static fn (array $a, array $d): string => self::legend($d));
         $section('stamp', static fn (array $a, array $d): string => '<p id="foot-meta">' . Html::esc(self::stamp($d)) . '</p>');
 
