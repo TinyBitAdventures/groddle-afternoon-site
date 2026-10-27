@@ -29,6 +29,11 @@ use Minn\RestError;
  * (trade.go settles, and voids when it cannot tell). A missing or bad
  * signature is 401 and says nothing more.
  *
+ *   POST groddle/v1/ledger/project     {"id":"job-g-…","user":7,"gave":Goods,"got":Goods}
+ *        a street project's contribution out of one ledger or reward into it
+ *        (LedgerProject, G346): 200 {"status":"settled"} | 409 {"status":"refused","short":…}
+ *        | 200 {"status":"void"}; idempotent per id.
+ *
  * And one for the player: GET groddle/v1/ledger, your own ledger (the
  * currants and tradeable things the site holds you to, and your budget).
  */
@@ -36,6 +41,7 @@ final readonly class LedgerService
 {
     public const TRADE = '/groddle/v1/ledger/trade';
     public const VOID = '/groddle/v1/ledger/trade/void';
+    public const PROJECT = '/groddle/v1/ledger/project';
 
     public function __construct(private Seams $minn)
     {
@@ -76,6 +82,25 @@ final readonly class LedgerService
         $ids = is_array($body['ids'] ?? null) ? array_values(array_filter($body['ids'], 'is_int')) : [];
         $ledger = Ledger::fromSeams($this->minn);
         return Response::json(Ledger::atomically($this->minn->db, fn () => $ledger->void($trade, count($ids) === 2 ? [$ids[0], $ids[1]] : [0, 0], time())));
+    }
+
+    #[Route(Method::Post, self::PROJECT, policy: new Policy(Access::Public))]
+    public function project(Request $request): Response
+    {
+        $this->signed($request, self::PROJECT);
+        $body = json_decode($request->body, true);
+        $id = is_array($body) ? ($body['id'] ?? null) : null;
+        $user = is_array($body) ? ($body['user'] ?? null) : null;
+        $gave = is_array($body) && is_array($body['gave'] ?? null) ? LedgerMath::goods($body['gave']) : null;
+        $got = is_array($body) && is_array($body['got'] ?? null) ? LedgerMath::goods($body['got']) : null;
+        // A give takes and a reward pays: one of the two, never both.
+        if (!LedgerProject::id($id) || !is_int($user) || $user <= 0 || $gave === null || $got === null
+            || (str_starts_with($id, 'job-g-') ? (LedgerMath::nothing($gave) || !LedgerMath::nothing($got)) : !LedgerMath::nothing($gave))) {
+            throw new RestError('groddle_ledger_invalid', 'Not a project move.', 400);
+        }
+        $project = new LedgerProject($this->minn);
+        $out = Ledger::atomically($this->minn->db, fn () => $project->settle($id, $user, $gave, $got, time()));
+        return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
     private function signed(Request $request, string $route): void

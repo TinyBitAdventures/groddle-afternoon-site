@@ -29,6 +29,14 @@ final class LedgerMath
     /** js/trade.js APPLIED_KEEP: trades a save remembers as applied. */
     public const APPLIED_KEEP = 24;
 
+    /** js/street-jobs-mp.js APPLIED_KEEP: street project records a save remembers as applied. */
+    public const PROJECT_APPLIED_KEEP = 64;
+
+    /** The save slices that list applied ids, and the prefix of a street project's records. */
+    public const TRADE_SLICE = 'trade';
+    public const PROJECT_SLICE = 'street-jobs';
+    public const PROJECT_PREFIX = 'job-';
+
     // —— Reading a save ——
 
     /** The save's tradeable holdings, everywhere it keeps them. */
@@ -91,12 +99,32 @@ final class LedgerMath
         return ['items' => $items, 'currants' => $currants];
     }
 
-    /** The trade ids the save says it has applied (js/trade.js normalizeSlice). */
+    /**
+     * The trade ids the save says it has applied (js/trade.js normalizeSlice),
+     * and the street project ids (G346: a contribution taken out, a phase
+     * reward put in; features/street-jobs-feature.js keeps them in its own
+     * slice's `applied`).
+     */
     public static function applied(array $entries): array
     {
         $state = self::decode($entries['playerState'] ?? null);
-        $list = is_array($state) ? ($state['systems']['features']['trade']['applied'] ?? []) : [];
-        return array_values(array_filter(is_array($list) ? $list : [], static fn ($id) => is_string($id) && $id !== ''));
+        $features = is_array($state) ? ($state['systems']['features'] ?? []) : [];
+        $out = [];
+        foreach ([self::TRADE_SLICE, self::PROJECT_SLICE] as $slice) {
+            $list = is_array($features) ? ($features[$slice]['applied'] ?? []) : [];
+            foreach (is_array($list) ? $list : [] as $id) {
+                if (is_string($id) && $id !== '') {
+                    $out[] = $id;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** A street project's ledger record (Ledger::project): its id starts so (projects.go). */
+    public static function isProject(string $id): bool
+    {
+        return str_starts_with($id, self::PROJECT_PREFIX);
     }
 
     /** A trade's goods from the realtime server as counts, tradeable classes only. */
@@ -361,10 +389,12 @@ final class LedgerMath
         if (!($state->systems->features ?? null) instanceof \stdClass) {
             $state->systems->features = new \stdClass();
         }
-        if (!($state->systems->features->trade ?? null) instanceof \stdClass) {
-            $state->systems->features->trade = new \stdClass();
+        // A street project's record is remembered in the Job Board's slice, a trade in the trade's.
+        $sliceId = self::isProject($trade) ? self::PROJECT_SLICE : self::TRADE_SLICE;
+        if (!($state->systems->features->{$sliceId} ?? null) instanceof \stdClass) {
+            $state->systems->features->{$sliceId} = new \stdClass();
         }
-        $slice = $state->systems->features->trade;
+        $slice = $state->systems->features->{$sliceId};
         $inv = $state->inventory;
         $put = static function (string $c, int $n) use ($inv): void {
             $v = self::count($inv->{$c} ?? 0) + $n;
@@ -389,7 +419,7 @@ final class LedgerMath
         }
         $applied = is_array($slice->applied ?? null) ? $slice->applied : [];
         $applied[] = $trade;
-        $slice->applied = array_values(array_slice($applied, -self::APPLIED_KEEP));
+        $slice->applied = array_values(array_slice($applied, -(self::isProject($trade) ? self::PROJECT_APPLIED_KEEP : self::APPLIED_KEEP)));
         $entries['playerState'] = self::encode($state);
         return $entries;
     }
