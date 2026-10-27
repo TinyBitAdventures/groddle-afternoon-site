@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -101,6 +101,18 @@
       "detail text NOT NULL",
       "PRIMARY KEY  (id)",
       "KEY user_at (user_id,at)"
+    ],
+    "groddle_house_keys": [
+      "owner_id bigint(20) unsigned NOT NULL",
+      "holder_id bigint(20) unsigned NOT NULL",
+      "granted_at datetime NOT NULL",
+      "PRIMARY KEY  (owner_id,holder_id)",
+      "KEY holder_id (holder_id)"
+    ],
+    "groddle_home_visitors": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "opted_at datetime NOT NULL",
+      "PRIMARY KEY  (user_id)"
     ],
     "groddle_mp_saves": [
       "user_id bigint(20) unsigned NOT NULL",
