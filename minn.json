@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.13",
+  "version": "0.5.14",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -304,6 +304,22 @@
       "home_at datetime NULL",
       "updated_at datetime NOT NULL",
       "PRIMARY KEY  (user_id)"
+    ],
+    "groddle_snaps": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "user_id bigint(20) unsigned NOT NULL",
+      "file varchar(40) NOT NULL",
+      "street varchar(32) NOT NULL DEFAULT ''",
+      "x int(11) NOT NULL DEFAULT 0",
+      "y int(11) NOT NULL DEFAULT 0",
+      "caption varchar(500) NOT NULL DEFAULT ''",
+      "width smallint(5) unsigned NOT NULL DEFAULT 0",
+      "height smallint(5) unsigned NOT NULL DEFAULT 0",
+      "bytes int(10) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY user_id (user_id,created_at)",
+      "KEY street (street)"
     ],
     "groddle_solo_backups": [
       "user_id bigint(20) unsigned NOT NULL",
