@@ -1270,6 +1270,7 @@
 "soilappreciation_collect_loam":{"c":225},
 "soilappreciation_dig_earth":{"c":100},
 "soilappreciation_get_all_back_yard_trees_to_level10":{"c":550},
+"soilappreciation_help_digging":{"c":200},
 "soilappreciation_pet_seedlings_to_trees":{"c":200},
 "soilappreciation_plant_beans_in_back_yard_patches":{"c":225},
 "soilappreciation_plant_beans_in_hubs":{"c":250},
