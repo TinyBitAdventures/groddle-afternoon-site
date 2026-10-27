@@ -1286,6 +1286,7 @@
 "teleportation_teleport_between_zones":{"c":50},
 "teleportation_teleport_in_time_period":{"c":200},
 "teleportation_teleport_to_region":{"c":100},
+"teleportation_teleport_with_followers":{"c":350},
 "tincturing_make_tinctures":{"c":525},
 "tinkering_craft_medium_tools":{"c":525},
 "tinkering_craft_simple_tools":{"c":325},
