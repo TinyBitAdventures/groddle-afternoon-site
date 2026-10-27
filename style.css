@@ -264,6 +264,24 @@ a.cb-bar-label { color: var(--fg); }
 .cb-nod-badges img { display: block; }
 .cb-nod .cb-nod-note { margin: 0; font-size: 14px; color: var(--muted); }
 .cb-nod-note strong { color: var(--fg); }
+/* Where to send issues and pull requests: one sewn-on badge per repo in its section's tone, a Tiny Speck icon in a stitched ring, and its two GitHub doors as pills. */
+.cb-rbadges { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 16px; margin-block: 8px 30px; }
+.cb-rbadge { --cb-tone: var(--moss); --muted: color-mix(in srgb, var(--fg) 15%, var(--muted)); position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 22px 18px 20px; text-align: center; border: 1px solid color-mix(in srgb, var(--cb-tone) 40%, var(--border)); border-radius: 18px; outline: 2px dashed color-mix(in srgb, var(--cb-tone) 75%, var(--surface)); outline-offset: -8px; box-shadow: 0 12px 22px -20px rgba(0, 0, 0, 0.5);
+  background-color: color-mix(in srgb, var(--cb-tone) 6%, var(--surface));
+  background-image: repeating-linear-gradient(0deg, color-mix(in srgb, var(--cb-tone) 8%, transparent) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, color-mix(in srgb, var(--fg) 4%, transparent) 0 1px, transparent 1px 5px); }
+.cb-rbadge::before { content: ""; flex: none; width: 68px; height: 68px; box-sizing: border-box; padding: 12px; border-radius: 50%; border: 2px solid var(--cb-tone); outline: 1.5px dashed color-mix(in srgb, var(--cb-tone) 60%, var(--surface)); outline-offset: -7px; background: var(--cb-rb-icon) center / contain no-repeat content-box, var(--surface); transition: transform 0.25s ease; }
+.cb-rbadge-game { --cb-rb-icon: url("/assets/sprites/icons/npc_cubimal_piggy@3x.png"); }
+.cb-rbadge-server { --cb-tone: var(--sky); --cb-rb-icon: url("/assets/sprites/icons/teleportation_script@3x.png"); }
+.cb-rbadge-site { --cb-tone: var(--plum); --cb-rb-icon: url("/assets/sprites/icons/furniture_door@3x.png"); }
+.cb-rbadge > p { margin: 0; }
+.cb-rbadge-name { display: flex; flex-direction: column; gap: 2px; }
+.cb-rbadge-name strong { font-family: var(--font-display); font-size: 19px; line-height: 1.2; color: var(--fg); }
+.cb-rbadge-name span { font-family: var(--font-mono); font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.cb-rbadge-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.cb-rbadge-links a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 999px; border: 1.5px solid color-mix(in srgb, var(--cb-tone) 70%, var(--fg)); background: var(--surface); color: var(--fg); font-size: 14px; font-weight: 700; text-decoration: none; transition: background-color 0.15s ease; }
+.cb-rbadge-links a:hover { background: color-mix(in srgb, var(--cb-tone) 18%, var(--surface)); }
+.cb-rbadge-links a:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) { .cb-rbadge:hover::before, .cb-rbadge:focus-within::before { transform: rotate(-8deg) scale(1.06); } }
 @media (max-width: 640px) {
   /* Room in the left margin for the seam on a narrow screen. */
   .wp-block-post-content:has(> .cb-knot) .wrap { padding-left: 38px; }
