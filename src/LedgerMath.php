@@ -454,15 +454,27 @@ final class LedgerMath
      * the ledger after, the credit result, the reconcile result and the
      * credited rows to store (credits and today's capped counts).
      *
+     * Slice 3: $receipts are the realtime server's outcomes not yet shown
+     * (LedgerCredits). Each gain they cover stands exactly, outside the
+     * budget and before any transform, and 'allowed' says how much of them
+     * the write used; a receipt the save does not show is no loss.
+     *
      * @param array<string, array<string,int>> $credited kind -> ref -> n (daily kinds: today's)
-     * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>}
+     * @param array{items: array<string,int>, currants: int}|null $receipts
+     * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>, allowed: array{items: array<string,int>, currants: int}}
      */
-    public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy): array
+    public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy, ?array $receipts = null): array
     {
         $credits = self::credits($entries, $credited, $economy);
         $owed = self::add($ledger, $credits['goods']);
         $view = self::view($owed, $pending);
         $holdings = self::holdings($entries, $economy);
+        $allowed = self::covered($view, $holdings, $receipts ?? ['items' => [], 'currants' => 0]);
+        $owed = self::add($owed, $allowed);
+        foreach ($allowed['items'] as $c => $n) {
+            $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+        }
+        $view['currants'] += $allowed['currants'];
         $capsLeft = [];
         foreach ($credited['cap'] ?? [] as $c => $n) {
             $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
@@ -472,7 +484,26 @@ final class LedgerMath
         foreach ($r['capped'] as $c => $n) {
             $rows[] = ['cap', (string) $c, (int) ($credited['cap'][$c] ?? 0) + $n];
         }
-        return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows];
+        return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed];
+    }
+
+    /**
+     * How much of a write's gains (holdings over the expected view) the
+     * receipts cover, class by class and in currants.
+     *
+     * @return array{items: array<string,int>, currants: int}
+     */
+    public static function covered(array $view, array $holdings, array $receipts): array
+    {
+        $items = [];
+        foreach ($receipts['items'] as $c => $n) {
+            $k = min((int) $n, ($holdings['items'][$c] ?? 0) - ($view['items'][$c] ?? 0));
+            if ($k > 0) {
+                $items[(string) $c] = $k;
+            }
+        }
+        ksort($items);
+        return ['items' => $items, 'currants' => max(0, min((int) $receipts['currants'], $holdings['currants'] - $view['currants']))];
     }
 
     /** The ledger with changes added (counts never below 0). */

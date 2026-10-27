@@ -48,11 +48,15 @@ final readonly class Ledger
     /**
      * Defaults for the site options: value a minute, and the most the budget
      * holds. Slice 2 explains crafting, Cubimal boxes, artifacts, quests,
-     * badges, level-ups and card items, so the rate covers only what is
-     * still unexplained (harvests, drops, server outcomes until slice 3): an
-     * honest session measured well under it (g335-economy.md section 6).
+     * badges, level-ups and card items; slice 3 credits what the realtime
+     * server decides (quoins, race wins, shared rocks, trees and nodes,
+     * LedgerCredits), so the rate covers only what is still unexplained
+     * (drops, skill bonuses, animals, gardens, private trees): two honest
+     * players with quoins, mining, harvesting and a race paid 0.6 to 38.7 a
+     * minute (g335-economy.md section 7), so 100 leaves a margin of 2.5 times
+     * over the worst.
      */
-    public const RATE = 200.0;
+    public const RATE = 100.0;
     public const CAPACITY = 50000.0;
 
     /** A settled trade a save has not applied counts as applied after this (seconds). */
@@ -181,9 +185,27 @@ final readonly class Ledger
         }
     }
 
+    /**
+     * The budget refills on the wall clock (open question 1 in
+     * g335-economy.md: connected time instead would be the realtime
+     * server's to report, through the credits it already sends; only this
+     * method would change).
+     */
     private function refilled(float $budget, int $at, int $now): float
     {
         return min($this->capacity, $budget + max(0, $now - $at) / 60 * $this->rate);
+    }
+
+    /**
+     * Gives value back into a character's budget (never above its capacity):
+     * a realtime server credit that came after the write that showed it,
+     * which the budget paid for then (LedgerCredits::record).
+     */
+    public function refund(int $user, float $value, int $now): void
+    {
+        $state = $this->lock($user, $now);
+        $budget = min($this->capacity, $this->refilled($state['budget'], $state['budget_at'], $now) + max(0.0, $value));
+        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET budget = ?, budget_at = ? WHERE user_id = ?', [$budget, $now, $user]);
     }
 
     public function log(int $user, string $kind, array $detail, int $now): void
@@ -267,10 +289,13 @@ final readonly class Ledger
         }
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
         $budget = $this->refilled($state['budget'], $state['budget_at'], $now);
-        $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy);
+        // Slice 3: what the realtime server credited and the save has not shown yet (LedgerCredits).
+        $receipts = LedgerCredits::open($this->db, $user, $now);
+        $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy, $receipts['goods']);
         $r = $c['reconciled'];
         $this->store($user, $ledger, $c['after'], $r['budget'], $now);
         $this->credit($user, $c['rows'], $day, $now);
+        LedgerCredits::used($this->db, $user, $receipts, $c['allowed'], LedgerCredits::charged($r), $now);
         $credits = $c['credits'];
         if ($credits['detail'] !== []) {
             $this->log($user, 'credit', $credits['detail'] + ['goods' => ['items' => (object) $credits['goods']['items'], 'currants' => $credits['goods']['currants']]], $now);

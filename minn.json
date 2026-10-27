@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -109,6 +109,16 @@
       "n int(10) unsigned NOT NULL DEFAULT 0",
       "at datetime NOT NULL",
       "PRIMARY KEY  (user_id,kind,ref)"
+    ],
+    "groddle_ledger_outcomes": [
+      "event_id varchar(40) NOT NULL",
+      "user_id bigint(20) unsigned NOT NULL",
+      "why varchar(8) NOT NULL",
+      "got text NOT NULL",
+      "unused text NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (event_id)",
+      "KEY user_id (user_id,created_at)"
     ],
     "groddle_house_keys": [
       "owner_id bigint(20) unsigned NOT NULL",
