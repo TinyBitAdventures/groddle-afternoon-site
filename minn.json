@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -34,6 +34,18 @@
     "groddle/musicblocks-rules",
     "groddle/street-music",
     "groddle/site-nav"
+  ],
+  "types": [
+    {
+      "slug": "groddle_feedback",
+      "name": "Bug reports",
+      "singular": "Bug report",
+      "rest_base": "bug-reports",
+      "hierarchical": false,
+      "supports": ["title", "editor", "author", "custom-fields"],
+      "description": "Bug reports players sent from the game's header.",
+      "icon": "dashicons-flag"
+    }
   ],
   "tables": {
     "groddle_groups": [
