@@ -12,8 +12,9 @@ use Minn\Html;
  * /restoration/ page in Minn. Each draws the markup the built page's
  * restoration.js fills, from public/restoration/data.json, which
  * build-restoration.mjs computes from the repo: nothing in them is typed in.
- * What can be drawn simply is drawn here too (the score, recent changes, the
- * lost list, the tag legend, the stamp, the seasons), so the editor's previews and a reader
+ * What can be drawn simply is drawn here too (the score with how many systems
+ * work between real players in multiplayer, recent changes, the lost list, the
+ * tag legend, the stamp, the seasons), so the editor's previews and a reader
  * without scripts see it; the rest shows a one-line summary until the script
  * runs. The script itself loads once, after the page, when a section is on it.
  */
@@ -92,7 +93,15 @@ final class Restoration
             . '<div class="score-main"><span class="score-num" data-bind="back">' . self::fmt($d['back'] ?? 0) . '</span>'
             . '<span class="score-of">of <span data-bind="possible">' . self::fmt($d['possible'] ?? 0) . '</span> systems are playable again</span></div>'
             . '<div class="score-bar" id="score-bar" role="img" aria-label="Systems by restoration status">' . $bar . '</div>'
-            . '<ul class="score-legend" id="score-legend">' . $legend . '</ul></div>';
+            . '<ul class="score-legend" id="score-legend">' . $legend . '</ul>'
+            . '<p class="score-mp" id="score-mp">' . self::multiplayer($d) . '</p></div>';
+    }
+
+    /** How many systems work between real players (each item's multiplayer line, Track M). */
+    private static function multiplayer(array $d): string
+    {
+        $n = (int) ($d['multiplayer'] ?? 0);
+        return $n > 0 ? '<b>' . $n . '</b> of them work between real players in multiplayer.' : '';
     }
 
     /** The diorama: the game's own sprites, laid out as the built page lays them out. */
@@ -190,6 +199,7 @@ final class Restoration
         foreach ($d['groups'] ?? [] as $group) {
             $items = array_values(array_filter($d['items'] ?? [], static fn ($it) => ($it['group'] ?? '') === ($group['id'] ?? null)));
             $back = count(array_filter($items, static fn ($it) => in_array($it['status'] ?? '', ['source', 'rebuilt', 'reimagined', 'solo'], true)));
+            $mp = count(array_filter($items, static fn ($it) => is_string($it['multiplayer'] ?? null) && $it['multiplayer'] !== ''));
             $meter = '';
             foreach (self::ORDER as $status) {
                 $n = count(array_filter($items, static fn ($it) => ($it['status'] ?? '') === $status));
@@ -198,7 +208,7 @@ final class Restoration
                 }
             }
             $groups .= '<section class="group" aria-label="' . Html::attr((string) ($group['name'] ?? '')) . '"><h3>' . Html::esc((string) ($group['name'] ?? '')) . '</h3>'
-                . '<p class="group-blurb">' . Html::esc(($group['blurb'] ?? '') . " {$back} of " . count($items) . ' back.') . '</p>'
+                . '<p class="group-blurb">' . Html::esc(($group['blurb'] ?? '') . " {$back} of " . count($items) . ' back' . ($mp > 0 ? ", {$mp} in multiplayer" : '') . '.') . '</p>'
                 . '<div class="group-meter" aria-hidden="true">' . $meter . '</div></section>';
         }
         return '<div class="filters" id="filters" role="toolbar" aria-label="Filter by status"></div><div class="groups" id="groups">' . $groups . '</div>';
