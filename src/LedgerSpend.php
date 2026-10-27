@@ -26,6 +26,8 @@ use Minn\RestError;
  *        | 200 {"status":"void"} (given back, or voided before it came)
  *   POST groddle/v1/ledger/spend/void  {"op":"party-…","id":7}
  *        200 {"status":"void"} | 200 {"status":"settled"} (the save already applied it)
+ *   POST groddle/v1/ledger/spend/refund  {"op":"party-…","id":7}
+ *        200 {"status":"void","gave":[Goods]} (given back, now or before) | 200 {"status":"refused"} (nothing was spent)
  *
  * A spend is recorded as a settled trade with nobody (groddle_trades, b_id
  * 0, b's side applied), so the ledger's own bookkeeping carries it: until the
@@ -36,11 +38,23 @@ use Minn\RestError;
  * (Ledger::catchUp). Idempotent per op: asking again answers as recorded.
  * The void gives a spend back while no save has applied it (a space that
  * could not open after all), and makes sure a late spend never settles.
+ *
+ * The refund (party_spaces.go refund, party_persist.go: a spend that bought
+ * nothing, or a space that could not come back after a restart of the
+ * realtime server) gives a settled spend back whether or not a save has
+ * applied it: a settled trade from nobody, trade id <op>-r (a_id the player,
+ * a_gave nothing, b_gave what was spent, b's side applied), so the ledger has
+ * it back at once and the next load applies it to the save (Ledger::catchUp)
+ * while a page that hears party_space_refunded applies it by the same id.
+ * Once per spend: asking again answers as before. A spend that never came is
+ * recorded void (a late one never settles); one refused or voided gives
+ * nothing back, and a void after a refund gives nothing either.
  */
 final readonly class LedgerSpend
 {
     public const SPEND = '/groddle/v1/ledger/spend';
     public const VOID = '/groddle/v1/ledger/spend/void';
+    public const REFUND = '/groddle/v1/ledger/spend/refund';
 
     /** What the realtime server may spend on, and what each takes. */
     private const WHY = ['party_pack', 'party_atm'];
@@ -76,6 +90,19 @@ final readonly class LedgerSpend
             throw new RestError('groddle_ledger_invalid', 'Not a spend.', 400);
         }
         return Response::json(Ledger::atomically($this->minn->db, fn () => $this->giveBack($op, $id, time())));
+    }
+
+    #[Route(Method::Post, self::REFUND, policy: new Policy(Access::Public))]
+    public function refund(Request $request): Response
+    {
+        $this->signed($request, self::REFUND);
+        $body = json_decode($request->body, true);
+        $op = is_array($body) ? ($body['op'] ?? null) : null;
+        $id = is_array($body) ? ($body['id'] ?? null) : null;
+        if (!self::opId($op) || !is_int($id) || $id <= 0) {
+            throw new RestError('groddle_ledger_invalid', 'Not a spend.', 400);
+        }
+        return Response::json(Ledger::atomically($this->minn->db, fn () => $this->refundOnce($op, $id, time())));
     }
 
     /** A pack is one Party Pack and nothing else; the ATM takes currants and nothing else. */
@@ -142,6 +169,9 @@ final readonly class LedgerSpend
         if ($row['a_applied_at'] !== null) {
             return ['status' => 'settled'];
         }
+        if ($db->row("SELECT status FROM {$t} WHERE trade_id = ? FOR UPDATE", [self::refundId($op)]) !== null) {
+            return ['status' => 'void']; // refunded already (refundOnce): never twice
+        }
         $ledger = Ledger::fromSeams($this->minn);
         $state = $ledger->lock($id, $now);
         $gave = LedgerMath::goods(json_decode((string) $row['a_gave'], true));
@@ -149,6 +179,40 @@ final readonly class LedgerSpend
         $db->execute("UPDATE {$t} SET status = 'void' WHERE trade_id = ?", [$op]);
         $ledger->log($id, 'unspend', ['spend' => $op], $now);
         return ['status' => 'void'];
+    }
+
+    /** @return array{status: string, gave?: list<array>} */
+    private function refundOnce(string $op, int $id, int $now): array
+    {
+        $db = $this->minn->db;
+        $t = $db->table(Ledger::TRADES);
+        $row = $db->row("SELECT status, a_id, b_id, a_gave FROM {$t} WHERE trade_id = ? FOR UPDATE", [$op]);
+        if ($row === null) {
+            $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, created_at) VALUES (?, 'void', ?, 0, '{}', '{}', ?)", [$op, $id, gmdate('Y-m-d H:i:s', $now)]);
+            return ['status' => 'refused'];
+        }
+        if ($row['status'] !== 'settled' || (int) $row['a_id'] !== $id || (int) $row['b_id'] !== 0) {
+            return ['status' => 'refused'];
+        }
+        $gave = LedgerMath::goods(json_decode((string) $row['a_gave'], true));
+        $answer = ['status' => 'void', 'gave' => [json_decode(self::json($gave), true)]];
+        $rid = self::refundId($op);
+        if ($db->row("SELECT status FROM {$t} WHERE trade_id = ? FOR UPDATE", [$rid]) !== null) {
+            return $answer;
+        }
+        $ledger = Ledger::fromSeams($this->minn);
+        $state = $ledger->lock($id, $now);
+        $this->move($id, $state, $gave, 1, $now);
+        $stamp = gmdate('Y-m-d H:i:s', $now);
+        $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$rid, $id, '{"items":[],"currants":0}', self::json($gave), $stamp, $stamp]);
+        $ledger->log($id, 'refund', ['spend' => $op, 'refund' => $rid, 'gave' => ['items' => (object) $gave['items'], 'currants' => $gave['currants']]], $now);
+        return $answer;
+    }
+
+    /** The refund's trade id: the spend's and -r (party_spaces.go sendRefunded). */
+    private static function refundId(string $op): string
+    {
+        return $op . '-r';
     }
 
     /** Takes the goods out of the ledger ($sign -1) or puts them back (1). */
