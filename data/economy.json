@@ -885,6 +885,7 @@
 {"s":"recipe:furniture_coffeetable","i":{"board":12,"snail":12,"wood_post":2},"o":{"furniture_coffeetable":1}},
 {"s":"recipe:furniture_counter","i":{"board":18,"snail":12},"o":{"furniture_counter":1}},
 {"s":"recipe:furniture_desk","i":{"board":8,"metal_post":1,"snail":12},"o":{"furniture_desk":1}},
+{"s":"recipe:furniture_door","i":{"board":16,"snail":20,"wood_post":8},"o":{"furniture_door":1}},
 {"s":"recipe:furniture_fireplace","i":{"barnacle_talc":16,"board":16,"dullite":120,"firefly_jar":7},"o":{"furniture_fireplace":1}},
 {"s":"recipe:furniture_floorlamp","i":{"bulb":1,"general_fabric":1,"metal_rod":2,"snail":4},"o":{"furniture_floorlamp":1}},
 {"s":"recipe:furniture_loveseat","i":{"board":6,"fiber":80,"general_fabric":1,"snail":8,"wood_post":2},"o":{"furniture_loveseat":1}},
