@@ -14,7 +14,9 @@ use Minn\Html;
  * files by language and by area, tests, commits, largest files and what is not
  * counted as code; the three repos side by side; or the Minn Engine and Minn
  * Admin commits the live site is pinned to. Every chart carries its exact
- * numbers in text beside it, so the page reads the same without scripts.
+ * numbers in text beside it, so the page reads the same without scripts. The
+ * Code page dresses them as Glitch's textile chain: each repo is a patch sewn
+ * onto the page and its areas are a quilt (the .cb-* styles in style.css).
  */
 final class Codebase
 {
@@ -203,20 +205,10 @@ final class Codebase
             . '<ul class="cb-legend">' . $legend . '</ul></figure>';
     }
 
-    /** Lines by area of the repo, largest first, on one scale. */
+    /** Lines by area of the repo: a quilt of stitched squares sized by lines (src/CodebaseQuilt.php), with the exact numbers in its key. */
     private static function areas(array $r): string
     {
-        $areas = $r['areas'] ?? [];
-        $max = max(1, ...array_map(static fn (array $a): int => (int) $a['lines'], $areas));
-        $rows = '';
-        foreach ($areas as $a) {
-            $lines = (int) $a['lines'];
-            $rows .= '<li><div class="cb-bar-head"><span class="cb-bar-label">' . Html::esc((string) $a['label']) . '</span>'
-                . '<span class="cb-bar-value">' . Html::esc(self::n($lines)) . '</span></div>'
-                . '<span class="cb-track"><span class="cb-fill" style="width: ' . Html::attr(self::width($lines, $max)) . '" title="' . Html::attr($a['label'] . ': ' . self::n($lines) . ' lines, ' . self::plural((int) $a['files'], 'file', 'files')) . '"></span></span>'
-                . '<span class="cb-bar-note">' . Html::esc(self::plural((int) $a['files'], 'file', 'files') . ' · ' . $a['path']) . '</span></li>';
-        }
-        return '<figure class="cb-fig"><h3 class="cb-fig-h">Lines by area</h3><ol class="cb-bars">' . $rows . '</ol></figure>';
+        return CodebaseQuilt::draw($r['areas'] ?? [], self::n(...), self::plural(...), self::pct(...));
     }
 
     private static function largest(array $r): string

@@ -202,3 +202,72 @@ a.cb-bar-label { color: var(--fg); }
 .code-steps li + li { margin-top: 6px; }
 .code-steps code, .code-rules code { font-family: var(--font-mono); font-size: 0.9em; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .cb-fig, .cb-overview { padding: 14px; } .cb-tile-value { font-size: 22px; } }
+/* The Code page as Glitch's textile chain (tools/codebase/to-minn.mjs, src/CodebaseQuilt.php). A seam runs down the page with a checkpoint (.cb-knot) between sections, each the Tiny Speck icon from the game's build; it stitches itself in as the page scrolls where the browser has scroll-driven animations and motion is welcome, and is drawn whole otherwise. */
+.wp-block-post-content:has(> .cb-knot) { --cb-seam-x: max(16px, calc((100% - var(--container)) / 2 + 12px)); --cb-thread: var(--accent); position: relative; }
+.wp-block-post-content:has(> .cb-knot)::before, .wp-block-post-content:has(> .cb-knot)::after { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--cb-seam-x) - 1.5px); width: 3px; pointer-events: none; }
+/* The holes the needle follows, then the thread through them. */
+.wp-block-post-content:has(> .cb-knot)::before { background: repeating-linear-gradient(to bottom, transparent 0 11px, var(--border) 11px 14px, transparent 14px 18px); border-radius: 2px; }
+.wp-block-post-content:has(> .cb-knot)::after { background: repeating-linear-gradient(to bottom, var(--cb-thread) 0 11px, transparent 11px 18px); }
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    /* The thread's end follows a point 60% down the window: it starts as the page's top passes that point and is whole when the bottom does. */
+    .wp-block-post-content:has(> .cb-knot) { view-timeline: --cb-seam block; }
+    .wp-block-post-content:has(> .cb-knot)::after { animation: cb-stitch linear both; animation-timeline: --cb-seam; animation-range: cover 40vh cover calc(100% - 60vh); }
+  }
+}
+@keyframes cb-stitch { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+.cb-knot { --cb-knot-size: clamp(32px, calc(var(--cb-seam-x) * 2 - 4px), 46px); position: relative; z-index: 1; display: flex; align-items: center; min-height: calc(var(--cb-knot-size) + 24px); padding: 12px 16px 12px calc(var(--cb-seam-x) + var(--cb-knot-size) / 2 + 14px); }
+.cb-knot::before { content: ""; position: absolute; left: calc(var(--cb-seam-x) - var(--cb-knot-size) / 2); top: 50%; width: var(--cb-knot-size); height: var(--cb-knot-size); transform: translateY(-50%); border-radius: 50%; border: 2px solid var(--cb-thread, var(--accent)); background: var(--cb-knot-icon) center / 74% auto no-repeat, var(--surface); box-shadow: 0 0 0 3px var(--bg); }
+.cb-knot p { margin: 0; max-width: 44em; font-size: 15px; color: var(--muted); }
+.cb-knot strong { display: inline; margin-right: 0.35em; font-family: var(--font-display); font-size: 18px; color: var(--fg); }
+.cb-knot-fiber { --cb-knot-icon: url("/assets/sprites/icons/fiber@3x.png"); }
+.cb-knot-spindle { --cb-knot-icon: url("/assets/sprites/icons/spindle@3x.png"); }
+.cb-knot-thread { --cb-knot-icon: url("/assets/sprites/icons/thread@3x.png"); }
+.cb-knot-loomer { --cb-knot-icon: url("/assets/sprites/icons/loomer@3x.png"); }
+.cb-knot-general_fabric { --cb-knot-icon: url("/assets/sprites/icons/general_fabric@3x.png"); }
+/* Each repo's section is a fabric patch sewn on: a weave in its own tone with a running stitch inside the edge. Muted text leans toward the ink on it, so it keeps 4.5:1 on the weave in both themes. */
+.cb-patch { --cb-tone: var(--moss); --muted: color-mix(in srgb, var(--fg) 15%, var(--muted)); position: relative; padding: 34px 34px 30px; border: 1px solid color-mix(in srgb, var(--cb-tone) 40%, var(--border)); border-radius: 18px; outline: 2px dashed color-mix(in srgb, var(--cb-tone) 75%, var(--surface)); outline-offset: -11px; box-shadow: 0 14px 26px -22px rgba(0, 0, 0, 0.5);
+  background-color: color-mix(in srgb, var(--cb-tone) 5%, var(--surface));
+  background-image: repeating-linear-gradient(0deg, color-mix(in srgb, var(--cb-tone) 8%, transparent) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, color-mix(in srgb, var(--fg) 4%, transparent) 0 1px, transparent 1px 5px); }
+.cb-patch-server { --cb-tone: var(--sky); }
+.cb-patch-site { --cb-tone: var(--plum); }
+.page-wide .cb-patch > h2 { margin-top: 0; }
+.cb-patch > :last-child { margin-bottom: 0; }
+/* Lines by area as a quilt: squares sized by lines on a 3:2 frame, a 2px gap of the figure's surface between them, numbered to match the key below. */
+.cb-fabric-moss { --cb-f: var(--moss); } .cb-fabric-sky { --cb-f: var(--sky); } .cb-fabric-sun { --cb-f: var(--sun); } .cb-fabric-sand { --cb-f: var(--sand); }
+.cb-fabric-plum { --cb-f: var(--plum); } .cb-fabric-dusk { --cb-f: var(--dusk); } .cb-fabric-stone { --cb-f: var(--stone); }
+.cb-quilt-frame { container-type: inline-size; padding: 5px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.cb-quilt { position: relative; list-style: none; margin: 0; padding: 0; aspect-ratio: 3 / 2; }
+.cb-q-sq { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 8px; overflow: hidden; border: 2px solid var(--surface); border-radius: 8px; color: var(--fg); line-height: 1.2;
+  background-color: color-mix(in srgb, var(--cb-f) 30%, var(--surface));
+  background-image: repeating-linear-gradient(45deg, color-mix(in srgb, var(--cb-f) 16%, transparent) 0 1px, transparent 1px 5px), repeating-linear-gradient(-45deg, color-mix(in srgb, var(--cb-f) 12%, transparent) 0 1px, transparent 1px 5px); }
+.cb-q-sq::after { content: ""; position: absolute; inset: 3px; border: 1.5px dashed color-mix(in srgb, var(--cb-f) 85%, var(--fg)); border-radius: 5px; pointer-events: none; }
+.cb-q-tag { position: relative; z-index: 1; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 999px; border: 1.5px solid var(--cb-f); background: var(--surface); color: var(--fg); font: 700 12px/1 var(--font-body); font-variant-numeric: tabular-nums; }
+.cb-q-name { position: relative; z-index: 1; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+.cb-q-num { position: relative; z-index: 1; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cb-q-mid .cb-q-name, .cb-q-small .cb-q-name, .cb-q-small .cb-q-num { display: none; }
+.cb-q-small { padding: 1px; align-items: center; justify-content: center; }
+.cb-q-small::after { inset: 2px; }
+.cb-q-small .cb-q-tag { min-width: 16px; height: 16px; font-size: 10px; padding: 0 3px; border-width: 1px; }
+@container (max-width: 340px) { .cb-q-big .cb-q-name { font-size: 12px; } .cb-q-sq { padding: 5px 6px; } .cb-q-mid .cb-q-num { display: none; } }
+.cb-q-keys { margin-top: 16px; }
+.cb-q-key { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cb-q-key .cb-q-tag { flex: none; background: color-mix(in srgb, var(--cb-f) 30%, var(--surface)); }
+.cb-q-note { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+/* Contributing: the pull-request invitation with two Tiny Speck badges beside it, as a nod. */
+.cb-invite { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 18px 32px; margin-block: 18px 22px; }
+.cb-invite > * { margin-block: 0; }
+.cb-invite > .section-lead { flex: 1 1 24rem; }
+.cb-nod { flex: 1 1 30rem; max-width: 36rem; display: flex; align-items: center; gap: 14px; margin: 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); outline: 2px dashed color-mix(in srgb, var(--accent) 70%, var(--surface)); outline-offset: -7px; background: var(--surface); }
+.cb-nod-badges { flex: none; display: flex; gap: 6px; }
+.cb-nod .cb-nod-badges > .cb-badge { margin: 0; }
+.cb-nod-badges img { display: block; }
+.cb-nod .cb-nod-note { margin: 0; font-size: 14px; color: var(--muted); }
+.cb-nod-note strong { color: var(--fg); }
+@media (max-width: 640px) {
+  /* Room in the left margin for the seam on a narrow screen. */
+  .wp-block-post-content:has(> .cb-knot) .wrap { padding-left: 38px; }
+  .cb-patch { padding: 26px 16px 22px; outline-offset: -7px; border-radius: 14px; }
+  .cb-knot strong { display: block; }
+  .cb-nod { flex-direction: column; align-items: flex-start; }
+}
