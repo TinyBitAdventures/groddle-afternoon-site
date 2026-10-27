@@ -50,6 +50,7 @@ final class Extension implements MinnExtension
         Restoration::register($minn, $root);
         Musicblocks::register($minn, $root);
         StreetMusic::register($minn, $root);
+        Codebase::register($minn, $root);
         SiteNav::register($minn);
     }
 

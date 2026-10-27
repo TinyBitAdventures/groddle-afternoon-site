@@ -33,6 +33,7 @@
     "groddle/musicblocks",
     "groddle/musicblocks-rules",
     "groddle/street-music",
+    "groddle/codebase",
     "groddle/site-nav"
   ],
   "types": [

@@ -1,0 +1,32 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/codebase",
+	"title": "Codebase figures",
+	"category": "widgets",
+	"description": "One Groddle repo measured from git (lines and files by language and by area, tests, commits), the three repos side by side, or the Minn versions the live site runs. Drawn from public/codebase/data.json.",
+	"attributes": {
+		"repo": {
+			"type": "string",
+			"enum": [
+				"overview",
+				"game",
+				"server",
+				"site",
+				"platform"
+			],
+			"default": "overview"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"code",
+		"github",
+		"repo"
+	]
+}
