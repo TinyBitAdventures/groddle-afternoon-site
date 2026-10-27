@@ -23,6 +23,14 @@ namespace Groddle\Minn;
  * homes decor and towerDecor, js/home-decor.js) and stacks dropped on
  * streets (the droppedItems entry, js/world-items.js). Smaller stashes are
  * not counted: taking from one reads as a gain, which the budget pays for.
+ *
+ * Slice 2 explains gains so the budget can be small: a write's losses may
+ * turn into a transform's outputs outside the budget (explain: recipes,
+ * Cubimal boxes, artifact assembly, Economy::producing), rewards the source
+ * pays for a marker the save carries are credited exactly once per
+ * character (credits: quests, badges, level-ups, imagination cards), and a
+ * class only drop tables grant gains at most its cap a day (reconcile's
+ * $capsLeft).
  */
 final class LedgerMath
 {
@@ -42,6 +50,24 @@ final class LedgerMath
     /** G345: a shared Feat's reward (feats.go feat-r-), remembered in the Feats feature's slice. */
     public const FEAT_SLICE = 'solo-feats';
     public const FEAT_PREFIX = 'feat-';
+
+    /** Ours: purchases a day of one repeatable imagination card that are credited (more go through the budget). */
+    public const CARD_DAILY = 3;
+
+    /**
+     * Ours: level-ups credited a day. Levels and xp are the client's, so a
+     * script could step a character from 2 to 60 at once (1,441,400 currants
+     * in all); a few a day keeps that slower than real play ever was, and a
+     * level-up past the count is credited on a later day (the final level
+     * reached then, as the source pays a jump).
+     */
+    public const LEVELS_DAILY = 3;
+
+    /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups. */
+    public const DAILY_KINDS = ['cap', 'cardday', 'lvlday'];
+
+    /** How deep explain looks for an input made from other losses in the same write (grain to flour to a bun). */
+    public const EXPLAIN_DEPTH = 2;
 
     // —— Reading a save ——
 
@@ -179,27 +205,48 @@ final class LedgerMath
 
     /**
      * Compares a save's holdings with the expected view and decides what the
-     * write keeps. Losses always stand and refund their value into the budget
-     * (never above its capacity, so a craft split over two writes is not paid
-     * twice). Gains stand smallest first (by their whole value) while the
-     * budget lasts, so a forged pile never crowds out an honest pick; a
-     * credit-only class never stands as a gain. Returns the changes that
-     * stand (to add to the ledger), what was clamped, and the budget left.
+     * write keeps. Losses always stand. Gains a transform explains from the
+     * write's own losses stand outside the budget (explain), and the losses
+     * they used refund nothing. The other losses refund their value into the
+     * budget (never above its capacity, so a craft split over two writes is
+     * not paid twice), and the other gains stand smallest first (by their
+     * whole value) while the budget lasts, so a forged pile never crowds out
+     * an honest pick. A credit-only class never stands as a gain; a capped
+     * class stands at most $capsLeft[class] (default its daily cap). Returns
+     * the changes that stand (to add to the ledger), what was clamped, the
+     * budget left, what transforms explained and the capped counts taken.
      *
-     * @return array{delta: array{items: array<string,int>, currants: int}, clamped: array{items: array<string,int>, currants: int}, budget: float, gained: float}
+     * @param array<string,int>|null $capsLeft capped class -> gains left today (null: a full day)
+     * @return array{delta: array{items: array<string,int>, currants: int}, clamped: array{items: array<string,int>, currants: int}, budget: float, gained: float, made: array<string,int>, runs: array<string,int>, capped: array<string,int>}
      */
-    public static function reconcile(array $view, array $holdings, float $budget, float $capacity, Economy $economy): array
+    public static function reconcile(array $view, array $holdings, float $budget, float $capacity, Economy $economy, ?array $capsLeft = null): array
     {
         $delta = ['items' => [], 'currants' => 0];
         $clamped = ['items' => [], 'currants' => 0];
-        $gains = [];
+        $loss = [];
+        $gain = [];
         foreach (array_unique(array_merge(array_keys($view['items']), array_keys($holdings['items']))) as $c) {
+            $c = (string) $c;
             $d = ($holdings['items'][$c] ?? 0) - ($view['items'][$c] ?? 0);
             if ($d < 0) {
                 $delta['items'][$c] = $d;
-                $budget = min($capacity, $budget + (-$d) * $economy->value($c));
+                $loss[$c] = -$d;
             } elseif ($d > 0) {
-                $gains[] = [$c, $d, $economy->value($c)];
+                $gain[$c] = $d;
+            }
+        }
+        $x = self::explain($gain, $loss, $economy, $budget);
+        foreach ($loss as $c => $n) {
+            $budget = min($capacity, $budget + ($n - ($x['used'][$c] ?? 0)) * $economy->value((string) $c));
+        }
+        $gains = [];
+        foreach ($gain as $c => $n) {
+            $made = $x['made'][$c] ?? 0;
+            if ($made > 0) {
+                $delta['items'][$c] = $made;
+            }
+            if ($n - $made > 0) {
+                $gains[] = [(string) $c, $n - $made, $economy->value((string) $c)];
             }
         }
         $dc = $holdings['currants'] - $view['currants'];
@@ -211,8 +258,15 @@ final class LedgerMath
         }
         usort($gains, static fn ($a, $b) => $a[1] * $a[2] <=> $b[1] * $b[2] ?: strcmp((string) $a[0], (string) $b[0]));
         $gained = 0.0;
+        $capped = [];
         foreach ($gains as [$c, $n, $v]) {
-            $keep = ($c !== null && $economy->creditOnly($c)) ? 0 : (int) min($n, floor(($budget + 1e-9) / $v));
+            $most = $n;
+            if ($c !== null && $economy->creditOnly($c)) {
+                $most = 0;
+            } elseif ($c !== null && $economy->cap($c) > 0) {
+                $most = min($n, max(0, (int) ($capsLeft[$c] ?? $economy->cap($c))));
+            }
+            $keep = (int) min($most, floor(($budget + 1e-9) / $v));
             $budget -= $keep * $v;
             $gained += $keep * $v;
             if ($c === null) {
@@ -223,7 +277,10 @@ final class LedgerMath
                 continue;
             }
             if ($keep > 0) {
-                $delta['items'][$c] = $keep;
+                $delta['items'][$c] = ($delta['items'][$c] ?? 0) + $keep;
+                if ($economy->cap($c) > 0) {
+                    $capped[$c] = $keep;
+                }
             }
             if ($keep < $n) {
                 $clamped['items'][$c] = $n - $keep;
@@ -231,7 +288,178 @@ final class LedgerMath
         }
         ksort($delta['items']);
         ksort($clamped['items']);
-        return ['delta' => $delta, 'clamped' => $clamped, 'budget' => max(0.0, $budget), 'gained' => $gained];
+        ksort($capped);
+        return ['delta' => $delta, 'clamped' => $clamped, 'budget' => max(0.0, $budget), 'gained' => $gained, 'made' => $x['made'], 'runs' => $x['runs'], 'capped' => $capped];
+    }
+
+    /**
+     * The gains a write's own losses explain through transforms
+     * (Economy::producing): the most valuable gains first, each from the
+     * transforms that make it, as many runs as the losses cover; an input
+     * the losses lack may itself be made from other losses (EXPLAIN_DEPTH),
+     * and what such a step makes beyond the need is not kept anywhere. A
+     * roll (a Cubimal box) whose outcome is worth more than its inputs
+     * charges the difference to the budget, so always choosing the rarest
+     * figure is not free. Returns what was made (to stand outside the
+     * budget), the losses used (which refund nothing) and the runs.
+     *
+     * @param array<string,int> $gain
+     * @param array<string,int> $loss
+     * @return array{made: array<string,int>, used: array<string,int>, runs: array<string,int>}
+     */
+    public static function explain(array $gain, array $loss, Economy $economy, float &$budget): array
+    {
+        $out = ['made' => [], 'used' => [], 'runs' => []];
+        if ($gain === [] || $loss === []) {
+            return $out;
+        }
+        $order = array_keys($gain);
+        usort($order, static fn ($a, $b) => $gain[$b] * $economy->value((string) $b) <=> $gain[$a] * $economy->value((string) $a) ?: strcmp((string) $a, (string) $b));
+        $need = $gain;
+        $state = ['avail' => $loss, 'used' => [], 'budget' => $budget, 'runs' => []];
+        foreach ($order as $c) {
+            $c = (string) $c;
+            foreach ($economy->producing($c) as $t) {
+                if (($need[$c] ?? 0) <= 0) {
+                    break;
+                }
+                $want = (int) ceil($need[$c] / max(1, (int) $t['o'][$c]));
+                // A dry run says how many the losses cover; the real run then takes exactly that many.
+                $try = $state;
+                $k = self::run($t, $want, $try, $economy, self::EXPLAIN_DEPTH);
+                if ($k <= 0) {
+                    continue;
+                }
+                self::run($t, $k, $state, $economy, self::EXPLAIN_DEPTH);
+                foreach ($t['o'] as $o => $q) {
+                    $o = (string) $o;
+                    $m = min($need[$o] ?? 0, $k * (int) $q);
+                    if ($m > 0) {
+                        $out['made'][$o] = ($out['made'][$o] ?? 0) + $m;
+                        $need[$o] -= $m;
+                    }
+                }
+            }
+        }
+        $budget = $state['budget'];
+        ksort($out['made']);
+        ksort($state['used']);
+        ksort($state['runs']);
+        $out['used'] = $state['used'];
+        $out['runs'] = $state['runs'];
+        return $out;
+    }
+
+    /**
+     * Runs a transform up to $want times from the state's losses (making a
+     * short input from other losses while $depth lasts), taking what it uses.
+     * Returns the runs made. The state: avail (losses left), used (losses
+     * taken), budget, runs.
+     */
+    private static function run(array $t, int $want, array &$state, Economy $economy, int $depth): int
+    {
+        $k = $want;
+        // A roll worth more than its inputs pays the difference from the budget.
+        if (!empty($t['r'])) {
+            $premium = 0.0;
+            foreach ($t['o'] as $o => $q) {
+                $premium += (int) $q * $economy->value((string) $o);
+            }
+            foreach ($t['i'] as $i => $q) {
+                $premium -= (int) $q * $economy->value((string) $i);
+            }
+            if ($premium > 0) {
+                $k = min($k, (int) floor(($state['budget'] + 1e-9) / $premium));
+            }
+        }
+        if ($k <= 0) {
+            return 0;
+        }
+        foreach ($t['i'] as $i => $q) {
+            $i = (string) $i;
+            $q = max(1, (int) $q);
+            $have = (int) ($state['avail'][$i] ?? 0);
+            if ($have < $k * $q && $depth > 0) {
+                // Make the shortfall from other losses: what is made stands in for a loss of this input.
+                $short = $k * $q - $have;
+                foreach ($economy->producing($i) as $sub) {
+                    if ($short <= 0) {
+                        break;
+                    }
+                    if (isset($sub['i'][$i])) {
+                        continue;
+                    }
+                    $per = max(1, (int) $sub['o'][$i]);
+                    $try = $state;
+                    $m = self::run($sub, (int) ceil($short / $per), $try, $economy, $depth - 1);
+                    if ($m > 0) {
+                        self::run($sub, $m, $state, $economy, $depth - 1);
+                        $state['made'][$i] = ($state['made'][$i] ?? 0) + $m * $per;
+                        $short -= $m * $per;
+                    }
+                }
+            }
+            $k = min($k, intdiv((int) ($state['avail'][$i] ?? 0) + (int) ($state['made'][$i] ?? 0), $q));
+        }
+        if ($k <= 0) {
+            return 0;
+        }
+        foreach ($t['i'] as $i => $q) {
+            $i = (string) $i;
+            $take = $k * max(1, (int) $q);
+            // Made stand-ins first, then real losses (only those count as used).
+            $fromMade = min($take, (int) ($state['made'][$i] ?? 0));
+            if ($fromMade > 0) {
+                $state['made'][$i] -= $fromMade;
+            }
+            $fromLoss = $take - $fromMade;
+            if ($fromLoss > 0) {
+                $state['avail'][$i] -= $fromLoss;
+                $state['used'][$i] = ($state['used'][$i] ?? 0) + $fromLoss;
+            }
+        }
+        if (!empty($t['r'])) {
+            $premium = 0.0;
+            foreach ($t['o'] as $o => $q) {
+                $premium += (int) $q * $economy->value((string) $o);
+            }
+            foreach ($t['i'] as $i => $q) {
+                $premium -= (int) $q * $economy->value((string) $i);
+            }
+            if ($premium > 0) {
+                $state['budget'] -= $k * $premium;
+            }
+        }
+        $state['runs'][$t['s']] = ($state['runs'][$t['s']] ?? 0) + $k;
+        return $k;
+    }
+
+    /**
+     * A whole save write against the ledger, as Ledger::write runs it: the
+     * write's credits go into the ledger first, then the save is compared
+     * with that (and with settled trades it has not applied yet). Returns
+     * the ledger after, the credit result, the reconcile result and the
+     * credited rows to store (credits and today's capped counts).
+     *
+     * @param array<string, array<string,int>> $credited kind -> ref -> n (daily kinds: today's)
+     * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>}
+     */
+    public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy): array
+    {
+        $credits = self::credits($entries, $credited, $economy);
+        $owed = self::add($ledger, $credits['goods']);
+        $view = self::view($owed, $pending);
+        $holdings = self::holdings($entries, $economy);
+        $capsLeft = [];
+        foreach ($credited['cap'] ?? [] as $c => $n) {
+            $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
+        }
+        $r = self::reconcile($view, $holdings, $budget, $capacity, $economy, $capsLeft);
+        $rows = $credits['rows'];
+        foreach ($r['capped'] as $c => $n) {
+            $rows[] = ['cap', (string) $c, (int) ($credited['cap'][$c] ?? 0) + $n];
+        }
+        return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows];
     }
 
     /** The ledger with changes added (counts never below 0). */
@@ -266,14 +494,17 @@ final class LedgerMath
         $state = self::objects($entries['playerState'] ?? null);
         $dropped = self::objects($entries['droppedItems'] ?? null);
         $want = $goods['items'];
-        $take = static function (object $map, string $c) use (&$want): void {
+        // The pack keeps a class it ran out of at 0, as the game does (js/inventory.js removeItem):
+        // an absent key reads as a save from before a starter grant, and the boot grants it again
+        // (game.js the Hatchet and Paradise tickets; resource-nodes-feature.js the kit).
+        $take = static function (object $map, string $c, bool $keepZero = false) use (&$want): void {
             if (($want[$c] ?? 0) <= 0 || !isset($map->{$c})) {
                 return;
             }
             $have = self::count($map->{$c});
             $n = min($have, $want[$c]);
             $want[$c] -= $n;
-            if ($have - $n > 0) {
+            if ($have - $n > 0 || $keepZero) {
                 $map->{$c} = $have - $n;
             } else {
                 unset($map->{$c});
@@ -283,7 +514,7 @@ final class LedgerMath
         if ($state instanceof \stdClass) {
             if (($state->inventory ?? null) instanceof \stdClass) {
                 foreach (array_keys($want) as $c) {
-                    $take($state->inventory, $c);
+                    $take($state->inventory, (string) $c, true);
                 }
             }
             if (($state->player ?? null) instanceof \stdClass && $cur > 0) {
@@ -410,13 +641,12 @@ final class LedgerMath
         }
         $slice = $state->systems->features->{$sliceId};
         $inv = $state->inventory;
+        // A class the pack runs out of stays at 0, as the game keeps it (see remove).
         $put = static function (string $c, int $n) use ($inv): void {
-            $v = self::count($inv->{$c} ?? 0) + $n;
-            if ($v > 0) {
-                $inv->{$c} = $v;
-            } else {
-                unset($inv->{$c});
+            if ($n === 0 && !isset($inv->{$c})) {
+                return;
             }
+            $inv->{$c} = max(0, self::count($inv->{$c} ?? 0) + $n);
         };
         $hold = ($slice->hold ?? null) instanceof \stdClass && ($slice->hold->trade ?? null) === $trade ? $slice->hold : null;
         $held = $hold !== null && ($hold->items ?? null) instanceof \stdClass ? array_map(self::count(...), get_object_vars($hold->items)) : [];
@@ -436,6 +666,200 @@ final class LedgerMath
         $slice->applied = array_values(array_slice($applied, -(self::isProject($trade) ? self::PROJECT_APPLIED_KEEP : (self::isFeat($trade) ? self::FEAT_APPLIED_KEEP : self::APPLIED_KEEP))));
         $entries['playerState'] = self::encode($state);
         return $entries;
+    }
+
+    // —— Credits (slice 2) ——
+
+    /**
+     * What the save says it has done that the source pays for: completed
+     * quests (systems.quests.completed), unlocked badges (systems.
+     * achievements.unlocked), the level and xp (player), the reward buff
+     * multiplier and the owned imagination upgrades (player), and the
+     * purchases of each card (systems.features.imagination.counts,
+     * js/imagination.js grantUpgrade; a card owned with no count counts once).
+     *
+     * @return array{quests: list<string>, badges: list<string>, level: int, xp: int, mult: float, owned: list<string>, cards: array<string,int>}
+     */
+    public static function markers(array $entries): array
+    {
+        $state = self::decode($entries['playerState'] ?? null);
+        $state = is_array($state) ? $state : [];
+        $strings = static fn (mixed $list): array => array_values(array_unique(array_filter(is_array($list) ? $list : [], static fn ($v) => is_string($v) && $v !== '')));
+        $player = is_array($state['player'] ?? null) ? $state['player'] : [];
+        $owned = $strings($player['imaginationUpgrades'] ?? []);
+        $cards = [];
+        $counts = $state['systems']['features']['imagination']['counts'] ?? null;
+        foreach (is_array($counts) ? $counts : [] as $id => $n) {
+            if (is_string($id) && self::count($n) > 0) {
+                $cards[$id] = self::count($n);
+            }
+        }
+        foreach ($owned as $id) {
+            $cards[$id] ??= 1;
+        }
+        ksort($cards);
+        return [
+            'quests' => $strings($state['systems']['quests']['completed'] ?? []),
+            'badges' => $strings($state['systems']['achievements']['unlocked'] ?? []),
+            'level' => max(1, self::count($player['level'] ?? 1)),
+            'xp' => self::count($player['xp'] ?? 0),
+            'mult' => is_numeric($player['rewardMultiplier'] ?? null) ? (float) $player['rewardMultiplier'] : 1.0,
+            'owned' => $owned,
+            'cards' => $cards,
+        ];
+    }
+
+    /** js/progression.js levelInfoForXp: the level a lifetime xp total reaches. */
+    public static function levelFor(int $xp, Economy $economy): int
+    {
+        $level = 1;
+        foreach ((array) $economy->credits('xp') as $need) {
+            if ($xp < (int) $need) {
+                break;
+            }
+            $level++;
+        }
+        return $level;
+    }
+
+    /** common.js round_to_5 (js/quests.js roundTo5): a remainder of 2.5 rounds up. */
+    public static function roundTo5(float $v): int
+    {
+        $t = (int) ($v / 5) * 5;
+        return fmod($v, 5) >= 2.5 ? $t + 5 : $t;
+    }
+
+    /**
+     * The rows that mark what a save has already done as credited without
+     * paying it (a character's first write, or a save from before slice 2):
+     * [kind, ref, n] with kinds quest, badge (n 0), level (n the level) and
+     * card (n the purchases).
+     *
+     * @return list<array{0: string, 1: string, 2: int}>
+     */
+    public static function baseline(array $entries, Economy $economy): array
+    {
+        $m = self::markers($entries);
+        $rows = [['base', 'base', 1]];
+        foreach ($m['quests'] as $q) {
+            if (is_array(($economy->credits('quests') ?? [])[$q] ?? null)) {
+                $rows[] = ['quest', $q, 0];
+            }
+        }
+        foreach ($m['badges'] as $b) {
+            if (is_array(($economy->credits('badges') ?? [])[$b] ?? null)) {
+                $rows[] = ['badge', $b, 0];
+            }
+        }
+        $rows[] = ['level', 'level', min($m['level'], self::levelFor($m['xp'], $economy))];
+        foreach ($m['cards'] as $id => $n) {
+            if (is_array(($economy->credits('cards') ?? [])[$id] ?? null)) {
+                $rows[] = ['card', (string) $id, $n];
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * The exact credits a write earns for markers not credited before
+     * ($credited: kind -> ref -> n; cardday holds today's card purchases):
+     * a newly completed quest's currants (times the reward multiplier, at
+     * most the best buff plus the owned Fit for a King tier, js/quests.js
+     * applyQuestRewards, inc_quests.js:844, round_to_5) and its tradeable
+     * items; a newly unlocked badge's currants (Overachiever, js/
+     * achievements.js unlockAchievement, inc_achievements.js:331, Completist
+     * x level/4 past level 4); a level reached above the last one credited
+     * whose xp agrees, the final level's currants only (js/progression.js
+     * reconcilePlayerProgression, inc_stats.js), at most LEVELS_DAILY a
+     * day; and each new purchase of an
+     * imagination card that hands out an item (reward type 8), at most
+     * CARD_DAILY a day for a repeatable card. Returns the goods (to add to
+     * the ledger before the write is compared), the rows to store
+     * ([kind, ref, n], n the new total) and what was credited, for the log.
+     *
+     * @return array{goods: array{items: array<string,int>, currants: int}, rows: list<array{0: string, 1: string, 2: int}>, detail: array}
+     */
+    public static function credits(array $entries, array $credited, Economy $economy): array
+    {
+        $m = self::markers($entries);
+        $goods = ['items' => [], 'currants' => 0];
+        $rows = [];
+        $detail = [];
+        $put = static function (array $items) use (&$goods): void {
+            foreach ($items as $c => $n) {
+                $goods['items'][(string) $c] = ($goods['items'][(string) $c] ?? 0) + max(0, (int) $n);
+            }
+        };
+        $buff = min((float) ($economy->credits('buff') ?? 1.0), max(1.0, $m['mult']));
+        $bonus = static function (mixed $tiers) use ($m): float {
+            $best = 0.0;
+            foreach (is_array($tiers) ? $tiers : [] as $id => $v) {
+                if (in_array((string) $id, $m['owned'], true)) {
+                    $best = max($best, (float) $v);
+                }
+            }
+            return $best;
+        };
+        $quests = (array) ($economy->credits('quests') ?? []);
+        $qm = $buff + $bonus($economy->credits('questBonus'));
+        foreach ($m['quests'] as $q) {
+            if (!is_array($quests[$q] ?? null) || isset($credited['quest'][$q])) {
+                continue;
+            }
+            $c = self::roundTo5((float) ($quests[$q]['c'] ?? 0) * $qm);
+            $goods['currants'] += $c;
+            $put((array) ($quests[$q]['i'] ?? []));
+            $rows[] = ['quest', $q, 1];
+            $detail['quests'][$q] = $c;
+        }
+        $badges = (array) ($economy->credits('badges') ?? []);
+        $bm = $buff + $bonus($economy->credits('badgeBonus'));
+        foreach ($m['badges'] as $b) {
+            if (!is_array($badges[$b] ?? null) || isset($credited['badge'][$b])) {
+                continue;
+            }
+            $factor = !empty($badges[$b]['x']) && $m['level'] > 4 ? $m['level'] / 4 : 1;
+            $c = self::roundTo5((float) ($badges[$b]['c'] ?? 0) * $bm * $factor);
+            $goods['currants'] += $c;
+            $rows[] = ['badge', $b, 1];
+            $detail['badges'][$b] = $c;
+        }
+        $was = (int) ($credited['level']['level'] ?? 1);
+        $today = (int) ($credited['lvlday']['level'] ?? 0);
+        if ($m['level'] > $was && self::levelFor($m['xp'], $economy) >= $m['level']) {
+            if ($today >= self::LEVELS_DAILY) {
+                $detail['later'] = ['level' => $m['level']];
+            } else {
+                $c = (int) (((array) ($economy->credits('levels') ?? []))[(string) $m['level']] ?? 0);
+                $goods['currants'] += $c;
+                $rows[] = ['level', 'level', $m['level']];
+                $rows[] = ['lvlday', 'level', $today + 1];
+                $detail['level'] = [$was, $m['level'], $c];
+            }
+        }
+        $cards = (array) ($economy->credits('cards') ?? []);
+        foreach ($m['cards'] as $id => $n) {
+            $card = $cards[$id] ?? null;
+            $had = (int) ($credited['card'][$id] ?? 0);
+            if (!is_array($card) || $n <= $had) {
+                continue;
+            }
+            $add = $n - $had;
+            if (!empty($card['k'])) {
+                $add = min($add, max(0, self::CARD_DAILY - (int) ($credited['cardday'][$id] ?? 0)));
+                if ($add > 0) {
+                    $rows[] = ['cardday', (string) $id, (int) ($credited['cardday'][$id] ?? 0) + $add];
+                }
+            }
+            if ($add <= 0) {
+                continue;
+            }
+            $put([(string) $card['c'] => $add * max(1, (int) ($card['n'] ?? 1))]);
+            $rows[] = ['card', (string) $id, $had + $add];
+            $detail['cards'][$id] = $add;
+        }
+        ksort($goods['items']);
+        return ['goods' => $goods, 'rows' => $rows, 'detail' => $detail];
     }
 
     // —— Words ——

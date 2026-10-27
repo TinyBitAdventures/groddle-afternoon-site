@@ -24,8 +24,14 @@ use Minn\Extension\Seams;
  *   both ledgers move at once, or neither does when a giver's ledger does
  *   not hold what it gives.
  * - A character with a save from before the ledger is seeded from it once
- *   (with a full budget); a new character starts at zero with
- *   NEW_BUDGET_MINUTES of the rate, enough for the tutorial's first finds.
+ *   (with a full budget); a new character starts at zero with NEW_BUDGET,
+ *   enough for the tutorial's first finds.
+ * - Slice 2 explains gains so the rate can be small: transforms the
+ *   write's own losses cover, exact credits for what the save says it did
+ *   (quests, badges, level-ups, imagination cards; groddle_ledger_credited
+ *   keeps each to once per character, and what a character had done before
+ *   its first checked write is marked without paying), and a daily count
+ *   for classes only drop tables grant (LedgerMath).
  *
  * Every method runs inside the caller's Db::transaction and locks the
  * ledger rows it reads (FOR UPDATE), so a save write and a settlement for
@@ -37,9 +43,16 @@ final readonly class Ledger
     public const ITEMS = 'groddle_ledger_items';
     public const TRADES = 'groddle_trades';
     public const LOG = 'groddle_ledger_log';
+    public const CREDITED = 'groddle_ledger_credited';
 
-    /** Defaults for the site options: value a minute, and the most the budget holds. */
-    public const RATE = 1000.0;
+    /**
+     * Defaults for the site options: value a minute, and the most the budget
+     * holds. Slice 2 explains crafting, Cubimal boxes, artifacts, quests,
+     * badges, level-ups and card items, so the rate covers only what is
+     * still unexplained (harvests, drops, server outcomes until slice 3): an
+     * honest session measured well under it (g335-economy.md section 6).
+     */
+    public const RATE = 200.0;
     public const CAPACITY = 50000.0;
 
     /** A settled trade a save has not applied counts as applied after this (seconds). */
@@ -48,8 +61,8 @@ final readonly class Ledger
     /** One clamp log row per character per this many seconds (repeats are counted on it). */
     public const CLAMP_LOG_EVERY = 60;
 
-    /** A new character's budget to start with, in minutes of the rate (the first harvests of the tutorial). */
-    public const NEW_BUDGET_MINUTES = 5;
+    /** A new character's budget to start with (the first harvests of the tutorial; slice 1's 5 minutes of 1,000). */
+    public const NEW_BUDGET = 5000.0;
 
     /**
      * MariaDB errors that mean "run the transaction again": a deadlock (1213),
@@ -116,7 +129,7 @@ final readonly class Ledger
             }
             $seed = $entries === [] ? ['items' => [], 'currants' => 0] : LedgerMath::holdings($entries, $this->economy);
             $seeded = $entries === [] ? 'new' : 'migrated';
-            $budget = $seeded === 'migrated' ? $this->capacity : min($this->capacity, $this->rate * self::NEW_BUDGET_MINUTES);
+            $budget = $seeded === 'migrated' ? $this->capacity : min($this->capacity, self::NEW_BUDGET);
             $this->db->execute("INSERT IGNORE INTO {$t} (user_id, currants, budget, budget_at, seeded, updated_at) VALUES (?, ?, ?, ?, ?, ?)", [$user, $seed['currants'], $budget, $now, $seeded, gmdate('Y-m-d H:i:s', $now)]);
             $this->writeItems($user, [], $seed['items']);
             if ($seeded === 'migrated') {
@@ -242,20 +255,83 @@ final readonly class Ledger
     {
         $state = $this->lock($user, $now);
         $ledger = ['items' => $state['items'], 'currants' => $state['currants']];
+        $day = gmdate('Y-m-d', $now);
+        $credited = $this->credited($user, $day);
+        if (!isset($credited['base'])) {
+            // First checked write (or the first since slice 2): what the save had done already is marked, not paid.
+            $stored = $this->db->value('SELECT data FROM ' . $this->db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ?', [$user]);
+            $was = is_string($stored) ? json_decode($stored, true) : null;
+            $base = is_array($was['entries'] ?? null) ? array_filter($was['entries'], 'is_string') : $entries;
+            $this->credit($user, LedgerMath::baseline($base, $this->economy), $day, $now);
+            $credited = $this->credited($user, $day);
+        }
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
-        $view = LedgerMath::view($ledger, $pending);
-        $holdings = LedgerMath::holdings($entries, $this->economy);
         $budget = $this->refilled($state['budget'], $state['budget_at'], $now);
-        $r = LedgerMath::reconcile($view, $holdings, $budget, $this->capacity, $this->economy);
-        $after = LedgerMath::add($ledger, $r['delta']);
-        $this->store($user, $ledger, $after, $r['budget'], $now);
+        $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy);
+        $r = $c['reconciled'];
+        $this->store($user, $ledger, $c['after'], $r['budget'], $now);
+        $this->credit($user, $c['rows'], $day, $now);
+        $credits = $c['credits'];
+        if ($credits['detail'] !== []) {
+            $this->log($user, 'credit', $credits['detail'] + ['goods' => ['items' => (object) $credits['goods']['items'], 'currants' => $credits['goods']['currants']]], $now);
+        }
         $text = '';
         if (!LedgerMath::nothing($r['clamped'])) {
             $entries = LedgerMath::remove($entries, $r['clamped']);
             $text = LedgerMath::correctedText($r['clamped'], $this->economy);
-            $this->logClamp($user, ['clamped' => ['items' => (object) $r['clamped']['items'], 'currants' => $r['clamped']['currants']], 'budget' => round($budget, 1), 'kept' => round($r['gained'], 1)], $now);
+            $this->logClamp($user, ['clamped' => ['items' => (object) $r['clamped']['items'], 'currants' => $r['clamped']['currants']], 'budget' => round($budget, 1), 'kept' => round($r['gained'], 1), 'made' => (object) $r['made']], $now);
         }
         return ['entries' => $entries, 'clamped' => $r['clamped'], 'text' => $text];
+    }
+
+    // —— Credited markers (slice 2) ——
+
+    /**
+     * What this character has been credited: kind -> ref -> n. Daily rows
+     * (cap: a capped class's gains, cardday: a card's credited purchases,
+     * lvlday: level-ups credited) come back for today only, their ref without the day; older ones are
+     * deleted.
+     *
+     * @return array<string, array<string, int>>
+     */
+    private function credited(int $user, string $day): array
+    {
+        $t = $this->db->table(self::CREDITED);
+        $out = [];
+        $stale = false;
+        foreach ($this->db->rows("SELECT kind, ref, n FROM {$t} WHERE user_id = ?", [$user]) as $r) {
+            $kind = (string) $r['kind'];
+            $ref = (string) $r['ref'];
+            if (in_array($kind, LedgerMath::DAILY_KINDS, true)) {
+                $parts = explode(':', $ref, 2);
+                if ($parts[0] !== $day || !isset($parts[1])) {
+                    $stale = true;
+                    continue;
+                }
+                $ref = $parts[1];
+            }
+            $out[$kind][$ref] = (int) $r['n'];
+        }
+        if ($stale) {
+            $this->db->execute("DELETE FROM {$t} WHERE user_id = ? AND kind IN ('cap', 'cardday', 'lvlday') AND ref < ?", [$user, $day]);
+        }
+        return $out;
+    }
+
+    /** Stores credited rows ([kind, ref, n], n the new total); daily kinds get today's date in front of their ref. */
+    private function credit(int $user, array $rows, string $day, int $now): void
+    {
+        $t = $this->db->table(self::CREDITED);
+        $at = gmdate('Y-m-d H:i:s', $now);
+        foreach (array_chunk($rows, 100) as $chunk) {
+            $sql = [];
+            $args = [];
+            foreach ($chunk as [$kind, $ref, $n]) {
+                $sql[] = '(?, ?, ?, ?, ?)';
+                array_push($args, $user, $kind, in_array($kind, LedgerMath::DAILY_KINDS, true) ? "{$day}:{$ref}" : $ref, max(0, (int) $n), $at);
+            }
+            $this->db->execute("INSERT INTO {$t} (user_id, kind, ref, n, at) VALUES " . implode(', ', $sql) . ' ON DUPLICATE KEY UPDATE n = VALUES(n), at = VALUES(at)', $args);
+        }
     }
 
     /**
