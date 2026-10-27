@@ -95,6 +95,19 @@ final class LedgerMath
                 }
                 $currants += self::count($hold['currants'] ?? 0);
             }
+            // G332: a wrapped Gift Box (features/gifts-feature.js) is the box and what was wrapped in it.
+            $boxes = $state['systems']['features']['gifts']['boxes'] ?? null;
+            foreach (is_array($boxes) ? $boxes : [] as $box) {
+                if (!is_array($box)) {
+                    continue;
+                }
+                $add('bag_gift_box', 1);
+                foreach (is_array($box['items'] ?? null) ? $box['items'] : [] as $it) {
+                    if (is_array($it)) {
+                        $add($it['c'] ?? null, $it['n'] ?? 0);
+                    }
+                }
+            }
             $homes = $state['systems']['features']['homes'] ?? null;
             if (is_array($homes)) {
                 $decors = array_merge([$homes['decor'] ?? null], is_array($homes['towerDecor'] ?? null) ? $homes['towerDecor'] : []);

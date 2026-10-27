@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.6",
+  "version": "0.5.7",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -130,6 +130,20 @@
       "PRIMARY KEY  (id)",
       "KEY owner_id (owner_id,taken_at)",
       "KEY from_id (from_id)"
+    ],
+    "groddle_gifts": [
+      "id varchar(40) NOT NULL",
+      "from_id bigint(20) unsigned NOT NULL",
+      "to_id bigint(20) unsigned NOT NULL",
+      "goods text NOT NULL",
+      "box tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "ref varchar(40) NOT NULL DEFAULT ''",
+      "note_title varchar(200) NULL DEFAULT NULL",
+      "note_body text NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY from_id (from_id)",
+      "KEY to_id (to_id)"
     ],
     "groddle_home_tending": [
       "id varchar(40) NOT NULL",
