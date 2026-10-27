@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.11",
+  "version": "0.5.12",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -48,6 +48,19 @@
     }
   ],
   "tables": {
+    "groddle_group_halls": [
+      "claim_id varchar(40) NOT NULL",
+      "job_id varchar(16) NOT NULL",
+      "group_id bigint(20) unsigned NOT NULL",
+      "claimer_id bigint(20) unsigned NOT NULL",
+      "currants int(10) unsigned NOT NULL DEFAULT 0",
+      "status varchar(8) NOT NULL",
+      "claimed_at datetime NOT NULL",
+      "built_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (claim_id)",
+      "KEY group_id (group_id)",
+      "KEY claimer_id (claimer_id)"
+    ],
     "groddle_groups": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
       "name varchar(32) NOT NULL",
