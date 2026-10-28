@@ -90,7 +90,7 @@ final readonly class HomePool
 
     /**
      * A key-holder's harvest of a garden on the home street (include/garden.js:579, pick; HomeTending).
-     * The other visitor acts the source paid for (the class doc) have no visitor verb on a home street here yet.
+     * The other visitor acts the source paid for (the class doc) are HomeYard's (data/yard-verbs.json "pool"); mining and Making on a home street have no visitor verb yet.
      */
     public const HARVEST = 5;
 

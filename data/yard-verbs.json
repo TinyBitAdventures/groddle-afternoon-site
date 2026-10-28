@@ -1,0 +1,13 @@
+{"_doc":"Written by groddle-afternoon game tools/build-yard-verbs.mjs from js/yard-verbs-mp.js, js/animal-kinship.js, js/trants.js and js/patches.js: pool the Magic Rock iMG a visitor act adds, ak the Animal Kinship daily limit l and items b per rank 0..7, akItems what those items are, arbor and dig the harvest and dig rows by skill, soil the Patch timers in ms, fruit each tree's fruit.",
+"pool":{"npc_butterfly:massage":4,"npc_butterfly:milk":4,"npc_chicken:squeeze":4,"npc_piggy:nibble":4,"npc_piggy:pet":4,"patch:dig":8,"patch:tend":3,"trant:harvest":8,"trant:pet":3,"trant:water":3,"wood_tree:pet":3,"wood_tree:water":3},
+"ak":{
+"npc_butterfly:massage":[{"l":1,"b":1},{"l":1,"b":1},{"l":1,"b":1},{"l":1,"b":1},{"l":2,"b":1},{"l":2,"b":0},{"l":2,"b":0},{"l":2,"b":0}],
+"npc_butterfly:milk":[{"l":1,"b":1},{"l":1,"b":1},{"l":1,"b":2},{"l":1,"b":2},{"l":1,"b":3},{"l":1,"b":3},{"l":2,"b":4},{"l":2,"b":5}],
+"npc_chicken:squeeze":[{"l":1,"b":1},{"l":2,"b":1},{"l":3,"b":1},{"l":3,"b":2},{"l":4,"b":3},{"l":4,"b":4},{"l":5,"b":4},{"l":5,"b":5}],
+"npc_piggy:nibble":[{"l":1,"b":1},{"l":1,"b":1},{"l":1,"b":2},{"l":1,"b":2},{"l":1,"b":3},{"l":1,"b":3},{"l":2,"b":3},{"l":2,"b":4}],
+"npc_piggy:pet":[{"l":1,"b":0},{"l":1,"b":0},{"l":1,"b":0},{"l":1,"b":0},{"l":2,"b":0},{"l":2,"b":0},{"l":2,"b":0},{"l":2,"b":0}]},
+"akItems":{"npc_butterfly:milk":"milk_butterfly","npc_chicken:squeeze":"grain","npc_piggy:nibble":"meat"},
+"arbor":[{"skill":null,"l":1,"b":3},{"skill":"gardening_1","l":1,"b":6},{"skill":"gardening_2","l":2,"b":6},{"skill":"gardening_3","l":2,"b":12},{"skill":"gardening_4","l":2,"b":12},{"skill":"gardening_5","l":2,"b":12}],
+"dig":[{"skill":null,"b":2},{"skill":"soil_appreciation_1","b":2},{"skill":"soil_appreciation_2","b":3},{"skill":"soil_appreciation_3","b":3},{"skill":"soil_appreciation_4","b":4},{"skill":"soil_appreciation_5","b":4}],
+"soil":{"cleanRegrowMs":90000,"dugFillMs":600000},
+"fruit":{"trant_bean":"bean_plain","trant_bubble":"plain_bubble","trant_egg":"egg_plain","trant_fruit":"cherry","trant_gas":"general_vapour","trant_spice":"all_spice"}}
