@@ -19,7 +19,8 @@ use Minn\Db;
  * after they expire. A held name is only a wish: two sign-ups may ask for
  * one name and the first to open its link gets it (Characters decides).
  * Each row has at most MAX_SENDS emails, RESEND_GAP seconds apart, and an
- * address makes at most PER_ADDRESS_HOUR new rows an hour.
+ * address makes at most PER_ADDRESS_HOUR new rows an hour (an IPv6 address
+ * counted by its /64, MailLimits::addressKey, which is what ip keeps).
  */
 final readonly class Signups
 {
@@ -87,14 +88,15 @@ final readonly class Signups
         return $this->db->value("SELECT token_hash FROM {$table} WHERE name_key = ? AND email_key <> ? AND used_at IS NULL AND expires_at > ? LIMIT 1", [self::key($name), self::key($email), self::time($now)]) !== null;
     }
 
-    /** How many sign-ups an address started in the last hour. */
+    /** How many sign-ups an address (an IPv6 one by its /64) started in the last hour. */
     public function recentFrom(string $address, int $now): int
     {
-        if ($address === '') {
+        $key = MailLimits::addressKey($address);
+        if ($key === '') {
             return 0;
         }
         $table = $this->db->table(self::TABLE);
-        return (int) $this->db->value("SELECT COUNT(*) FROM {$table} WHERE ip = ? AND created_at > ?", [$address, self::time($now - 3600)]);
+        return (int) $this->db->value("SELECT COUNT(*) FROM {$table} WHERE ip = ? AND created_at > ?", [$key, self::time($now - 3600)]);
     }
 
     /**
@@ -126,7 +128,7 @@ final readonly class Signups
         $token = self::token();
         $row = [
             self::hashOf($token), $email, self::key($email), $passHash, $name, self::key($name), $sends,
-            self::time($now), self::time($now), self::time($now + self::LIFETIME), $address,
+            self::time($now), self::time($now), self::time($now + self::LIFETIME), MailLimits::addressKey($address),
         ];
         $this->db->execute("DELETE FROM {$table} WHERE email_key = ?", [self::key($email)]);
         $this->db->execute("INSERT INTO {$table} (token_hash, email, email_key, pass_hash, name, name_key, sends, sent_at, created_at, expires_at, used_at, user_id, ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?)", $row);

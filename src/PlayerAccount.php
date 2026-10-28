@@ -45,6 +45,13 @@ use Minn\Runtime\Refusal;
  * the game's form there sends the new password to password-reset/confirm,
  * which saves it and signs the player in.
  *
+ * Email abuse (Austin 2026-10-28): the forms that mail an address someone
+ * typed (New player, Send it again by email, Forgot your password) carry a
+ * Cloudflare Turnstile token when the site has its keys (Turnstile), resets
+ * are limited per email and per address, and the whole site sends at most
+ * an hourly ceiling of these emails (MailLimits). account/options tells the
+ * card which widgets to draw.
+ *
  * Answers: 201/200 {signedIn, player}, 202 {pending}, or 400/409/410/429
  * {code, message, fields} with the refusals keyed by the form field they
  * belong to.
@@ -84,6 +91,9 @@ final readonly class PlayerAccount
         'signup_wait' => 'We just sent one. Wait a minute, then ask again.',
         'signup_spent' => 'That\'s all the emails we can send for this sign-up. Sign up again tomorrow.',
         'signup_busy' => 'Too many new characters from here. Try again in an hour.',
+        'mail_busy' => MailLimits::BUSY,
+        'reset_wait' => MailLimits::RESET_WAIT,
+        'turnstile_failed' => Turnstile::FAILED,
     ];
 
     /**
@@ -136,7 +146,16 @@ final readonly class PlayerAccount
         if ($this->instant($email)) {
             return $this->makeNow($email, $password, $name);
         }
+        $refused = $this->turnstileRefusal($request, $body);
+        if ($refused !== null) {
+            return $refused;
+        }
         $now = time();
+        $limits = new MailLimits($this->minn->db, $this->minn->site);
+        $limits->purge($now);
+        if ($limits->overHourCap($now, 'sign-up')) {
+            return self::refused('mail_busy', self::WORDS['mail_busy'], [], 503);
+        }
         $signups = new Signups($this->minn->db);
         $signups->purge($now);
         $waiting = $signups->byEmail($email);
@@ -152,6 +171,7 @@ final readonly class PlayerAccount
         if (!$this->mailLink($email, $name, $token)) {
             return self::refused('mail_failed', 'The email could not be sent. Try again later.', [], 503);
         }
+        $limits->record('signup', $email, $request->remoteAddress, true, $now);
         return Response::json(['pending' => true, 'email' => $email, 'name' => $name, 'nameHeld' => $held], 202);
     }
 
@@ -211,6 +231,9 @@ final readonly class PlayerAccount
      * Mails a held sign-up a new link: by the link's own token (an expired
      * link's page), or by email, answered the same whether or not a sign-up
      * waits for it, so the form can't be used to find out who signed up.
+     * By email it needs a Turnstile token when the site has Turnstile (by
+     * token the link itself proves the mailbox); either way the site-wide
+     * ceiling holds.
      */
     #[Route(Method::Post, '/groddle/v1/players/resend', policy: new Policy(Access::Public))]
     public function resend(Request $request): Response
@@ -219,6 +242,7 @@ final readonly class PlayerAccount
         $token = strtolower(trim((string) ($body['token'] ?? '')));
         $signups = new Signups($this->minn->db);
         $now = time();
+        $limits = new MailLimits($this->minn->db, $this->minn->site);
         if ($token !== '') {
             $row = Signups::looksLikeToken($token) ? $signups->byToken($token) : null;
             if ($row === null || ($row['used_at'] ?? null) !== null) {
@@ -229,18 +253,31 @@ final readonly class PlayerAccount
             if ($limit !== null) {
                 return self::refused("signup_{$limit}", self::WORDS["signup_{$limit}"], [], 429);
             }
-            return $this->mailLink((string) $row['email'], (string) $row['name'], $signups->reissue($row, $now))
-                ? Response::json(['sent' => true, 'email' => (string) $row['email']])
-                : self::refused('mail_failed', 'The email could not be sent. Try again later.', [], 503);
+            if ($limits->overHourCap($now, 'sign-up')) {
+                return self::refused('mail_busy', self::WORDS['mail_busy'], [], 503);
+            }
+            if (!$this->mailLink((string) $row['email'], (string) $row['name'], $signups->reissue($row, $now))) {
+                return self::refused('mail_failed', 'The email could not be sent. Try again later.', [], 503);
+            }
+            $limits->record('signup', (string) $row['email'], $request->remoteAddress, true, $now);
+            return Response::json(['sent' => true, 'email' => (string) $row['email']]);
         }
         $email = trim((string) ($body['email'] ?? ''));
         if (!str_contains($email, '@')) {
             return self::refused('groddle_invalid', 'Enter your email.', ['email' => 'Enter your email.'], 400);
         }
+        $refused = $this->turnstileRefusal($request, $body);
+        if ($refused !== null) {
+            return $refused;
+        }
+        if ($limits->overHourCap($now, 'sign-up')) {
+            return self::refused('mail_busy', self::WORDS['mail_busy'], [], 503);
+        }
         $row = $signups->byEmail($email);
         // Nothing waiting, already used, or too soon: the same answer, nothing sent.
         if ($row !== null && ($row['used_at'] ?? null) === null && Signups::sendRefusal($row, $now) === null) {
-            $this->mailLink((string) $row['email'], (string) $row['name'], $signups->reissue($row, $now));
+            $mailed = $this->mailLink((string) $row['email'], (string) $row['name'], $signups->reissue($row, $now));
+            $limits->record('signup', $email, $request->remoteAddress, $mailed, $now);
         }
         return Response::json(['sent' => true]);
     }
@@ -290,6 +327,27 @@ final readonly class PlayerAccount
         return $this->minn->accounts()->mail($email, $subject, $html, $headers);
     }
 
+    /**
+     * What the card draws, for the forms to ask once: the Turnstile site key
+     * (null when Turnstile is off). Public keys only; never a secret.
+     */
+    #[Route(Method::Get, '/groddle/v1/account/options', policy: new Policy(Access::Public))]
+    public function options(Request $request): Response
+    {
+        $turnstile = Turnstile::fromSite($this->minn->site)->siteKey();
+        return Response::json(['turnstile' => $turnstile !== '' ? $turnstile : null]);
+    }
+
+    /** A form's Turnstile token checked (Turnstile): null when it passes or Turnstile is off, else the refusal. */
+    private function turnstileRefusal(Request $request, array $body): ?Response
+    {
+        $passes = Turnstile::fromSite($this->minn->site)->passes($this->minn->http, (string) ($body['turnstile'] ?? ''), $request->remoteAddress);
+        if ($passes === true) {
+            return null;
+        }
+        return self::refused('turnstile_failed', self::WORDS['turnstile_failed'], [], $passes === 'unavailable' ? 503 : 400);
+    }
+
     /** Signs a player in with their email. */
     #[Route(Method::Post, '/groddle/v1/session', policy: new Policy(Access::Public))]
     public function signIn(Request $request): Response
@@ -316,14 +374,36 @@ final readonly class PlayerAccount
     /**
      * A password reset link by email. The answer is the same whether or not
      * an account has that address, so the form can't be used to find out
-     * who plays.
+     * who plays. Limited (MailLimits): one a minute and five a day per
+     * email, ten an hour per address, counted for every ask, player or not;
+     * a stopped ask is answered as if sent, except the same address asking
+     * for the same email within the minute, which is told to wait. A
+     * Turnstile token when the site has Turnstile; the site-wide ceiling.
      */
     #[Route(Method::Post, '/groddle/v1/password-reset', policy: new Policy(Access::Public))]
     public function reset(Request $request): Response
     {
-        $email = trim((string) ($request->json()['email'] ?? ''));
+        $body = $request->json();
+        $email = trim((string) ($body['email'] ?? ''));
         if (!str_contains($email, '@')) {
             return self::refused('groddle_invalid', 'Enter your email.', ['email' => 'Enter your email.'], 400);
+        }
+        $refused = $this->turnstileRefusal($request, $body);
+        if ($refused !== null) {
+            return $refused;
+        }
+        $now = time();
+        $limits = new MailLimits($this->minn->db, $this->minn->site);
+        $limits->purge($now);
+        $decision = MailLimits::resetDecision($limits->resetCounts($email, $request->remoteAddress, $now));
+        if ($decision === 'wait') {
+            return self::refused('reset_wait', self::WORDS['reset_wait'], [], 429);
+        }
+        if ($decision === 'quiet') {
+            return Response::json(['sent' => true]);
+        }
+        if ($limits->overHourCap($now, 'password reset')) {
+            return self::refused('mail_busy', self::WORDS['mail_busy'], [], 503);
         }
         // The link opens the game's own reset form: /play/online/#reset=<key>&login=<login> (the fragment never reaches a server log).
         $home = rtrim((string) ($this->minn->site->option('home') ?? ''), '/');
@@ -333,6 +413,7 @@ final readonly class PlayerAccount
         $from = (string) ($this->minn->site->option('groddle_mail_from') ?? '');
         $words = static fn (string $url, string $character): array => PlayerMail::reset($home, $from, $url, $character);
         $sent = $this->minn->accounts()->lostPassword($email, $link, $words);
+        $limits->record('reset', $email, $request->remoteAddress, $sent === true, $now);
         if ($sent instanceof Refusal && !in_array($sent->code, ['invalid_email', 'invalidcombo'], true)) {
             return self::refused($sent->code, 'The email could not be sent. Try again later.', [], 503);
         }

@@ -1,11 +1,14 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.17",
+  "version": "0.5.18",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
   },
   "extension": "Groddle\\Minn\\Extension",
+  "needs": {
+    "http": ["https://challenges.cloudflare.com/turnstile/v0/siteverify"]
+  },
   "blocks": [
     "groddle/stamp",
     "groddle/features",
@@ -332,6 +335,18 @@
       "UNIQUE KEY email_key (email_key)",
       "KEY name_key (name_key)",
       "KEY created_ip (ip,created_at)"
+    ],
+    "groddle_mail_sends": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "kind varchar(8) NOT NULL",
+      "email_hash char(64) NOT NULL DEFAULT ''",
+      "address varchar(45) NOT NULL DEFAULT ''",
+      "mailed tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "sent_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY kind_email (kind,email_hash,sent_at)",
+      "KEY kind_address (kind,address,sent_at)",
+      "KEY sent_at (sent_at)"
     ],
     "groddle_buddies": [
       "user_id bigint(20) unsigned NOT NULL",
