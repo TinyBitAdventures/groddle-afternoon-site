@@ -9,7 +9,7 @@ use Minn\Html;
 /**
  * The emails players get, in the site's look: the moss-and-cream card of the
  * restoration report and the Notes, the serif headings, the orange Play
- * button, the iMG quoin. Email clients ignore stylesheets, so every style is
+ * button, the mark. Email clients ignore stylesheets, so every style is
  * inline and the layout is tables; the page stays light (most clients force
  * their own dark mode on top). Each email names the character, never the
  * username underneath. Sent as HTML from "Groddle Afternoon" at the address
@@ -102,7 +102,7 @@ final class PlayerMail
         return ['Content-Type: text/html; charset=UTF-8', "From: Groddle Afternoon <{$address}>"];
     }
 
-    /** The whole email around its content: the quoin and name, the card, the footer. */
+    /** The whole email around its content: the mark and name, the card, the footer. */
     public static function layout(string $home, string $preheader, string $content): string
     {
         $home = rtrim($home, '/');
