@@ -1,13 +1,13 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.18",
+  "version": "0.5.19",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
   },
   "extension": "Groddle\\Minn\\Extension",
   "needs": {
-    "http": ["https://challenges.cloudflare.com/turnstile/v0/siteverify", "https://www.googleapis.com/oauth2/v3/certs"]
+    "http": ["https://challenges.cloudflare.com/turnstile/v0/siteverify", "https://www.googleapis.com/oauth2/v3/certs", "https://play.groddleafternoon.com/ws", "http://127.0.0.1:8793/ws"]
   },
   "blocks": [
     "groddle/stamp",
@@ -52,6 +52,21 @@
     }
   ],
   "tables": {
+    "groddle_admin_teleports": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "at datetime NOT NULL",
+      "admin_user_id bigint(20) unsigned NOT NULL",
+      "player_user_id bigint(20) unsigned NOT NULL",
+      "from_tsid varchar(32) DEFAULT NULL",
+      "from_x int(11) DEFAULT NULL",
+      "from_y int(11) DEFAULT NULL",
+      "to_tsid varchar(32) NOT NULL",
+      "to_x int(11) NOT NULL",
+      "to_y int(11) NOT NULL",
+      "delivery varchar(8) NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY player_at (player_user_id,at)"
+    ],
     "groddle_groups": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
       "name varchar(32) NOT NULL",
