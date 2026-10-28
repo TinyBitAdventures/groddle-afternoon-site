@@ -244,14 +244,15 @@ final readonly class Profiles
     }
 
     /**
-     * What a character's save says about them for the profile: the level
-     * and the badges unlocked, newest first (the save's unlock order).
+     * What a character's save says about them for the profile: the level,
+     * the badges unlocked and the skills learned, each newest first (the
+     * save keeps them in the order they came; it keeps no times).
      *
-     * @return array{level: int, badges: list<string>, saved: bool}
+     * @return array{level: int, badges: list<string>, skills: list<string>, saved: bool}
      */
     public static function fromSave(Db $db, int $id): array
     {
-        $out = ['level' => 1, 'badges' => [], 'saved' => false];
+        $out = ['level' => 1, 'badges' => [], 'skills' => [], 'saved' => false];
         $stored = $db->value('SELECT data FROM ' . $db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ?', [$id]);
         if (!is_string($stored) || $stored === '') {
             return $out;
@@ -266,16 +267,28 @@ final readonly class Profiles
         if (is_int($level) || (is_numeric($level) && (int) $level == $level)) {
             $out['level'] = max(1, min(999, (int) $level));
         }
-        $unlocked = $state['systems']['achievements']['unlocked'] ?? [];
-        if (is_array($unlocked)) {
-            $badges = [];
-            foreach ($unlocked as $badge) {
-                if (is_string($badge) && preg_match('/^[a-z0-9_]{1,80}$/', $badge) === 1) {
-                    $badges[$badge] = true;
-                }
-            }
-            $out['badges'] = array_reverse(array_keys($badges));
-        }
+        $out['badges'] = self::ids($state['systems']['achievements']['unlocked'] ?? []);
+        $out['skills'] = self::ids($state['systems']['skills']['learned'] ?? []);
         return $out;
+    }
+
+    /**
+     * A save's list of class ids, newest first, each once; anything else in
+     * it is dropped.
+     *
+     * @return list<string>
+     */
+    public static function ids(mixed $list): array
+    {
+        if (!is_array($list)) {
+            return [];
+        }
+        $ids = [];
+        foreach ($list as $id) {
+            if (is_string($id) && preg_match('/^[a-z0-9_]{1,80}$/', $id) === 1) {
+                $ids[$id] = true;
+            }
+        }
+        return array_reverse(array_keys($ids));
     }
 }

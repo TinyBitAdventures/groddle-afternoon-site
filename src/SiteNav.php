@@ -15,7 +15,8 @@ use Minn\Html;
  * Navigation. `ref` names the menu; 0 takes the newest published one. Each
  * link is a core/navigation-link; its className rides along (site-nav-play
  * makes Play the button). The link whose section holds the path being read
- * is marked aria-current, as the built pages mark theirs. The sync writes
+ * is marked aria-current, as the built pages mark theirs; a link in
+ * SECTIONS also stands for the pages it gathers. The sync writes
  * the same menu into the built pages (groddle-afternoon tools/site-nav/apply.mjs), so one
  * edit changes every page.
  */
@@ -28,6 +29,16 @@ final class SiteNav
         ['Items', '/items/', ''],
         ['Notes', '/changelog/', ''],
         ['Play', '/play/', 'site-nav-play'],
+    ];
+
+    /**
+     * Pages a link stands for besides its own path, so its section is
+     * marked on them too: Project gathers the restoration story (Austin
+     * 2026-10-28, register G338). A link straight to the page still wins.
+     * groddle-afternoon tools/site-nav/apply.mjs keeps the same list.
+     */
+    public const SECTIONS = [
+        '/project/' => ['/restoration/', '/compare/', '/changelog/', '/code/'],
     ];
 
     public static function register(Seams $minn): void
@@ -85,22 +96,27 @@ final class SiteNav
 
     /**
      * The link whose section holds the path: the longest site path that
-     * starts it, never the home page or the play button.
+     * starts it (the link's own, or one it stands for in SECTIONS, which
+     * loses a tie to a link's own), never the home page or the play button.
      *
      * @param list<array{0: string, 1: string, 2: string}> $links
      */
-    private static function current(array $links, string $path): ?int
+    public static function current(array $links, string $path): ?int
     {
         $best = null;
-        $length = 0;
+        $score = 0;
+        $page = rtrim($path, '/') . '/';
         foreach ($links as $i => [, $href, $class]) {
             if ($href === '/' || !str_starts_with($href, '/') || str_contains($class, 'site-nav-play')) {
                 continue;
             }
-            $section = rtrim($href, '/') . '/';
-            if (str_starts_with(rtrim($path, '/') . '/', $section) && strlen($section) > $length) {
-                $best = $i;
-                $length = strlen($section);
+            $own = rtrim($href, '/') . '/';
+            foreach ([$own, ...(self::SECTIONS[$own] ?? [])] as $section) {
+                $points = strlen($section) * 2 + ($section === $own ? 1 : 0);
+                if (str_starts_with($page, $section) && $points > $score) {
+                    $best = $i;
+                    $score = $points;
+                }
             }
         }
         return $best;

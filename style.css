@@ -120,6 +120,36 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
 }
 .players-page .masthead { padding-bottom: 8px; }
 .players-page main.band { padding-top: 32px; }
+/* A profile's pages (Skills, Badges, Buddies): the tabs under the name, a small header on the pages, a heading row with the way to all of them, and the skills grid (Tiny Speck's imagination card art, 230x310, shown at its own shape). */
+.profile-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+.profile-tabs a { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font-size: 15px; font-weight: 700; text-decoration: none; }
+.profile-tabs a:hover { border-color: var(--accent); }
+.profile-tabs a[aria-current="page"] { border-color: var(--fg); background: var(--fg); color: var(--bg); }
+.profile-tabs a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.profile-tab-n { font-size: 13px; font-weight: 600; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.profile-head-mini .profile-top { align-items: center; }
+.profile-mini { flex: none; margin: 0; width: 100px; height: 144px; display: grid; place-items: end center; }
+.profile-mini-art { width: 100px; height: 144px; object-fit: contain; }
+svg.profile-mini-art { width: 82px; height: 118px; }
+.profile-head-mini h1 { margin-bottom: 0; }
+.profile-section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin: 0 0 14px; }
+.profile-section .profile-section-head h2 { margin: 0; }
+.profile-more { font-weight: 700; color: var(--fg); }
+.profile-count { color: var(--muted); font-size: 15px; }
+.profile-skills { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 12px; }
+.profile-skills li { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); text-align: center; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.profile-skill-art { position: relative; flex: none; width: 80px; height: 80px; overflow: hidden; }
+.profile-skill-art img { position: absolute; left: -25px; top: -37px; width: 128px; height: 172px; max-width: none; }
+.profile-badge-desc { display: block; font-size: 13px; font-weight: 400; line-height: 1.35; color: var(--muted); }
+.profile-page-achievements .profile-badges { grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); }
+.profile-page-achievements .profile-badges li { justify-content: flex-start; }
+@media (max-width: 560px) {
+  .profile-skills { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+  .profile-tabs a { padding: 0 12px; font-size: 14px; }
+  .profile-mini { width: 70px; height: 101px; }
+  .profile-mini-art { width: 70px; height: 101px; }
+  svg.profile-mini-art { width: 58px; height: 84px; }
+}
 /* The restoration report's Seasons band (src/Seasons.php): its own tint between the plain and alternate bands, a card per holiday in its tone. */
 .band-seasons { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border-block: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); }
 .season-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); gap: 18px; }
@@ -288,4 +318,33 @@ a.cb-bar-label { color: var(--fg); }
   .cb-patch { padding: 26px 16px 22px; outline-offset: -7px; border-radius: 14px; }
   .cb-knot strong { display: block; }
   .cb-nod { flex-direction: column; align-items: flex-start; }
+}
+/* The Project page (groddle-afternoon tools/project/to-minn.mjs, G338): a sewn-on card per page of the restoration story, in the Code page's patch look, each with a Tiny Speck icon in a stitched ring. The title's link covers the card. */
+.pj-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; }
+.page-wide .pj-cards > * { margin-block: 0; }
+.pj-cards { --pj-disc: var(--surface); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pj-cards { --pj-disc: color-mix(in srgb, var(--fg) 82%, var(--surface)); } }
+:root[data-theme="dark"] .pj-cards { --pj-disc: color-mix(in srgb, var(--fg) 82%, var(--surface)); }
+.page-wide .pj-band { padding-top: 12px; }
+.pj-card { --pj-tone: var(--moss); --muted: color-mix(in srgb, var(--fg) 15%, var(--muted)); position: relative; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; column-gap: 20px; align-items: start; padding: 26px 26px 24px; border: 1px solid color-mix(in srgb, var(--pj-tone) 40%, var(--border)); border-radius: 18px; outline: 2px dashed color-mix(in srgb, var(--pj-tone) 75%, var(--surface)); outline-offset: -9px; box-shadow: 0 12px 22px -20px rgba(0, 0, 0, 0.5); transition: border-color 0.15s ease;
+  background-color: color-mix(in srgb, var(--pj-tone) 6%, var(--surface));
+  background-image: repeating-linear-gradient(0deg, color-mix(in srgb, var(--pj-tone) 8%, transparent) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, color-mix(in srgb, var(--fg) 4%, transparent) 0 1px, transparent 1px 5px); }
+.pj-card::before { content: ""; grid-row: 1 / span 2; width: 76px; height: 76px; box-sizing: border-box; padding: 12px; border-radius: 50%; border: 2px solid var(--pj-tone); outline: 1.5px dashed color-mix(in srgb, var(--pj-tone) 60%, var(--surface)); outline-offset: -7px; background: var(--pj-icon) center / contain no-repeat content-box, var(--pj-disc); transition: transform 0.25s ease; }
+.pj-card-compare { --pj-tone: var(--sky); --pj-icon: url("/assets/sprites/icons/artifact_mirror_with_scribbles@3x.png"); }
+.pj-card-restoration { --pj-icon: url("/assets/sprites/icons/tinkertool@3x.png"); }
+.pj-card-notes { --pj-tone: var(--sun); --pj-icon: url("/assets/sprites/icons/quill@3x.png"); }
+.pj-card-code { --pj-tone: var(--plum); --pj-icon: url("/assets/sprites/icons/loomer@3x.png"); }
+.page-wide .pj-card > h2.pj-card-title { margin: 6px 0 6px; font-size: 26px; line-height: 1.2; }
+.pj-card-title a { color: var(--fg); text-decoration: none; }
+.pj-card-title a::after { content: ""; position: absolute; inset: 0; border-radius: 18px; }
+.pj-card-title a:focus-visible { outline: none; }
+.pj-card:has(.pj-card-title a:focus-visible) { box-shadow: 0 0 0 3px var(--bg), 0 0 0 6px var(--fg); }
+.pj-card:hover { border-color: var(--pj-tone); }
+.pj-card:hover .pj-card-title a { text-decoration: underline; text-underline-offset: 3px; }
+.page-wide .pj-card > p.pj-card-line { margin: 0; max-width: 34em; font-size: 16px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .pj-card:hover::before, .pj-card:focus-within::before { transform: rotate(-8deg) scale(1.06); } }
+@media (max-width: 560px) {
+  .pj-card { column-gap: 14px; padding: 20px 18px 18px; outline-offset: -7px; border-radius: 14px; }
+  .pj-card::before { width: 60px; height: 60px; padding: 9px; }
+  .page-wide .pj-card > h2.pj-card-title { font-size: 22px; margin-top: 2px; }
 }
