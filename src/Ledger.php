@@ -339,7 +339,8 @@ final readonly class Ledger
             $gaveA = LedgerMath::goods(json_decode((string) $r['a_gave'], true));
             $gaveB = LedgerMath::goods(json_decode((string) $r['b_gave'], true));
             $id = (string) $r['trade_id'];
-            $old = strtotime((string) $r['created_at'] . ' UTC') < $now - self::PENDING_FOR;
+            // An administrator's give (AdminConsole) waits however long the player is away: nothing else delivers it.
+            $old = !AdminConsole::isGive($id) && strtotime((string) $r['created_at'] . ' UTC') < $now - self::PENDING_FOR;
             if ($applied !== null && (in_array($id, $applied, true) || $old)) {
                 $this->stamp($id, $mine, $now);
                 continue;

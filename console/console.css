@@ -1,0 +1,94 @@
+/* The administrators' console (/console/, src/AdminConsolePage.php). Colours come from the site's tokens
+   (restoration.css), so light and dark follow /site/theme.js like every other page. Dense, like an ops screen. */
+
+.console { max-width: 1320px; margin: 0 auto; padding: 20px 16px 48px; font-size: 14px; }
+.console h1 { margin: 0; font-size: clamp(28px, 4vw, 36px); line-height: 1.1; }
+.console h2 { margin: 0; font-size: 18px; }
+.console-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.console-head .kicker { margin-bottom: 4px; }
+.console-server { margin: 0; padding: 5px 12px 5px 26px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font-weight: 700; position: relative; }
+.console-server::before { content: ''; position: absolute; left: 10px; top: 50%; width: 9px; height: 9px; margin-top: -4.5px; border-radius: 50%; background: var(--stone); }
+.console-server[data-state="up"]::before { background: var(--moss); }
+.console-server[data-state="down"]::before { background: #c8553d; }
+.console-note { margin: 0 0 14px; padding: 9px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-weight: 600; }
+.console-note[data-tone="bad"] { border-color: #c8553d; }
+
+.console-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+.console-col { display: grid; gap: 14px; min-width: 0; }
+@media (max-width: 900px) { .console-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.console-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 14px 10px; min-width: 0; }
+.console-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.console-hint { margin: 0; font-size: 12px; color: var(--muted); }
+.console-count { display: inline-block; min-width: 1.6em; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: var(--track); color: var(--fg); font-family: var(--font-body); font-size: 12px; text-align: center; vertical-align: 2px; }
+.console-count:empty { display: none; }
+.console-empty { margin: 6px 2px 8px; color: var(--muted); }
+.console-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.console-sub { color: var(--muted); font-size: 12px; font-weight: 400; }
+
+.console-table { width: 100%; border-collapse: collapse; table-layout: auto; }
+.console-table th { text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.console-table td { padding: 6px 8px; border-bottom: 1px solid var(--row-line); vertical-align: middle; overflow-wrap: anywhere; }
+.console-table tbody tr { cursor: context-menu; }
+.console-table tbody tr:hover { background: var(--track); }
+.console-table tbody tr:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.console-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.console-act { width: 1%; text-align: right; }
+.console-who b { font-weight: 700; }
+.console-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: var(--track); color: var(--fg); font-size: 11px; font-weight: 700; }
+.console-tag-bad { background: #c8553d; color: #fff; }
+
+.console button { cursor: pointer; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-solid); color: var(--fg); padding: 5px 12px; font-weight: 600; }
+.console button:hover { border-color: var(--accent); }
+.console button:focus-visible, .console-menu button:focus-visible, .console-dialog :is(button, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.console .console-menu-btn { padding: 0 10px; line-height: 24px; font-size: 18px; }
+.console .console-small { padding: 2px 9px; font-size: 12px; }
+.console .console-more { margin: 6px 0; }
+
+.console-search { display: flex; gap: 6px; margin-bottom: 8px; }
+.console-search input { flex: 1; min-width: 0; }
+.console input, .console-dialog input, .console-dialog textarea { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+
+.console-list { list-style: none; margin: 0; padding: 0; }
+.console-ban { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; padding: 7px 2px; border-bottom: 1px solid var(--row-line); }
+.console-reason { margin: 2px 0 0; color: var(--lead); }
+.console-loglist { max-height: 520px; overflow: auto; }
+.console-loglist li { display: grid; grid-template-columns: 9.5em 5.2em minmax(0, 1fr); gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--row-line); line-height: 1.4; overflow-wrap: anywhere; }
+.console-loglist time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+/* The kind chips keep one fill and text in both themes, each at least 4.5:1. */
+.console-kind { justify-self: start; align-self: start; padding: 0 6px; border-radius: 4px; background: var(--track); color: var(--fg); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.console-kind-ban, .console-kind-boot { background: #a8402b; color: #fff; }
+.console-kind-give { background: #e2b04a; color: #2a2208; }
+.console-kind-teleport { background: #2d6a8f; color: #fff; }
+.console-kind-message { background: #477d38; color: #fff; }
+@media (max-width: 560px) { .console-loglist li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+
+.console-menu { position: absolute; z-index: 1000; min-width: 220px; padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); font-family: var(--font-body); font-size: 14px; }
+.console-menu-head { margin: 0; padding: 6px 10px 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.console-menu button { display: flex; width: 100%; justify-content: space-between; gap: 12px; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.console-menu button:hover, .console-menu button:focus { background: var(--track); outline: none; }
+.console-menu button[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
+
+.console-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); padding: 0; font-family: var(--font-body); font-size: 14px; }
+.console-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.console-form { display: grid; gap: 10px; padding: 18px; }
+.console-form h2 { margin: 0 0 2px; font-family: var(--font-display); font-size: 20px; }
+.console-form label { display: grid; gap: 4px; font-weight: 700; }
+.console-form textarea { resize: vertical; min-height: 6em; }
+.console-form-status { margin: 0; color: #c8553d; font-weight: 600; min-height: 1em; }
+.console-form-status:empty { display: none; }
+.console-form-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.console-form button { cursor: pointer; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-solid); color: var(--fg); padding: 6px 14px; font: inherit; font-weight: 700; }
+.console-form .console-primary { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }
+.console-form .console-danger { background: #b2452f; border-color: #b2452f; color: #fff; }
+.console-form .console-small { padding: 2px 9px; font-size: 12px; }
+.console-counter { justify-self: end; margin-top: -6px; }
+.console-picker { display: grid; gap: 4px; position: relative; }
+.console-picker label { font-weight: 700; }
+.console-picks { list-style: none; margin: 0; padding: 4px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-solid); }
+.console-picks li { padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+.console-picks li[aria-selected="true"], .console-picks li:hover { background: var(--track); }
+.console-chosen { margin: 0; font-weight: 600; }
+.console-stacks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.console-stacks li { display: flex; align-items: center; gap: 6px; }
+.console-qty { width: 6em; }

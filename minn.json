@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.19",
+  "version": "0.5.20",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -52,6 +52,17 @@
     }
   ],
   "tables": {
+    "groddle_admin_actions": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "at datetime NOT NULL",
+      "admin_user_id bigint(20) unsigned NOT NULL",
+      "player_user_id bigint(20) unsigned NOT NULL",
+      "kind varchar(12) NOT NULL",
+      "detail text NOT NULL",
+      "delivery varchar(8) NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY player_at (player_user_id,at)"
+    ],
     "groddle_admin_teleports": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
       "at datetime NOT NULL",
@@ -362,6 +373,13 @@
       "KEY kind_email (kind,email_hash,sent_at)",
       "KEY kind_address (kind,address,sent_at)",
       "KEY sent_at (sent_at)"
+    ],
+    "groddle_bans": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "reason varchar(200) NOT NULL DEFAULT ''",
+      "admin_user_id bigint(20) unsigned NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (user_id)"
     ],
     "groddle_buddies": [
       "user_id bigint(20) unsigned NOT NULL",

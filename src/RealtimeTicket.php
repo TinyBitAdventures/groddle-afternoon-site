@@ -53,6 +53,10 @@ final readonly class RealtimeTicket
         if ($secret === null) {
             throw new RestError('groddle_realtime_off', 'Playing with others is not set up on this site.', 503);
         }
+        // A suspended account (the administrators' console, AdminConsole) gets no ticket; the server refuses it too.
+        if (AdminConsole::banned($this->minn->db, $user->id) !== null) {
+            throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403);
+        }
         $now = time();
         $payload = [
             'sub' => $user->id,

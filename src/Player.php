@@ -17,7 +17,7 @@ use Minn\Http\Route;
  * groddle/v1/me: who the game is talking to. Open to anyone, so the game
  * can ask before it knows: signed out (or a cookie sent without its REST
  * nonce) is {"signedIn": false}; signed in names the player and the
- * backup limits.
+ * backup limits, and whether the account is suspended.
  */
 final readonly class Player
 {
@@ -39,6 +39,8 @@ final readonly class Player
             'backups' => ['slots' => SoloBackups::SLOTS, 'maxBytes' => SaveShape::MAX_BYTES],
             // The caller's own sign-in email, for the Account panel (nobody else's is ever sent).
             'account' => ['email' => $user->email],
+            // A suspended account (AdminConsole bans): /play/online/ says so and does not load the game.
+            'suspended' => AdminConsole::banned($this->minn->db, $user->id) !== null,
         ]);
     }
 

@@ -33,7 +33,8 @@ use Minn\RestError;
  * answering) their stored save's location entry is rewritten here with the
  * version bumped, so an open tab that is not connected conflicts instead
  * of writing the old street back, and they start on the new street next
- * time. Either way an audit line goes in groddle_admin_teleports.
+ * time. Either way an audit line goes in groddle_admin_teleports, and one
+ * in the console's activity log (AdminConsole, groddle_admin_actions).
  *
  * The street must be in the game's street index (assets/streets/index.json
  * under the built game, StaticRoot). "spot" says whether a place on the
@@ -115,6 +116,8 @@ final readonly class AdminTeleport
         $db->execute('INSERT INTO ' . $db->table(self::TABLE) . ' (at, admin_user_id, player_user_id, from_tsid, from_x, from_y, to_tsid, to_x, to_y, delivery) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
             gmdate('Y-m-d H:i:s'), $admin->id, $player['id'], $from['tsid'] ?? null, $from['x'] ?? null, $from['y'] ?? null, $tsid, $at['x'], $at['y'], $delivery,
         ]);
+        // The console's activity log reads one table of every administrator's action (AdminConsole).
+        AdminConsole::recordAction($db, $admin->id, $player['id'], 'teleport', ['to' => ['tsid' => $tsid, 'label' => $label, 'x' => $at['x'], 'y' => $at['y']], 'from' => $from], $delivery);
         $text = match ($delivery) {
             'self' => "Moving you to {$label}.",
             'live' => "Moved {$player['name']} to {$label}.",

@@ -45,6 +45,7 @@ final readonly class MultiplayerSave
         $db = $this->minn->db;
         $table = $db->table(self::TABLE);
         $user = $this->minn->reader->userId;
+        self::refuseSuspended($db, (int) $user);
         $row = Ledger::atomically($db, function () use ($db, $table, $user): ?array {
             $row = $db->row("SELECT data, version, updated_at FROM {$table} WHERE user_id = ? FOR UPDATE", [$user]);
             if ($row === null) {
@@ -71,6 +72,7 @@ final readonly class MultiplayerSave
     #[Route(Method::Put, '/groddle/v1/save', policy: new Policy(Access::SignedIn))]
     public function write(Request $request): Response
     {
+        self::refuseSuspended($this->minn->db, (int) $this->minn->reader->userId);
         $body = $request->json();
         $version = $body['version'] ?? null;
         if (!is_int($version) || $version < 0) {
@@ -102,5 +104,13 @@ final readonly class MultiplayerSave
             $answer['ledger'] = ['corrected' => ['items' => (object) $checked['clamped']['items'], 'currants' => $checked['clamped']['currants']], 'text' => $checked['text']];
         }
         return Response::json($answer);
+    }
+
+    /** A suspended account (AdminConsole bans) neither loads nor writes its multiplayer save. */
+    private static function refuseSuspended(\Minn\Db $db, int $user): void
+    {
+        if (AdminConsole::banned($db, $user) !== null) {
+            throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403);
+        }
     }
 }
