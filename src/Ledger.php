@@ -17,15 +17,32 @@ use Minn\Extension\Seams;
  *
  * - A save write (MultiplayerSave) is compared with the ledger: losses
  *   stand, gains stand while the character's earning budget lasts (a token
- *   bucket in currants of value: groddle_ledger_rate a minute up to
- *   groddle_ledger_capacity, site options), and the rest is taken back out
- *   of the stored save and logged.
+ *   bucket in currants of value: groddle_ledger_rate for each minute the
+ *   character is connected to the realtime server, up to
+ *   groddle_ledger_capacity, site options; slice 4, Austin 2026-10-28: the
+ *   realtime server reports connected time through its credits,
+ *   LedgerCredits, and the wall clock refills nothing), and the rest is
+ *   taken back out of the stored save and logged.
  * - A trade the realtime server finished settles here (LedgerService):
  *   both ledgers move at once, or neither does when a giver's ledger does
  *   not hold what it gives.
  * - A character with a save from before the ledger is seeded from it once
  *   (with a full budget); a new character starts at zero with NEW_BUDGET,
  *   enough for the tutorial's first finds.
+ * - The characters the site option groddle_ledger_start_empty names (a
+ *   comma list of user ids; the live site's deploy sets "1,54", Austin
+ *   2026-10-28: the developer's and the reviewer's characters, whose saves
+ *   carry developer-kit goods) start at a new player's zero instead of
+ *   from their saves: seeded "zeroing" with an empty ledger, or put back to
+ *   zero once if their ledger had already been seeded from the save
+ *   ("migrated", as the live database copied from groddle.localhost has
+ *   it). Their next save write is checked with no budget at all, so every
+ *   currant and tradeable thing the save shows beyond what exact credits,
+ *   receipts and transforms explain is taken back out of it; then the
+ *   ledger reads "zeroed" and the budget is a new player's NEW_BUDGET (plus
+ *   any connected time since). What is not in the ledger (levels, iMG,
+ *   skills, quests, things that cannot be traded) stays as the save has it.
+ *   Unset (groddle.localhost), nobody starts empty.
  * - Slice 2 explains gains so the rate can be small: transforms the
  *   write's own losses cover, exact credits for what the save says it did
  *   (quests, badges, level-ups, imagination cards; groddle_ledger_credited
@@ -76,7 +93,13 @@ final readonly class Ledger
      */
     private const RETRY_CODES = [1020, 1205, 1213];
 
-    public function __construct(private Db $db, private Economy $economy, private float $rate, private float $capacity)
+    /** The site option naming the characters that start at a new player's zero (see the class comment). */
+    public const START_EMPTY_OPTION = 'groddle_ledger_start_empty';
+
+    /**
+     * @param list<int> $startEmpty characters whose ledger starts at a new player's zero
+     */
+    public function __construct(private Db $db, private Economy $economy, private float $rate, private float $capacity, private array $startEmpty = [])
     {
     }
 
@@ -86,7 +109,41 @@ final readonly class Ledger
             $v = $minn->site->option($name);
             return is_numeric($v) && (float) $v >= 0 ? (float) $v : $default;
         };
-        return new self($minn->db, Economy::shared(), $num('groddle_ledger_rate', self::RATE), $num('groddle_ledger_capacity', self::CAPACITY));
+        return new self($minn->db, Economy::shared(), $num('groddle_ledger_rate', self::RATE), $num('groddle_ledger_capacity', self::CAPACITY), self::startEmptyIds($minn->site->option(self::START_EMPTY_OPTION)));
+    }
+
+    /**
+     * The user ids an option value names ("1,54", spaces allowed), positive
+     * whole numbers only.
+     *
+     * @return list<int>
+     */
+    public static function startEmptyIds(?string $value): array
+    {
+        $ids = [];
+        foreach (preg_split('/[\s,]+/', trim((string) $value)) ?: [] as $part) {
+            if (preg_match('/^[1-9][0-9]{0,18}$/', $part) === 1) {
+                $ids[] = (int) $part;
+            }
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * How a missing ledger row is seeded: "zeroing" for a character named to
+     * start empty, else "migrated" from a stored save, else "new"; and the
+     * budget it starts with.
+     *
+     * @return array{seeded: string, budget: float, fromSave: bool}
+     */
+    public static function seedFor(bool $startEmpty, bool $hasSave, float $capacity): array
+    {
+        if ($startEmpty) {
+            return ['seeded' => 'zeroing', 'budget' => 0.0, 'fromSave' => false];
+        }
+        return $hasSave
+            ? ['seeded' => 'migrated', 'budget' => $capacity, 'fromSave' => true]
+            : ['seeded' => 'new', 'budget' => min($capacity, self::NEW_BUDGET), 'fromSave' => false];
     }
 
     /**
@@ -131,14 +188,28 @@ final readonly class Ledger
                 $save = json_decode($stored, true);
                 $entries = is_array($save['entries'] ?? null) ? $save['entries'] : [];
             }
-            $seed = $entries === [] ? ['items' => [], 'currants' => 0] : LedgerMath::holdings($entries, $this->economy);
-            $seeded = $entries === [] ? 'new' : 'migrated';
-            $budget = $seeded === 'migrated' ? $this->capacity : min($this->capacity, self::NEW_BUDGET);
-            $this->db->execute("INSERT IGNORE INTO {$t} (user_id, currants, budget, budget_at, seeded, updated_at) VALUES (?, ?, ?, ?, ?, ?)", [$user, $seed['currants'], $budget, $now, $seeded, gmdate('Y-m-d H:i:s', $now)]);
+            $how = self::seedFor(in_array($user, $this->startEmpty, true), $entries !== [], $this->capacity);
+            $seed = $how['fromSave'] ? LedgerMath::holdings($entries, $this->economy) : ['items' => [], 'currants' => 0];
+            $seeded = $how['seeded'];
+            $this->db->execute("INSERT IGNORE INTO {$t} (user_id, currants, budget, budget_at, seeded, updated_at) VALUES (?, ?, ?, ?, ?, ?)", [$user, $seed['currants'], $how['budget'], $now, $seeded, gmdate('Y-m-d H:i:s', $now)]);
             $this->writeItems($user, [], $seed['items']);
             if ($seeded === 'migrated') {
                 $this->log($user, 'seed', ['currants' => $seed['currants'], 'items' => (object) $seed['items']], $now);
+            } elseif ($seeded === 'zeroing') {
+                $had = $entries === [] ? ['items' => [], 'currants' => 0] : LedgerMath::holdings($entries, $this->economy);
+                $this->log($user, 'seed', ['zeroed' => true, 'save had' => ['currants' => $had['currants'], 'items' => (object) $had['items']]], $now);
             }
+            $row = $this->db->row("SELECT currants, budget, budget_at, seeded FROM {$t} WHERE user_id = ? FOR UPDATE", [$user]);
+        } elseif ((string) $row['seeded'] === 'migrated' && in_array($user, $this->startEmpty, true)) {
+            // Seeded from the save before the option named this character: back to a new player's zero, once.
+            $was = $this->db->rows('SELECT class_tsid, count FROM ' . $this->db->table(self::ITEMS) . ' WHERE user_id = ?', [$user]);
+            $items = [];
+            foreach ($was as $r) {
+                $items[(string) $r['class_tsid']] = (int) $r['count'];
+            }
+            $this->db->execute('DELETE FROM ' . $this->db->table(self::ITEMS) . ' WHERE user_id = ?', [$user]);
+            $this->db->execute("UPDATE {$t} SET currants = 0, budget = 0, budget_at = ?, seeded = 'zeroing', updated_at = ? WHERE user_id = ?", [$now, gmdate('Y-m-d H:i:s', $now), $user]);
+            $this->log($user, 'seed', ['zeroed' => true, 'ledger had' => ['currants' => (int) $row['currants'], 'items' => (object) $items]], $now);
             $row = $this->db->row("SELECT currants, budget, budget_at, seeded FROM {$t} WHERE user_id = ? FOR UPDATE", [$user]);
         }
         $items = [];
@@ -186,14 +257,34 @@ final readonly class Ledger
     }
 
     /**
-     * The budget refills on the wall clock (open question 1 in
-     * g335-economy.md: connected time instead would be the realtime
-     * server's to report, through the credits it already sends; only this
-     * method would change).
+     * The budget as it stands: it refills only from connected time
+     * (addOnline, from the realtime server's credits), never on the wall
+     * clock (g335-economy.md question 1, Austin 2026-10-28), so time away
+     * earns nothing. $at and $now are kept for the callers' sake.
      */
     private function refilled(float $budget, int $at, int $now): float
     {
-        return min($this->capacity, $budget + max(0, $now - $at) / 60 * $this->rate);
+        return min($this->capacity, max(0.0, $budget));
+    }
+
+    /** What $seconds connected to the realtime server put into a budget at $rate a minute (never above $capacity). */
+    public static function onlineRefill(float $budget, int $seconds, float $rate, float $capacity): float
+    {
+        return min($capacity, max(0.0, $budget) + max(0, $seconds) / 60 * $rate);
+    }
+
+    /**
+     * Refills a character's budget for $seconds connected to the realtime
+     * server (LedgerCredits, "online" credits), at the site's rate. Returns
+     * the value put in.
+     */
+    public function addOnline(int $user, int $seconds, int $now): float
+    {
+        $state = $this->lock($user, $now);
+        $was = $this->refilled($state['budget'], $state['budget_at'], $now);
+        $budget = self::onlineRefill($was, $seconds, $this->rate, $this->capacity);
+        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET budget = ?, budget_at = ? WHERE user_id = ?', [$budget, $now, $user]);
+        return $budget - $was;
     }
 
     /**
@@ -288,12 +379,20 @@ final readonly class Ledger
             $credited = $this->credited($user, $day);
         }
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
-        $budget = $this->refilled($state['budget'], $state['budget_at'], $now);
+        // A character named to start empty: its first write after the reset gets no budget, so the save's old goods go.
+        $zeroing = $state['seeded'] === 'zeroing';
+        $budget = $zeroing ? 0.0 : $this->refilled($state['budget'], $state['budget_at'], $now);
         // Slice 3: what the realtime server credited and the save has not shown yet (LedgerCredits).
         $receipts = LedgerCredits::open($this->db, $user, $now);
         $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy, $receipts['goods']);
         $r = $c['reconciled'];
-        $this->store($user, $ledger, $c['after'], $r['budget'], $now);
+        $this->store($user, $ledger, $c['after'], $zeroing ? min($this->capacity, $state['budget'] + self::NEW_BUDGET) : $r['budget'], $now);
+        if ($zeroing) {
+            $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET seeded = 'zeroed' WHERE user_id = ?", [$user]);
+            $this->log($user, 'seed', ['zeroed' => 'first write checked', 'clamped' => ['items' => (object) $r['clamped']['items'], 'currants' => $r['clamped']['currants']], 'budget' => min($this->capacity, $state['budget'] + self::NEW_BUDGET)], $now);
+        }
+        // Slice 4: the open jar's or bottle's charges follow what the save shows (LedgerUse).
+        LedgerUse::observe($this->db, $user, $entries, $credited[LedgerUse::KIND] ?? [], $now);
         $this->credit($user, $c['rows'], $day, $now);
         LedgerCredits::used($this->db, $user, $receipts, $c['allowed'], LedgerCredits::charged($r), $now);
         $credits = $c['credits'];
@@ -377,6 +476,8 @@ final readonly class Ledger
                 LedgerFurniture::isSale($p['trade']) => LedgerFurniture::catchUp($this->db, $entries, $user, $p),
                 // A tool picked up keeps its wear (the stack's points), as a live pickup does.
                 LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
+                // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.
+                LedgerUse::isUse($p['trade']) => LedgerUse::catchUp($entries, $p),
                 default => LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']),
             };
             $this->stamp($p['trade'], $this->sideOf($p['trade'], $user), $now);

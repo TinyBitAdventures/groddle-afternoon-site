@@ -45,6 +45,17 @@ use Minn\RestError;
  * (Ledger::refund), before the rest becomes a receipt. A charge from before
  * the event (the first write's pack, a sale) is never the event's.
  *
+ * Connected time (slice 4, Austin 2026-10-28): "online" events carry no
+ * goods but the interval a character was connected to the realtime server,
+ * {"id":"cr-o-…","user":7,"why":"online","from":unix,"to":unix,"at":unix}.
+ * The earning budget refills from them at the site's rate (Ledger::addOnline)
+ * and from nothing else: the wall clock refills nothing. Each second is
+ * credited once: the end of the last interval taken is kept per character
+ * (groddle_ledger_credited, kind "online", ref "to"), and an interval counts
+ * only past it and never past the site's clock (plus ONLINE_SKEW), so a
+ * resend, an overlap or a second realtime server adds nothing. An event is
+ * at most ONLINE_MOST seconds (credits.go sends one a minute).
+ *
  * Users 1 and 54 are players like the others here: the realtime server
  * credits whoever played.
  */
@@ -68,8 +79,18 @@ final readonly class LedgerCredits
     /** Charges kept per character (the oldest go first). */
     public const CHARGES_KEPT = 40;
 
-    // charades: a Charades guess's 250 currants (main.js:1782; the server's verbs.go).
-    public const WHY = ['quoin', 'shard', 'race', 'take', 'charades'];
+    // charades: a Charades guess's 250 currants (main.js:1782; the server's verbs.go); online: connected time (no goods).
+    public const WHY = ['quoin', 'shard', 'race', 'take', 'charades', 'online'];
+
+    /** The longest interval one online event may carry (seconds; credits.go sends one each minute). */
+    public const ONLINE_MOST = 3600;
+
+    /** How far past the site's clock an online interval may end (the two clocks' slack, seconds). */
+    public const ONLINE_SKEW = 60;
+
+    /** groddle_ledger_credited kind and ref that keep the end of the last connected interval taken. */
+    public const ONLINE_KIND = 'online';
+    public const ONLINE_REF = 'to';
 
     /**
      * Bounds on one event, against a bug rather than a forger (only the
@@ -142,6 +163,14 @@ final readonly class LedgerCredits
             || !in_array($raw['why'] ?? null, self::WHY, true) || !is_array($raw['got'] ?? null)) {
             return null;
         }
+        if ($raw['why'] === 'online') {
+            $from = $raw['from'] ?? null;
+            $to = $raw['to'] ?? null;
+            if (!is_int($from) || !is_int($to) || $from <= 0 || $to <= $from || $to - $from > self::ONLINE_MOST) {
+                return null;
+            }
+            return ['id' => $raw['id'], 'user' => $raw['user'], 'why' => 'online', 'got' => self::NONE, 'at' => $to, 'from' => $from, 'to' => $to];
+        }
         $got = LedgerMath::goods($raw['got']);
         $got['items'] = array_filter($got['items'], static fn ($n, $c) => $economy->tradeable((string) $c), ARRAY_FILTER_USE_BOTH);
         if ($got['currants'] > self::MOST_CURRANTS || array_filter($got['items'], static fn ($n) => $n > self::MOST_ITEMS) !== []) {
@@ -152,10 +181,25 @@ final readonly class LedgerCredits
     }
 
     /**
+     * The seconds of a connected interval not credited yet: past the
+     * character's watermark (the end of the last interval taken) and not past
+     * the site's clock plus ONLINE_SKEW. Returns them and the new watermark.
+     *
+     * @return array{secs: int, to: int}
+     */
+    public static function onlineSeconds(int $from, int $to, int $watermark, int $now): array
+    {
+        $end = min($to, $now + self::ONLINE_SKEW);
+        $start = max($from, $watermark);
+        return ['secs' => max(0, $end - $start), 'to' => max($watermark, $end)];
+    }
+
+    /**
      * Records one character's new events once each (an id seen before is
      * answered as done and changes nothing), gives back into the budget what
      * a late one explains of the last LATE seconds' charges, and keeps the
-     * rest as receipts. Returns the ids now recorded.
+     * rest as receipts; connected time refills the budget. Returns the ids
+     * now recorded.
      *
      * @param list<array{id: string, user: int, why: string, got: array}> $events
      * @return list<string>
@@ -175,11 +219,24 @@ final readonly class LedgerCredits
         $sum = self::NONE;
         $why = [];
         $stamp = gmdate('Y-m-d H:i:s', $now);
+        $c = $db->table(Ledger::CREDITED);
+        $mark = null; // the online watermark, read when the first online event comes
+        $secs = 0;
         foreach ($events as $ev) {
             if (isset($seen[$ev['id']])) {
                 continue;
             }
             $seen[$ev['id']] = true;
+            if ($ev['why'] === 'online') {
+                $mark ??= (int) ($db->value("SELECT n FROM {$c} WHERE user_id = ? AND kind = ? AND ref = ? FOR UPDATE", [$user, self::ONLINE_KIND, self::ONLINE_REF]) ?? 0);
+                $o = self::onlineSeconds($ev['from'], $ev['to'], $mark, $now);
+                $mark = $o['to'];
+                $secs += $o['secs'];
+                $db->execute("INSERT IGNORE INTO {$t} (event_id, user_id, why, got, unused, created_at) VALUES (?, ?, 'online', ?, '', ?)",
+                    [$ev['id'], $user, (string) json_encode(['from' => $ev['from'], 'to' => $ev['to'], 'secs' => $o['secs']]), $stamp]);
+                $why['online'] = ($why['online'] ?? 0) + 1;
+                continue;
+            }
             // Only a write at or after the event can have shown it (no time: it happened now).
             $at = $ev['at'] > 0 ? min($ev['at'], $now) : $now;
             $unused = $ev['got'];
@@ -200,11 +257,18 @@ final readonly class LedgerCredits
         if ($why === []) {
             return $ids;
         }
+        $refill = 0.0;
+        if ($mark !== null) {
+            $db->execute("INSERT INTO {$c} (user_id, kind, ref, n, at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE n = GREATEST(n, VALUES(n)), at = VALUES(at)", [$user, self::ONLINE_KIND, self::ONLINE_REF, $mark, $stamp]);
+            if ($secs > 0) {
+                $refill = $ledger->addOnline($user, $secs, $now);
+            }
+        }
         if ($refund > 0) {
             $ledger->refund($user, $refund, $now);
             self::putCharges($db, $user, $charges, $now);
         }
-        self::logCredits($db, $ledger, $user, $why, $sum, $refund, $now);
+        self::logCredits($db, $ledger, $user, $why, $sum, $refund, $now, $secs, $refill);
         return $ids;
     }
 
@@ -376,7 +440,7 @@ final readonly class LedgerCredits
     }
 
     /** One 'credit' log row a minute per character, summing what came (repeats counted on it). */
-    private static function logCredits(Db $db, Ledger $ledger, int $user, array $why, array $got, float $refund, int $now): void
+    private static function logCredits(Db $db, Ledger $ledger, int $user, array $why, array $got, float $refund, int $now, int $secs = 0, float $refill = 0.0): void
     {
         $t = $db->table(Ledger::LOG);
         $last = $db->row("SELECT id, detail FROM {$t} WHERE user_id = ? AND kind = 'credit' AND at >= ? ORDER BY id DESC LIMIT 1", [$user, gmdate('Y-m-d H:i:s', $now - self::LOG_EVERY)]);
@@ -388,9 +452,18 @@ final readonly class LedgerCredits
             $sum = LedgerMath::add(self::counts($was['got'] ?? null), $got);
             $was['got'] = ['items' => (object) $sum['items'], 'currants' => $sum['currants']];
             $was['late'] = round((float) ($was['late'] ?? 0) + $refund, 1);
+            if ($secs > 0 || isset($was['online_s'])) {
+                $was['online_s'] = (int) ($was['online_s'] ?? 0) + $secs;
+                $was['refill'] = round((float) ($was['refill'] ?? 0) + $refill, 1);
+            }
             $db->execute("UPDATE {$t} SET detail = ? WHERE id = ?", [json_encode($was, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), (int) $last['id']]);
             return;
         }
-        $ledger->log($user, 'credit', ['server' => $why, 'got' => ['items' => (object) $got['items'], 'currants' => $got['currants']], 'late' => round($refund, 1)], $now);
+        $detail = ['server' => $why, 'got' => ['items' => (object) $got['items'], 'currants' => $got['currants']], 'late' => round($refund, 1)];
+        if ($secs > 0) {
+            // Connected seconds and what they put into the budget.
+            $detail += ['online_s' => $secs, 'refill' => round($refill, 1)];
+        }
+        $ledger->log($user, 'credit', $detail, $now);
     }
 }
