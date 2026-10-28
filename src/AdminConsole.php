@@ -122,7 +122,13 @@ final readonly class AdminConsole
             return Response::json(['players' => []]);
         }
         $db = $this->minn->db;
-        $ids = array_map(static fn (array $r): int => (int) $r['user_id'], $db->rows('SELECT user_id FROM ' . $db->table(Characters::TABLE) . ' WHERE name_key LIKE ? ORDER BY name_key = ? DESC, name_key LIMIT ' . self::SEARCH_MAX, [addcslashes(substr($q, 0, 32), '%_\\') . '%', $q]));
+        $like = addcslashes(substr($q, 0, 32), '%_\\') . '%';
+        $ids = array_map(static fn (array $r): int => (int) $r['user_id'], $db->rows('SELECT user_id FROM ' . $db->table(Characters::TABLE) . ' WHERE name_key LIKE ? ORDER BY name_key = ? DESC, name_key LIMIT ' . self::SEARCH_MAX, [$like, $q]));
+        // Accounts with no character name go by their display name in the game (Characters::nameOf).
+        if (count($ids) < self::SEARCH_MAX) {
+            $more = $db->rows('SELECT u.ID FROM ' . $db->table('users') . ' u LEFT JOIN ' . $db->table(Characters::TABLE) . ' c ON c.user_id = u.ID WHERE c.user_id IS NULL AND LOWER(u.display_name) LIKE ? ORDER BY u.display_name LIMIT ' . (self::SEARCH_MAX - count($ids)), [$like]);
+            $ids = [...$ids, ...array_map(static fn (array $r): int => (int) $r['ID'], $more)];
+        }
         return Response::json(['players' => $this->rows($ids)]);
     }
 
@@ -459,7 +465,7 @@ final readonly class AdminConsole
         }
         $body = $request->json();
         $id = $body['player'] ?? null;
-        $name = is_int($id) && $id > 0 ? $this->minn->db->value('SELECT name FROM ' . $this->minn->db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]) : null;
+        $name = is_int($id) && $id > 0 ? ((new Characters($this->minn->db))->namesOf([$id])[$id] ?? null) : null;
         if ($name === null) {
             throw new RestError('groddle_admin_no_player', 'No player has that id.', 404);
         }
@@ -501,9 +507,13 @@ final readonly class AdminConsole
         }
         $db = $this->minn->db;
         $loc = "JSON_UNQUOTE(JSON_EXTRACT(JSON_UNQUOTE(JSON_EXTRACT(s.data, '$.entries.location')), '$.tsid'))";
-        $found = $db->rows('SELECT c.user_id, c.name, s.updated_at, ' . Profiles::levelSql('s') . " AS level, {$loc} AS tsid, b.user_id AS banned FROM " . $db->table(Characters::TABLE) . ' c LEFT JOIN ' . $db->table(MultiplayerSave::TABLE) . ' s ON s.user_id = c.user_id LEFT JOIN ' . $db->table(self::BANS) . " b ON b.user_id = c.user_id WHERE c.user_id IN (?)", [$ids]);
+        // From the accounts, not the characters: an account that never claimed a character name
+        // (an administrator playing under their display name) still plays, named as the game names it.
+        $names = (new Characters($db))->namesOf($ids);
+        $found = $db->rows('SELECT u.ID AS user_id, s.updated_at, ' . Profiles::levelSql('s') . " AS level, {$loc} AS tsid, b.user_id AS banned FROM " . $db->table('users') . ' u LEFT JOIN ' . $db->table(MultiplayerSave::TABLE) . ' s ON s.user_id = u.ID LEFT JOIN ' . $db->table(self::BANS) . " b ON b.user_id = u.ID WHERE u.ID IN (?)", [$ids]);
         $by = [];
         foreach ($found as $r) {
+            $r['name'] = $names[(int) $r['user_id']] ?? '';
             $by[(int) $r['user_id']] = $r;
         }
         $caps = Capabilities::fromDb($db);
