@@ -7,7 +7,7 @@
   },
   "extension": "Groddle\\Minn\\Extension",
   "needs": {
-    "http": ["https://challenges.cloudflare.com/turnstile/v0/siteverify"]
+    "http": ["https://challenges.cloudflare.com/turnstile/v0/siteverify", "https://www.googleapis.com/oauth2/v3/certs"]
   },
   "blocks": [
     "groddle/stamp",

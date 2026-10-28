@@ -17,7 +17,7 @@ use Minn\Extension\Seams;
  * (Musicblocks, StreetMusic), the header's menu (SiteNav), and the built game
  * and generated pages served beside the content. For players: the
  * groddle/v1 REST routes: the game's own sign-up and sign-in by email
- * (PlayerAccount), who is signed in (Player), the saves over the tables
+ * (PlayerAccount) and with Google (GoogleSignIn), who is signed in (Player), the saves over the tables
  * minn.json declares (MultiplayerSave, SoloBackups), the realtime
  * server's ticket (RealtimeTicket), buddy lists (Buddies), groups and their chat (Groups), profiles
  * (Profiles) and visiting each other's homes with house keys (Neighbours), the owner's Butler taking visitors' parcels (ButlerParcels) and key-holders tending their gardens (HomeTending), the Magic Rock's daily iMG from visitors (HomePool) and what they pet, dig and water on a home street (HomeYard), the Auction House (LedgerAuction), signed-in players only, nonce-checked; and the public
@@ -45,7 +45,7 @@ final class Extension implements MinnExtension
         $minn->routes(new StaticPages($minn, $root));
         // The Players pages and the pictures on them (G338), after the built folders.
         $minn->routes(new PlayerPages($minn, $root));
-        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerCrowns($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new Snaps($minn));
+        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerCrowns($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new Snaps($minn), new GoogleSignIn($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
         Musicblocks::register($minn, $root);

@@ -329,13 +329,15 @@ final readonly class PlayerAccount
 
     /**
      * What the card draws, for the forms to ask once: the Turnstile site key
-     * (null when Turnstile is off). Public keys only; never a secret.
+     * and the Google client id (each null when off). Public values only;
+     * never a secret.
      */
     #[Route(Method::Get, '/groddle/v1/account/options', policy: new Policy(Access::Public))]
     public function options(Request $request): Response
     {
         $turnstile = Turnstile::fromSite($this->minn->site)->siteKey();
-        return Response::json(['turnstile' => $turnstile !== '' ? $turnstile : null]);
+        $google = GoogleSignIn::clientId($this->minn);
+        return Response::json(['turnstile' => $turnstile !== '' ? $turnstile : null, 'google' => $google !== '' ? $google : null]);
     }
 
     /** A form's Turnstile token checked (Turnstile): null when it passes or Turnstile is off, else the refusal. */
