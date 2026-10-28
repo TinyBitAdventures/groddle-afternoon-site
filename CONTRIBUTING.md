@@ -36,4 +36,4 @@ Check the PHP too:
 
 ## Licences
 
-The code is MIT (see `LICENSE`). Tiny Speck's art, sound and game data are CC0. The Glitch name and logo are Tiny Speck's and not part of that release, so they are not used.
+The code is MIT (see `LICENSE`). Tiny Speck's art and game data are CC0, and the sounds are Tiny Speck's original recordings, shipped as the originals. The Glitch name and logo are Tiny Speck's and not part of that release, so they are not used.
