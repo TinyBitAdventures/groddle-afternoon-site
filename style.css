@@ -348,3 +348,87 @@ a.cb-bar-label { color: var(--fg); }
   .pj-card::before { width: 60px; height: 60px; padding: 9px; }
   .page-wide .pj-card > h2.pj-card-title { font-size: 22px; margin-top: 2px; }
 }
+/* The Brand page (groddle-afternoon tools/brand/to-minn.mjs; unlinked, for Austin to approve the mark). The marks are files under /brand/ in the game build. Tiles show a file on a fixed ground, the light or dark page colour pinned whatever the theme, so both can be judged side by side; everything else follows the theme's tokens. */
+.brand-masthead { overflow: clip; }
+.brand-hero { display: grid; grid-template-columns: auto 1fr; gap: 44px; align-items: center; }
+.page-wide .brand-hero > *, .page-wide .brand-hero-words > :last-child { margin-block: 0; }
+.brand-hero-mark { position: relative; margin: 0; }
+.brand-hero-mark::before { content: ""; position: absolute; inset: -28%; z-index: -1; border-radius: 50%; background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 34%, transparent), transparent); }
+.brand-hero-mark img { width: 232px; height: 232px; }
+.brand-hero-words h1 { max-width: 12em; }
+.page-wide .brand-band .wrap > p:not(.section-lead) { max-width: 46em; }
+.brand-band h3 { font-size: 22px; line-height: 1.2; margin: 0 0 8px; }
+.page-wide .brand-band code { font-family: var(--font-mono); font-size: 0.88em; overflow-wrap: anywhere; }
+.brand-tiles { display: grid; gap: 18px; margin-block: 0 26px; }
+.page-wide .brand-tiles > *, .page-wide .brand-tile > *, .page-wide .brand-icon > *, .page-wide .brand-direction > *, .page-wide .brand-swatch > * { margin-block: 0; }
+.brand-tiles-4 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
+.brand-tiles-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+.brand-tiles-3 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.brand-tile { --brand-ground: #dcefc9; --brand-cap: #30462c; --brand-stitch: #4f8a3f; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 220px; padding: 30px 22px 20px; border-radius: 18px; background: var(--brand-ground); border: 1px solid color-mix(in srgb, var(--brand-stitch) 45%, transparent); outline: 2px dashed color-mix(in srgb, var(--brand-stitch) 55%, transparent); outline-offset: -9px; }
+.brand-on-dark { --brand-ground: #161e17; --brand-cap: #a4ae9c; --brand-stitch: #79bd64; }
+.brand-on-paper { --brand-ground: #fbfaf2; }
+.brand-tile .wp-block-image { margin: auto 0 0; }
+.brand-tile .wp-block-image img, .brand-clear img { max-width: 100%; height: auto !important; }
+.page-wide .brand-tile .brand-tile-cap { margin-top: auto; }
+.brand-tile-cap { font-size: 14px; font-weight: 700; color: var(--brand-cap, var(--muted)); text-align: center; }
+.brand-parts { max-width: 46em; margin: 0 0 18px; padding-left: 1.2em; }
+.brand-parts li + li { margin-top: 6px; }
+.brand-rules { display: grid; grid-template-columns: minmax(0, 549px) minmax(0, 1fr); gap: 30px; align-items: center; }
+.page-wide .brand-rules > * { margin-block: 0; }
+.brand-clear { margin: 0; }
+.brand-clear img { border-radius: 12px; box-shadow: 0 0 0 1px var(--border); }
+.brand-rule-list { margin: 0; padding-left: 1.2em; }
+.brand-rule-list li + li { margin-top: 10px; }
+.brand-type { display: grid; gap: 0; margin-bottom: 22px; border-block: 1px solid var(--border); }
+.brand-face { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-rows: auto 1fr; column-gap: 30px; padding: 22px 0; }
+.brand-face + .brand-face { border-top: 1px solid var(--border); }
+.page-wide .brand-face > * { margin: 0; }
+.brand-face .brand-specimen { grid-row: 1 / span 2; align-self: center; color: var(--fg); line-height: 1.15; }
+.brand-face-display .brand-specimen { font-family: var(--font-display); font-weight: 600; font-size: clamp(38px, 6vw, 64px); letter-spacing: -0.01em; }
+.brand-face-body .brand-specimen { font-family: var(--font-body); font-size: 21px; line-height: 1.45; max-width: 24em; }
+.page-wide .brand-face-mono .brand-specimen code { font-size: 19px; }
+.brand-face-name { font-size: 17px; }
+.brand-face-note { font-size: 15px; color: var(--muted); }
+.brand-swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 16px; }
+.page-wide .brand-swatches > * { margin-block: 0; }
+.brand-swatch { display: flex; flex-direction: column; gap: 4px; padding: 12px 12px 14px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.brand-chips { display: grid; grid-template-columns: 1fr 1fr; height: 64px; margin-bottom: 8px !important; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 14%, transparent); }
+.brand-chip { display: block; }
+.brand-swatch-name { font-size: 17px; }
+.brand-swatch-name strong { font-family: var(--font-display); font-size: 19px; margin-right: 0.3em; }
+.brand-swatch-name code, .brand-swatch-hex code { color: var(--muted); }
+.brand-swatch-role { font-size: 14px; color: var(--muted); line-height: 1.4; }
+.brand-swatch-hex { font-size: 13px; color: var(--muted); margin-top: auto !important; padding-top: 6px; }
+.brand-swatch-hex code { color: var(--fg); margin-right: 0.6em; }
+.brand-icons { display: flex; flex-wrap: wrap; align-items: stretch; gap: 22px; }
+.brand-icon { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 12px; padding: 22px 20px 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--border); }
+.brand-icon .wp-block-image { margin: 0; }
+.brand-icon .brand-tile-cap { max-width: 15em; font-weight: 600; }
+.brand-px img { image-rendering: pixelated; }
+.brand-zoom img { border-radius: 4px; box-shadow: 0 0 0 1px var(--border); }
+.brand-app img { border-radius: 22%; box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.6); }
+.brand-icon-big .wp-block-image img { width: 256px; height: 256px; max-width: 100%; }
+.brand-usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 20px; }
+.page-wide .brand-usage > * { margin-block: 0; }
+.brand-do, .brand-dont { --brand-tone: var(--moss); padding: 22px 24px 18px; border-radius: 18px; background: color-mix(in srgb, var(--brand-tone) 7%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-tone) 40%, var(--border)); border-top: 5px solid var(--brand-tone); }
+.brand-dont { --brand-tone: var(--accent); }
+.brand-do ul, .brand-dont ul { margin: 0; padding-left: 1.2em; }
+.brand-do li + li, .brand-dont li + li { margin-top: 6px; }
+.brand-do li::marker { color: var(--moss); }
+.brand-dont li::marker { color: var(--accent); }
+.brand-direction { --brand-tone: var(--stone); display: flex; flex-direction: column; gap: 10px; padding: 24px 24px 20px; border-radius: 18px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--brand-tone) 40%, var(--border)); outline: 2px dashed color-mix(in srgb, var(--brand-tone) 60%, var(--surface)); outline-offset: -9px; }
+.brand-direction-chosen { --brand-tone: var(--moss); background: color-mix(in srgb, var(--moss) 7%, var(--surface)); }
+.brand-direction-marks { display: flex; align-items: flex-end; gap: 18px; margin-bottom: 6px !important; }
+.brand-direction-marks .wp-block-image { margin: 0; }
+.brand-direction p { color: var(--muted); font-size: 15px; }
+.brand-files { padding-left: 1.2em; }
+.brand-files li + li { margin-top: 6px; }
+.brand-files a { font-family: var(--font-mono); font-size: 0.92em; }
+@media (max-width: 760px) {
+  .brand-hero { grid-template-columns: 1fr; gap: 26px; }
+  .brand-hero-mark img { width: 150px !important; height: 150px !important; }
+  .brand-hero-mark { justify-self: start; width: 150px; }
+  .brand-tiles-4 .brand-tile { min-height: 0; padding: 24px 14px 16px; }
+  .brand-rules, .brand-face { grid-template-columns: 1fr; row-gap: 10px; }
+  .brand-face .brand-specimen { grid-row: auto; }
+}
