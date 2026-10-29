@@ -68,6 +68,10 @@ final class Extension implements MinnExtension
             . '<script src="/site/theme.js"></script>' . "\n"
             . '<link rel="icon" href="/favicon.svg?v=arch" type="image/svg+xml" />' . "\n"
             . '<link rel="icon" href="/favicon.ico?v=arch" sizes="32x32" />' . "\n"
-            . '<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=arch" />' . "\n";
+            . '<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=arch" />' . "\n"
+            // Fathom analytics, counted only on the live domain (groddle.localhost stays out).
+            . '<!-- Fathom - beautiful, simple website analytics -->' . "\n"
+            . '<script src="https://cdn.usefathom.com/script.js" data-site="OTSJXDRZ" data-included-domains="groddleafternoon.com" defer></script>' . "\n"
+            . '<!-- / Fathom -->' . "\n";
     }
 }
