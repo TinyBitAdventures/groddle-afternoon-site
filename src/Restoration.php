@@ -57,7 +57,10 @@ final class Restoration
         $section('stamp', static fn (array $a, array $d): string => '<p id="foot-meta">' . Html::esc(self::stamp($d)) . '</p>');
 
         $script = $root->dir . '/restoration/restoration.js';
-        $minn->footer(static fn (): string => self::$used ? '<script src="/restoration/restoration.js?v=' . (is_file($script) ? filemtime($script) : 0) . '" type="module"></script>' . "\n" : '');
+        // The game's content keys go first (js/data-versions.js, js/data-urls.js: every data and art URL
+        // the page fetches carries ?v=<hash of its contents>), so a deploy never leaves an old copy cached.
+        $keyed = static fn (string $path): string => '<script src="' . $path . '?v=' . (is_file($root->dir . $path) ? substr(sha1_file($root->dir . $path), 0, 8) : '0') . '"></script>' . "\n";
+        $minn->footer(static fn (): string => self::$used ? $keyed('/js/data-versions.js') . $keyed('/js/data-urls.js') . '<script src="/restoration/restoration.js?v=' . (is_file($script) ? filemtime($script) : 0) . '" type="module"></script>' . "\n" : '');
     }
 
     private static function pending(string $line): string
