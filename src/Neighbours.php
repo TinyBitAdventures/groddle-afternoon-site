@@ -87,6 +87,8 @@ final readonly class Neighbours
     public const TEXT_NEWXP = "That player has not finished the tutorial, and can't be visited until they do.";
     public const TEXT_NEWXP_US = "You can't do that until you finish the tutorial.";
     public const TEXT_RANDOM_NONE = 'Hmm, something went wrong :(';
+    /** The remake's own line (the source has none): nobody else is opted in for random visitors at all. */
+    public const TEXT_RANDOM_EMPTY = "Nobody's taking visitors right now. Try again later.";
     public const TEXT_LOW_LEVEL = 'You need to reach level 4 first.';
     public const TEXT_NO_CULTIVATION = 'You need to cultivate 3 items.';
     public const TEXT_NO_BUTLER = "You haven't yet unboxed your butler in your front yard.";
@@ -134,6 +136,9 @@ final readonly class Neighbours
         $ids = $db->rows("SELECT v.user_id FROM {$visitors} v WHERE v.user_id <> ?
             AND NOT EXISTS (SELECT 1 FROM {$ignores} i WHERE i.user_id = v.user_id AND i.ignored_id = ?)
             ORDER BY RAND() LIMIT " . self::RANDOM_TRIES, [$me, $me]);
+        if ($ids === []) {
+            throw new RestError('groddle_home_random_empty', self::TEXT_RANDOM_EMPTY, 404);
+        }
         foreach ($ids as $row) {
             $view = $this->visit($me, (int) $row['user_id']);
             if (is_array($view)) {
