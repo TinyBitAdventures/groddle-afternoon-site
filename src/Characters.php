@@ -67,6 +67,28 @@ final readonly class Characters
             || $this->db->value("SELECT ID FROM {$users} WHERE LOWER(display_name) = ? LIMIT 1", [self::key($name)]) !== null;
     }
 
+    /**
+     * An account playing online with no character yet (the site's own people, made outside the
+     * game) takes its display name, the name the game already shows for it (nameOf), when the name
+     * fits the sign-up rules (PlayerAccount::NAME) and no other account or character has it.
+     */
+    public function claimOwnName(UserRecord $user): void
+    {
+        $table = $this->db->table(self::TABLE);
+        if ($this->db->value("SELECT user_id FROM {$table} WHERE user_id = ?", [$user->id]) !== null) {
+            return;
+        }
+        $name = trim(preg_replace('/\s+/', ' ', $user->displayName) ?? '');
+        if (preg_match(PlayerAccount::NAME, $name) !== 1) {
+            return;
+        }
+        $users = $this->db->table('users');
+        if ($this->db->value("SELECT ID FROM {$users} WHERE LOWER(display_name) = ? AND ID <> ? LIMIT 1", [self::key($name), $user->id]) !== null) {
+            return;
+        }
+        $this->claim($user->id, $name);
+    }
+
     /** Records a new player's character name; false when someone took it first. */
     public function claim(int $userId, string $name): bool
     {

@@ -57,6 +57,8 @@ final readonly class RealtimeTicket
         if (AdminConsole::banned($this->minn->db, $user->id) !== null) {
             throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403);
         }
+        // Online play needs a character: an account made outside the game takes its display name (Characters::claimOwnName).
+        (new Characters($this->minn->db))->claimOwnName($user);
         $now = time();
         $payload = [
             'sub' => $user->id,

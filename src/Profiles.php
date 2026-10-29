@@ -125,6 +125,11 @@ final readonly class Profiles
     {
         $id = $this->minn->reader->userId;
         $db = $this->minn->db;
+        // The Account panel can ask before the first realtime ticket: claim the display name here too.
+        $user = $this->minn->user();
+        if ($user !== null) {
+            (new Characters($db))->claimOwnName($user);
+        }
         $name = $db->value('SELECT name FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]);
         if (!is_string($name) || $name === '') {
             throw new RestError('groddle_profile_none', 'Only multiplayer characters have a profile.', 403);
