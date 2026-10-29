@@ -52,6 +52,40 @@ p.jump { margin-bottom: 0; }
 .note-body .wrap > .wp-block-post-content > * + * { margin-top: 40px; }
 /* The restoration report's jump links in the Notes chip colour: the same in light, and readable in dark (the built page is light only). */
 .jump a { background: var(--chip-bg); }
+/* The restoration report's section menu (src/ReportMenu.php): one row at the top of the page that stays at the top of the window as it scrolls (the site header above it scrolls away on Minn pages); on narrow screens the row scrolls sideways under a fade. Anchors land below it. */
+:root { --report-menu-h: 44px; }
+html:has(.report-menu) { scroll-padding-top: calc(var(--report-menu-h) + 14px); }
+.report-menu {
+  position: sticky; top: 0; z-index: 15;
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.page-wide > .wp-block-post-content > .report-menu { margin-block: 0; }
+.report-menu-row { display: flex; align-items: center; min-height: var(--report-menu-h); }
+.report-menu-links {
+  display: flex; align-items: center; gap: 0; list-style: none; margin: 0 -7px; padding: 5px 0; min-width: 0; flex: 1;
+  overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; scroll-snap-type: x proximity;
+}
+.report-menu-links::-webkit-scrollbar { display: none; }
+.report-menu-links li { flex: none; scroll-snap-align: start; }
+.report-menu-links a {
+  display: block; white-space: nowrap; text-decoration: none; font-size: 14px; font-weight: 700; color: var(--fg);
+  padding: 5px 7px; border-radius: 999px; border: 1px solid transparent;
+}
+.report-menu-links a:hover { background: var(--chip-bg); border-color: var(--border); }
+.report-menu-links a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.report-menu-out { margin-left: auto; padding-left: 8px; }
+.report-menu-out a { color: var(--muted); font-weight: 600; }
+.report-menu ~ .band .spot-card { top: calc(var(--report-menu-h) + 16px); }
+@media (max-width: 1160px) {
+  .report-menu-links { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); padding-right: 28px; }
+  .report-menu-out { margin-left: 0; }
+}
+@media (max-width: 640px) {
+  :root { --report-menu-h: 40px; }
+  .report-menu-links a { font-size: 13.5px; padding: 4px 8px; }
+}
 /* The Musicblocks page (src/Musicblocks.php, public/musicblocks/musicblocks.js): a card per block in its series' glow colour. */
 .mb-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .mb-trophy { display: flex; align-items: center; gap: 14px; margin: 0 0 22px; padding: 12px 16px; max-width: 44em; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--chip-bg); }

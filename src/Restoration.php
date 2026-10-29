@@ -35,11 +35,12 @@ final class Restoration
             }
             return self::$data;
         };
-        $section = static function (string $name, \Closure $draw) use ($minn, $data): void {
-            $minn->block("blocks/restoration-{$name}", static function (array $a) use ($draw, $data): string {
+        // Each section's art carries the game's content keys (DataKeys, from js/data-versions.js).
+        $section = static function (string $name, \Closure $draw) use ($minn, $data, $root): void {
+            $minn->block("blocks/restoration-{$name}", static function (array $a) use ($draw, $data, $root): string {
                 self::$used = true;
                 $d = $data();
-                return $d === [] ? '<p class="report-pending">The restoration figures appear once the game is built (public/restoration/data.json).</p>' : $draw($a, $d);
+                return $d === [] ? '<p class="report-pending">The restoration figures appear once the game is built (public/restoration/data.json).</p>' : DataKeys::html($draw($a, $d), DataKeys::map($root->dir));
             });
         };
         $section('score', static fn (array $a, array $d): string => self::score($d));
@@ -61,6 +62,12 @@ final class Restoration
         // the page fetches carries ?v=<hash of its contents>), so a deploy never leaves an old copy cached.
         $keyed = static fn (string $path): string => '<script src="' . $path . '?v=' . (is_file($root->dir . $path) ? substr(sha1_file($root->dir . $path), 0, 8) : '0') . '"></script>' . "\n";
         $minn->footer(static fn (): string => self::$used ? $keyed('/js/data-versions.js') . $keyed('/js/data-urls.js') . '<script src="/restoration/restoration.js?v=' . (is_file($script) ? filemtime($script) : 0) . '" type="module"></script>' . "\n" : '');
+    }
+
+    /** Whether this request drew a report section (the section menu, ReportMenu, goes only on the report). */
+    public static function drawn(): bool
+    {
+        return self::$used;
     }
 
     private static function pending(string $line): string

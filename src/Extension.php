@@ -13,7 +13,7 @@ use Minn\Extension\Seams;
  * while Groddle is the theme. The templates draw notes, pages and posts in
  * the site's look; this adds what templates cannot: the site's stylesheets,
  * the note blocks (Blocks), the restoration report's data sections
- * (Restoration), the Musicblocks and Street music pages' players
+ * (Restoration) and its section menu (ReportMenu), the Musicblocks and Street music pages' players
  * (Musicblocks, StreetMusic), the header's menu (SiteNav), and the built game
  * and generated pages served beside the content. For players: the
  * groddle/v1 REST routes: the game's own sign-up and sign-in by email
@@ -52,6 +52,8 @@ final class Extension implements MinnExtension
         $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerCrowns($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new Snaps($minn), new AdminTeleport($minn), new AdminConsole($minn), new GoogleSignIn($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
+        // The report's section menu, drawn over its rendered content (nothing is written to the page).
+        $minn->filterContent(static fn (string $html): string => Restoration::drawn() ? ReportMenu::insert($html) : $html);
         Musicblocks::register($minn, $root);
         StreetMusic::register($minn, $root);
         Codebase::register($minn, $root);
