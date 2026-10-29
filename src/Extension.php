@@ -36,6 +36,10 @@ final class Extension implements MinnExtension
     public function register(Seams $minn): void
     {
         $minn->head(static fn (): string => self::head());
+        // Link previews (Open Graph and Twitter cards) on every page Minn renders.
+        $home = (string) ($minn->site->option('home') ?? '');
+        $path = $minn->request->path;
+        $minn->filterDocument(static fn (string $html): string => SocialTags::insert($html, $home, $path));
         $minn->bodyClass('notes');
         // The editor's block previews wear the same stylesheets (the theme's own style.css it loads already).
         $minn->editorStyles(...array_slice(self::STYLESHEETS, 0, -1));

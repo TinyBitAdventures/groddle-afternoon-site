@@ -544,6 +544,7 @@ final readonly class PlayerPages
             . SiteNav::nav(SiteNav::links($this->minn, 0), $path) . "\n"
             . $body . "\n"
             . trim($footer) . "\n</body>\n</html>\n";
+        $html = SocialTags::insert($html, (string) ($this->minn->site->option('home') ?? ''), $path);
         return Response::html($this->minn->frontBar($html))->withHeader('Cache-Control', 'no-cache');
     }
 }
