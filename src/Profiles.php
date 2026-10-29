@@ -181,7 +181,7 @@ final readonly class Profiles
     /** Where a picture is served (PlayerPages::image), versioned by when it was saved. */
     public static function imageUrl(int $id, string $kind, string $at): string
     {
-        return "/players/{$id}/{$kind}.png?v=" . self::stamp($at);
+        return "/players/{$id}/{$kind}?v=" . self::stamp($at);
     }
 
     /** A stored UTC time as the version a picture's URL carries. */

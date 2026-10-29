@@ -339,8 +339,11 @@ final readonly class PlayerPages
         return "      <div class=\"profile-section-head\"><h2 id=\"{$id}\">{$title}</h2>{$more}</div>\n";
     }
 
-    /** A picture the game uploaded, as image/png; versioned URLs are kept for a year. */
-    #[Route(Method::Get, '/players/{id:\d+}/{kind:avatar|tile|home}.png', policy: new Policy(Access::Public))]
+    /**
+     * A picture the game uploaded, as image/png; versioned URLs are kept for a year. The path has no
+     * .png: Kinsta's nginx answers any missing .png file itself, so PHP never saw those (2026-10-29).
+     */
+    #[Route(Method::Get, '/players/{id:\d+}/{kind:avatar|tile|home}', policy: new Policy(Access::Public))]
     public function image(Request $request, string $id, string $kind): Response
     {
         $kind = self::KINDS[$kind] ?? throw new RouteMiss();
