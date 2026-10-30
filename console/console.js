@@ -15,7 +15,8 @@
  * - Bans with Unban, and the activity log of every administrator's action.
  * - Reports (the second tab; src/AdminTickets.php): players' bug reports as
  *   threads, unread first, with a status filter; a thread shows what the game
- *   knew, the messages, a reply box (the player is emailed, or with Don't
+ *   knew, the picture of the game when the report carries one (click opens it
+ *   full size; pictureSrc), the messages, a reply box (the player is emailed, or with Don't
  *   email ticked it is a note they only see in the game; the box stays
  *   ticked from report to report, for closing many related ones) and Close
  *   or Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
@@ -40,6 +41,12 @@ export function replyFormWords(noEmail) {
   return noEmail
     ? { send: 'Add note', placeholder: 'Plain text. The player sees it in the game. No email goes.' }
     : { send: 'Send reply', placeholder: 'Plain text. The player sees it in the game and gets an email.' };
+}
+
+/** A report's picture address from the site (src/TicketPictures.php), or '' for anything else. */
+export function pictureSrc(picture) {
+  const url = typeof picture?.url === 'string' ? picture.url : '';
+  return /^\/report-pictures\/\d{1,12}$/.test(url) ? url : '';
 }
 
 /** A ticket's status in words (src/TicketStore.php STATUSES). */
@@ -586,6 +593,16 @@ function boot() {
     const rows = contextRows(r.context);
     $('[data-console-context]').hidden = rows.length === 0;
     $('[data-console-context-list]').replaceChildren(...rows.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })]));
+    const src = pictureSrc(r.picture);
+    const fig = $('[data-console-picture]');
+    const img = $('[data-console-picture-img]');
+    fig.hidden = !src;
+    if (src) {
+      $('[data-console-picture-link]').href = src;
+      if (img.getAttribute('src') !== src) img.src = src;
+      img.width = Number(r.picture.width) || 0;
+      img.height = Number(r.picture.height) || 0;
+    } else img.removeAttribute('src');
     $('[data-console-messages]').replaceChildren(...(r.messages || []).map((m) => el('li', { class: `console-msg console-msg-${m.author}` },
       el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${when(m.at)}` })),
       el('p', { class: 'console-msg-body', text: m.body }))));

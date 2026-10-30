@@ -22,6 +22,9 @@ use Minn\Db;
  * (last_author_role) after it last read the thread (player_read_at,
  * admin_read_at; NULL is never). Writing counts as reading.
  *
+ * A new report may carry a picture of the game (ReportPicture): kept with
+ * the ticket in PICTURES, written in the same transaction as the ticket.
+ *
  * Bodies are plain text (BugReports::clean: no control characters, newlines
  * kept, at most MAX_MESSAGE characters). They are stored as text and set as
  * text by every reader (the game, the console), and escaped in the email.
@@ -30,6 +33,8 @@ final readonly class TicketStore
 {
     public const TABLE = 'groddle_tickets';
     public const MESSAGES = 'groddle_ticket_messages';
+    /** A report's picture of the game, one row a ticket (ReportPicture, served by TicketPictures). */
+    public const PICTURES = 'groddle_ticket_pictures';
 
     public const OPEN = 'open';
     public const ANSWERED = 'answered';
@@ -81,10 +86,11 @@ final readonly class TicketStore
      * the database refused the text).
      *
      * @param array<string, mixed> $context BugReports::context
+     * @param array{bytes: string, width: int, height: int}|null $picture ReportPicture::accept
      */
-    public function open(int $player, string $message, array $context, int $now, ?int $legacyPost = null): int
+    public function open(int $player, string $message, array $context, int $now, ?int $legacyPost = null, ?array $picture = null): int
     {
-        return Ledger::atomically($this->db, function () use ($player, $message, $context, $now, $legacyPost): int {
+        return Ledger::atomically($this->db, function () use ($player, $message, $context, $now, $legacyPost, $picture): int {
             $at = self::stamp($now);
             $sql = 'INSERT ' . ($legacyPost !== null ? 'IGNORE ' : '') . 'INTO ' . $this->db->table(self::TABLE)
                 . ' (player_user_id, status, subject, created_at, updated_at, last_message_at, last_author_role, player_read_at, admin_read_at, context, legacy_post_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)';
@@ -94,6 +100,10 @@ final readonly class TicketStore
                 return 0;
             }
             $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGES) . ' (ticket_id, author_user_id, author_role, body, created_at) VALUES (?, ?, ?, ?, ?)', [$id, $player, self::PLAYER, $message, $at]);
+            if ($picture !== null) {
+                // Binary goes in as base64 and FROM_BASE64, as Profiles writes its pictures (raw bytes are not a valid string to bind).
+                $this->db->execute('INSERT INTO ' . $this->db->table(self::PICTURES) . ' (ticket_id, player_user_id, picture, width, height, bytes, created_at) VALUES (?, ?, FROM_BASE64(?), ?, ?, ?, ?)', [$id, $player, base64_encode($picture['bytes']), $picture['width'], $picture['height'], strlen($picture['bytes']), $at]);
+            }
             return $id;
         });
     }
@@ -138,6 +148,19 @@ final readonly class TicketStore
     public function mine(int $player, int $ticket): ?array
     {
         return $player > 0 && $ticket > 0 ? $this->db->row('SELECT * FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ? AND player_user_id = ?', [$ticket, $player]) : null;
+    }
+
+    /** A ticket's picture row (with its bytes and its player), or null. */
+    public function picture(int $ticket): ?array
+    {
+        return $ticket > 0 ? $this->db->row('SELECT ticket_id, player_user_id, picture, width, height FROM ' . $this->db->table(self::PICTURES) . ' WHERE ticket_id = ?', [$ticket]) : null;
+    }
+
+    /** A thread's picture as either side reads it: where it is shown and its size, or null. @return array{url: string, width: int, height: int}|null */
+    public function pictureOut(int $ticket): ?array
+    {
+        $row = $ticket > 0 ? $this->db->row('SELECT width, height FROM ' . $this->db->table(self::PICTURES) . ' WHERE ticket_id = ?', [$ticket]) : null;
+        return $row === null ? null : ['url' => TicketPictures::url($ticket), 'width' => (int) $row['width'], 'height' => (int) $row['height']];
     }
 
     /** A thread's messages, oldest first (the newest THREAD_MAX). @return list<array<string, mixed>> */

@@ -140,6 +140,10 @@
 .console-msg-who { margin: 0 0 3px; font-size: 12px; }
 .console-msg-who time { color: var(--muted); }
 .console-msg-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.console-picture { margin: 0 0 10px; display: grid; gap: 4px; justify-items: start; }
+.console-picture a { display: block; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; cursor: zoom-in; }
+.console-picture a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.console-picture img { display: block; max-width: 100%; width: auto; height: auto; max-height: 220px; }
 .console-reply { display: grid; gap: 6px; }
 .console-reply label { font-weight: 700; }
 .console-reply textarea { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 5em; }

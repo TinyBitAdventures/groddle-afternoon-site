@@ -51,6 +51,8 @@ final class Extension implements MinnExtension
         $minn->routes(new PlayerPages($minn, $root));
         // The administrators' console page (/console/; its data is AdminConsole's REST routes).
         $minn->routes(new AdminConsolePage($minn));
+        // A bug report's picture of the game, to its player and the administrators.
+        $minn->routes(new TicketPictures($minn));
         // /privacy goes to the privacy policy page.
         $minn->routes(new PrivacyLinks($minn));
         $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerCrowns($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new Tickets($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new Snaps($minn), new AdminTeleport($minn), new AdminConsole($minn), new AdminTickets($minn), new GoogleSignIn($minn));

@@ -22,7 +22,7 @@ use Minn\RestError;
  *
  *   GET  admin/tickets?status=open|answered|closed|all   {"tickets":[Row],"counts":{open,answered,closed,unread},"more":bool,"legacy":n}
  *                                  unread first, then open, answered, closed, the newest news first; legacy: old report posts not brought in yet
- *   GET  admin/tickets/{id}        {"ticket":Row,"messages":[Message],"context":{..}}   and marks it read
+ *   GET  admin/tickets/{id}        {"ticket":Row,"messages":[Message],"context":{..},"picture":{"url","width","height"}|null}   and marks it read
  *   POST admin/tickets/{id}/reply  {"message","email"?}  the thread + {"delivery","text"}; emails the player (below)
  *                                  unless "email" is false: a note (delivery note), for closing many related reports
  *   POST admin/tickets/{id}/close  the thread
@@ -189,6 +189,7 @@ final readonly class AdminTickets
             'ticket' => $this->row($row, $names),
             'messages' => TicketStore::messagesOut($store->messages($id)),
             'context' => (object) TicketStore::contextOf($row),
+            'picture' => $store->pictureOut($id),
         ])->withHeader('Cache-Control', 'no-store');
     }
 

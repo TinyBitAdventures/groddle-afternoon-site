@@ -18,8 +18,8 @@ use Minn\Http\Route;
  * /console/, the administrators' console. Two tabs: Players (who is online,
  * finding a player, and acting on one: message, teleport, give, refill,
  * boot, ban; the bans and the activity log) and Reports (players' bug
- * reports as threads: read, reply or add a note without an email, close,
- * reopen; AdminTickets). #reports
+ * reports as threads with the picture of the game a report may carry: read,
+ * reply or add a note without an email, close, reopen; AdminTickets). #reports
  * opens the Reports tab, #report=<id> one report. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
  * sign-in and back; signed in without the capability it answers a plain 403.
@@ -38,7 +38,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'g491-2';
+    public const ASSET_KEY = 'g491-3';
 
     public function __construct(private Seams $minn)
     {
@@ -175,6 +175,10 @@ final readonly class AdminConsolePage
           <summary>What the game knew</summary>
           <dl data-console-context-list></dl>
         </details>
+        <figure class="console-picture" data-console-picture hidden>
+          <a data-console-picture-link target="_blank" rel="noopener" aria-label="Open the picture of the game full size"><img data-console-picture-img alt="The game when the player reported it" /></a>
+          <figcaption class="console-sub">The game's canvas when they reported it. Click it to open it full size.</figcaption>
+        </figure>
         <ol class="console-list console-messages" data-console-messages aria-label="Messages"></ol>
         <form class="console-reply" data-console-reply>
           <label for="console-reply-text">Reply</label>

@@ -23,8 +23,9 @@ use Minn\RestError;
  *
  *   GET  tickets                 {"tickets":[Summary],"unread":n}      yours, the newest news first
  *   GET  tickets/unread          {"unread":n}                          the bug icon's badge (polled)
- *   GET  tickets/{id}            {"ticket":Summary,"messages":[Message]}  and marks it read
- *   POST tickets                 {"message","context"} 201 {"status":"sent","id","ticket"}   a new report
+ *   GET  tickets/{id}            {"ticket":Summary,"messages":[Message],"picture":{"url","width","height"}|null}  and marks it read
+ *   POST tickets                 {"message","context","picture"?} 201 {"status":"sent","id","ticket"}   a new report;
+ *                                picture: a base64 JPEG of the game (ReportPicture), refused with a groddle_report_picture* code
  *   POST tickets/{id}/messages   {"message"}  {"ticket","messages"}    a reply; opens a closed ticket again
  *   POST tickets/{id}/close      {"ticket","messages"}
  *   Summary: {"id","status":"open"|"answered"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
@@ -32,7 +33,8 @@ use Minn\RestError;
  *
  * A new report keeps the old one's rules (BugReports: the message required
  * and at most MAX_MESSAGE characters, the context's known keys cut short,
- * PER_WINDOW in WINDOW seconds and PER_DAY a day). Replies: REPLY_PER_WINDOW
+ * PER_WINDOW in WINDOW seconds and PER_DAY a day; a picture comes only with
+ * a new report, so those are its limits too). Replies: REPLY_PER_WINDOW
  * in WINDOW seconds and REPLY_PER_DAY a day, the same length.
  */
 final readonly class Tickets
@@ -84,7 +86,10 @@ final readonly class Tickets
             throw new RestError('groddle_feedback_slow', 'Thanks! You have sent a few reports just now. Try again in a little while.', 429);
         }
         $context = BugReports::context(is_array($body['context'] ?? null) ? $body['context'] : []);
-        $id = $store->open($me->id, $message, $context, $now);
+        // The picture of the game, when the player left Attach a picture ticked: checked after the limits.
+        $raw = $body['picture'] ?? null;
+        $picture = $raw === null || $raw === '' || $raw === false ? null : ReportPicture::accept($raw);
+        $id = $store->open($me->id, $message, $context, $now, null, $picture);
         if ($id <= 0) {
             throw new RestError('groddle_feedback_failed', 'That didn\'t send. Try again in a moment.', 500);
         }
@@ -125,7 +130,7 @@ final readonly class Tickets
     {
         $store = $this->store();
         $row = (array) $store->find($id);
-        return Response::json(['ticket' => TicketStore::summary($row, TicketStore::PLAYER), 'messages' => TicketStore::messagesOut($store->messages($id))])->withHeader('Cache-Control', 'no-store');
+        return Response::json(['ticket' => TicketStore::summary($row, TicketStore::PLAYER), 'messages' => TicketStore::messagesOut($store->messages($id)), 'picture' => $store->pictureOut($id)])->withHeader('Cache-Control', 'no-store');
     }
 
     /** One of the caller's tickets; anyone else's is missing to them. */

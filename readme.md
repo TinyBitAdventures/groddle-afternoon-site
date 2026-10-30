@@ -38,6 +38,7 @@ The extension's main pieces:
 | `PlayerMail` | The emails players get, as HTML in the site's look, from "Groddle Afternoon" (the `groddle_mail_from` option names the address, else `noreply@` the site's host) |
 | `RealtimeTicket` | Signs a one-use, 60-second ticket for the realtime server |
 | `Tickets`, `AdminTickets`, `TicketStore` | Bug reports as threads: the player's Reports sheet in the game, and the Reports tab of the administrators' console at `/console/`. A reply from an administrator emails the player (`PlayerMail`), unless they tick Don't email: then it is a note the player sees only in the game |
+| `ReportPicture`, `TicketPictures` | The picture of the game a bug report may carry: checked (a JPEG from its bytes, at most 1280x1280 and 300 KiB, written again by GD so no metadata stays) and served at `/report-pictures/<report>` only to its player and the administrators |
 | `TicketMigration` | Brings the bug reports from before tickets (private `groddle_feedback` posts) in as tickets, once |
 
 ### REST routes
@@ -58,7 +59,7 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `GET/POST buddies`, `DELETE buddies/{id}` | Your buddies (online through the realtime server), who added you, and adding or removing one (1,000 at most, one Buddies group, as in the original) |
 | `POST buddies/ignores`, `DELETE buddies/ignores/{id}` | Blocking a player and un-blocking them |
 | `GET tickets`, `GET tickets/unread`, `GET tickets/{id}` | Your bug reports (status open, answered or closed, and whether an administrator replied since you looked), the count of unread replies, and one thread (which marks it read). Only ever your own: anyone else's answers 404 |
-| `POST tickets` (also `POST feedback`) | A new bug report: the message (at most 2,000 characters) and what the game knew (street, place, build, page, browser, screen, the last errors); 3 in 10 minutes and 20 a day |
+| `POST tickets` (also `POST feedback`) | A new bug report: the message (at most 2,000 characters), what the game knew (street, place, build, page, browser, screen, the last errors) and, when the player leaves it ticked, a picture of the game (a base64 JPEG); 3 in 10 minutes and 20 a day |
 | `POST tickets/{id}/messages`, `POST tickets/{id}/close` | A reply (it opens a closed report again) and closing your own report |
 | `GET admin/tickets`, `GET admin/tickets/{id}`, `POST admin/tickets/{id}/reply\|close\|reopen`, `POST admin/tickets/migrate` | The console's Reports tab, `manage_options` only, each action in the console's activity log |
 
@@ -67,7 +68,9 @@ The tables are declared in `minn.json`: `groddle_players` (each player's charact
 table prefix). Each buddies answer carries a list signed with the realtime secret, which the server
 watches for who is online; an add also carries a one-use proof that tells the other player.
 Bug reports are `groddle_tickets` (one row a report: its player, status, subject, when each side last
-read it, what the game knew) and `groddle_ticket_messages` (the thread, oldest first).
+read it, what the game knew), `groddle_ticket_messages` (the thread, oldest first) and
+`groddle_ticket_pictures` (a report's picture, one row a report, kept in the database rather than under
+uploads because the web server serves uploads to anyone).
 
 **Bringing in the old bug reports** (once, after the release that adds tickets; safe to run again, the
 posts stay, nobody is emailed): the console's Reports tab offers "Bring in old reports" while any are
