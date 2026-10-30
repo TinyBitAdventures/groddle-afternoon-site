@@ -147,7 +147,7 @@ final readonly class Tickets
     {
         $user = $this->minn->user();
         if ($user === null) {
-            throw new RestError('groddle_feedback_signed_out', 'Sign in to send a bug report.', 401);
+            throw new RestError('groddle_feedback_signed_out', 'Sign in to send us feedback.', 401);
         }
         return $user;
     }

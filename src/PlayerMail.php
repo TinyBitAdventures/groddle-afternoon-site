@@ -103,14 +103,14 @@ final class PlayerMail
     public static function ticketReply(string $home, string $from, string $character, string $subject, string $reply, string $link): array
     {
         $hi = $character !== '' ? 'Hi <strong>' . Html::esc($character) . '</strong>,' : 'Hi,';
-        $content = self::heading('We replied to your report')
+        $content = self::heading('We replied to your message')
             . self::paragraph($hi)
-            . self::paragraph('An administrator replied to your bug report <strong>' . Html::esc($subject) . '</strong>:')
+            . self::paragraph('An administrator replied to your message <strong>' . Html::esc($subject) . '</strong>:')
             . '<div style="margin:0 0 18px;padding:14px 16px;border-left:4px solid ' . self::BORDER . ';border-radius:8px;background:' . self::BG . ';color:' . self::INK . ';white-space:normal;">'
             . nl2br(Html::esc($reply), false) . '</div>'
             . self::button($link, 'Read it in the game')
-            . self::small('Write back from the game: the bug button at the top, then your report. If more replies come before you read this one, we don\'t email again.');
-        $subjectLine = 'A reply to your Groddle Afternoon bug report';
+            . self::small('Write back from the game: the bug button at the top, then your message. If more replies come before you read this one, we don\'t email again.');
+        $subjectLine = 'A reply to your Groddle Afternoon message';
         return [$subjectLine, self::layout($home, 'An administrator replied to "' . $subject . '".', $content), self::headers($home, $from)];
     }
 
