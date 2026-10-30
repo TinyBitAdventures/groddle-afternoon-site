@@ -29,7 +29,7 @@
 .console-table { width: 100%; border-collapse: collapse; table-layout: auto; }
 .console-table th { text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .console-table td { padding: 6px 8px; border-bottom: 1px solid var(--row-line); vertical-align: middle; overflow-wrap: anywhere; }
-.console-table tbody tr { cursor: context-menu; }
+.console-table tbody tr { cursor: pointer; }
 .console-table tbody tr:hover { background: var(--track); }
 .console-table tbody tr:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 .console-num { font-variant-numeric: tabular-nums; white-space: nowrap; }

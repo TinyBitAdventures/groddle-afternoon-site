@@ -6,9 +6,12 @@
  * - Online now: polled every POLL_MS while the tab is visible (the realtime
  *   server's own list, through the site), with how long each has been on.
  * - Find a player: characters by name, online or not.
- * - Each player has a menu: right-click the row, its menu button, or
- *   Shift+F10 / the Menu key on the focused row. Arrow keys move in the menu,
- *   Enter or Space picks, Escape closes and gives focus back.
+ * - Each player has a menu: click or right-click the row (it opens at the
+ *   pointer), its menu button, or Enter, Shift+F10 or the Menu key on the
+ *   focused row. A click on a link or control in the row, a double click, or
+ *   the click that ends selecting text leaves it shut (rowClickOpens). Arrow
+ *   keys move in the menu, Enter or Space picks, Escape closes and gives focus
+ *   back.
  * - Bans with Unban, and the activity log of every administrator's action.
  * - Reports (the second tab; src/AdminTickets.php): players' bug reports as
  *   threads, unread first, with a status filter; a thread shows what the game
@@ -63,6 +66,16 @@ export function onlineFor(seconds) {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h} h ${String(m % 60).padStart(2, '0')} min`;
   return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+
+/**
+ * Whether a click on a player row opens its menu: the primary button, one
+ * click (a double click is selecting a word), not on a link or a control in
+ * the row (they do their own thing; the menu button opens it by itself), and
+ * not the click that ends selecting text.
+ */
+export function rowClickOpens({ button = 0, detail = 1, inControl = false, selected = '' } = {}) {
+  return button === 0 && detail <= 1 && !inControl && String(selected).trim() === '';
 }
 
 /** What the menu offers a player: [{ id, label, enabled, reason }]. */
@@ -212,6 +225,14 @@ function boot() {
   function row(p, cells) {
     const tr = el('tr', { tabindex: '0', 'data-player': p.id, 'aria-label': p.name }, playerCell(p), ...cells, el('td', { class: 'console-act' }, menuButton(p)));
     tr.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(p, tr, { x: e.clientX, y: e.clientY }); });
+    // A plain click opens the same menu at the pointer (Austin 2026-10-30).
+    tr.addEventListener('click', (e) => {
+      const sel = globalThis.getSelection?.();
+      const selected = sel && !sel.isCollapsed ? sel.toString() : '';
+      const inControl = Boolean(e.target?.closest?.('a, button, input, select, textarea, label, summary, [contenteditable]'));
+      if (!rowClickOpens({ button: e.button, detail: e.detail, inControl, selected })) return;
+      openMenu(p, tr, { x: e.clientX, y: e.clientY });
+    });
     tr.addEventListener('keydown', (e) => {
       if (e.target !== tr) return;
       if ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu' || e.key === 'Enter') { e.preventDefault(); openMenu(p, tr, null); }

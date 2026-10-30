@@ -37,7 +37,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'g483-1';
+    public const ASSET_KEY = 'g491-1';
 
     public function __construct(private Seams $minn)
     {
@@ -105,7 +105,7 @@ final readonly class AdminConsolePage
     <section class="console-panel console-online" aria-labelledby="console-online-title">
       <div class="console-panel-head">
         <h2 id="console-online-title">Online now <span class="console-count" data-console-count></span></h2>
-        <p class="console-hint">Right-click a player, or use their menu button, Shift+F10 or the Menu key.</p>
+        <p class="console-hint">Click or right-click a player, or use their menu button, Shift+F10 or the Menu key.</p>
       </div>
       <table class="console-table" data-console-online>
         <thead><tr><th scope="col">Player</th><th scope="col">Street</th><th scope="col">Online for</th><th scope="col"><span class="console-sr">Actions</span></th></tr></thead>
