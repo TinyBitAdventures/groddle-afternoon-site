@@ -37,7 +37,7 @@ The extension's main pieces:
 | `Player`, `MultiplayerSave`, `SoloBackups`, `Buddies` | The `groddle/v1` REST routes for players |
 | `PlayerMail` | The emails players get, as HTML in the site's look, from "Groddle Afternoon" (the `groddle_mail_from` option names the address, else `noreply@` the site's host) |
 | `RealtimeTicket` | Signs a one-use, 60-second ticket for the realtime server |
-| `Tickets`, `AdminTickets`, `TicketStore` | Bug reports as threads: the player's Reports sheet in the game, and the Reports tab of the administrators' console at `/console/`. A reply from an administrator emails the player (`PlayerMail`) |
+| `Tickets`, `AdminTickets`, `TicketStore` | Bug reports as threads: the player's Reports sheet in the game, and the Reports tab of the administrators' console at `/console/`. A reply from an administrator emails the player (`PlayerMail`), unless they tick Don't email: then it is a note the player sees only in the game |
 | `TicketMigration` | Brings the bug reports from before tickets (private `groddle_feedback` posts) in as tickets, once |
 
 ### REST routes

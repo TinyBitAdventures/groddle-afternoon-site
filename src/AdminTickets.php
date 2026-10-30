@@ -23,18 +23,21 @@ use Minn\RestError;
  *   GET  admin/tickets?status=open|answered|closed|all   {"tickets":[Row],"counts":{open,answered,closed,unread},"more":bool,"legacy":n}
  *                                  unread first, then open, answered, closed, the newest news first; legacy: old report posts not brought in yet
  *   GET  admin/tickets/{id}        {"ticket":Row,"messages":[Message],"context":{..}}   and marks it read
- *   POST admin/tickets/{id}/reply  {"message"}  the thread + {"delivery","text"}; emails the player (below)
+ *   POST admin/tickets/{id}/reply  {"message","email"?}  the thread + {"delivery","text"}; emails the player (below)
+ *                                  unless "email" is false: a note (delivery note), for closing many related reports
  *   POST admin/tickets/{id}/close  the thread
  *   POST admin/tickets/{id}/reopen the thread (open, or answered when an administrator wrote last)
  *   POST admin/tickets/migrate     {"made","already","posts","text"}   TicketMigration, once (safe again)
  *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"}}
  *
  * A reply emails the player (PlayerMail::ticketReply, in the site's look,
- * by their character name, never the username), unless the thread already
- * held a reply they had not read (one email until they look), or the site
- * is at its hourly mail ceiling (MailLimits; each reply mail is a 'reply'
- * row there). The delivery says which: mailed, unread (not mailed: they
- * have an unread reply already), busy, failed.
+ * by their character name, never the username), unless the administrator
+ * ticked Don't email (a note: the player still sees it in the game, with the
+ * bug icon's badge), the thread already held an emailed reply they had not
+ * read (one email until they look; a note does not count), or the site is at
+ * its hourly mail ceiling (MailLimits; each reply mail is a 'reply' row
+ * there). The delivery says which: mailed, note, unread (not mailed: they
+ * have an unread emailed reply already), busy, failed.
  */
 final readonly class AdminTickets
 {
@@ -82,14 +85,17 @@ final readonly class AdminTickets
             throw new RestError('groddle_ticket_empty', 'Write your reply first.', 400);
         }
         $now = time();
-        $waiting = TicketStore::unreadFor($row, TicketStore::PLAYER);
+        // Don't email: the console's checkbox sends "email": false.
+        $email = ($body['email'] ?? true) !== false;
+        $waiting = $email && $this->mailWaiting($row);
         $this->store()->add((int) $row['id'], $admin->id, TicketStore::ADMIN, $message, $now);
-        $delivery = $waiting ? 'unread' : $this->mail((int) $row['player_user_id'], (int) $row['id'], (string) $row['subject'], $message, $now);
+        $delivery = !$email ? 'note' : ($waiting ? 'unread' : $this->mail((int) $row['player_user_id'], (int) $row['id'], (string) $row['subject'], $message, $now));
         $player = (int) $row['player_user_id'];
         AdminConsole::recordAction($this->minn->db, $admin->id, $player, 'reply', ['ticket' => (int) $row['id'], 'subject' => (string) $row['subject'], 'text' => $message], $delivery, $now);
         $name = $this->nameOf($player);
         $text = match ($delivery) {
             'mailed' => "Replied. {$name} has an email about it.",
+            'note' => "Note added. {$name} sees it in the game; no email went.",
             'unread' => "Replied. {$name} has not read your last reply yet, so no new email went.",
             'busy' => "Replied. The site is at its hourly email limit, so {$name} was not emailed; they see it in the game.",
             default => "Replied, but the email to {$name} did not send; they see it in the game.",
@@ -127,6 +133,28 @@ final readonly class AdminTickets
             ? 'Every old report is already a ticket.'
             : ($r['made'] === 1 ? 'Brought in 1 old report as a ticket.' : "Brought in {$r['made']} old reports as tickets.");
         return Response::json(['made' => $r['made'], 'already' => $r['already'], 'posts' => $r['posts'], 'text' => $text]);
+    }
+
+    /**
+     * Whether the player has an emailed reply in this ticket they have not
+     * read yet: news they have not read, and a 'mailed' reply logged for it
+     * since they last read it. A note (delivery note) never counts, so a
+     * reply after a note still emails.
+     */
+    private function mailWaiting(array $row): bool
+    {
+        if (!TicketStore::unreadFor($row, TicketStore::PLAYER)) {
+            return false;
+        }
+        $db = $this->minn->db;
+        $read = $row['player_read_at'] ?? null;
+        $sql = 'SELECT COUNT(*) FROM ' . $db->table(AdminConsole::ACTIONS) . " WHERE player_user_id = ? AND kind = 'reply' AND delivery = 'mailed' AND detail LIKE ?";
+        $args = [(int) $row['player_user_id'], '{"ticket":' . (int) $row['id'] . ',%'];
+        if ($read !== null) {
+            $sql .= ' AND at > ?';
+            $args[] = (string) $read;
+        }
+        return (int) $db->value($sql, $args) > 0;
     }
 
     /** Mails the player that an administrator replied: mailed | busy | failed. */

@@ -145,4 +145,7 @@
 .console-reply textarea { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 5em; }
 .console-reply textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .console-reply-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.console-reply-foot .console-check { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer; }
+.console-reply-foot .console-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.console-reply-foot .console-check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .console .console-reply .console-primary { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }

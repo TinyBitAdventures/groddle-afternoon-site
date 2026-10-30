@@ -15,8 +15,10 @@
  * - Bans with Unban, and the activity log of every administrator's action.
  * - Reports (the second tab; src/AdminTickets.php): players' bug reports as
  *   threads, unread first, with a status filter; a thread shows what the game
- *   knew, the messages, a reply box (the player is emailed) and Close or
- *   Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
+ *   knew, the messages, a reply box (the player is emailed, or with Don't
+ *   email ticked it is a note they only see in the game; the box stays
+ *   ticked from report to report, for closing many related ones) and Close
+ *   or Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
  *   opens the tab, #report=<id> a report.
  *
  * Everything a player or an administrator wrote is set as text, never HTML.
@@ -32,6 +34,13 @@ export const GIVE_EACH = 999;
 export const GIVE_CURRANTS = 100000;
 export const TICKETS_POLL_MS = 15000;
 export const TICKET_MAX = 2000;
+
+/** The reply box's button and hint, emailing or not (Don't email ticked). */
+export function replyFormWords(noEmail) {
+  return noEmail
+    ? { send: 'Add note', placeholder: 'Plain text. The player sees it in the game. No email goes.' }
+    : { send: 'Send reply', placeholder: 'Plain text. The player sees it in the game and gets an email.' };
+}
 
 /** A ticket's status in words (src/TicketStore.php STATUSES). */
 export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', closed: 'Closed' });
@@ -140,7 +149,7 @@ export function logWords(line) {
     case 'unban': return `unbanned ${who}`;
     case 'give': return `gave ${who} ${d.text || 'something'}${how}`;
     case 'refill': return `refilled ${who}'s mood and energy${how}`;
-    case 'reply': return `replied to ${who}'s report “${d.subject || ''}”${{ mailed: ' (emailed)', unread: ' (not emailed: an earlier reply is still unread)', busy: ' (not emailed: hourly email limit)', failed: ' (the email did not send)' }[line.delivery] ?? ''}`;
+    case 'reply': return `replied to ${who}'s report “${d.subject || ''}”${{ mailed: ' (emailed)', note: ' (a note, not emailed)', unread: ' (not emailed: an earlier reply is still unread)', busy: ' (not emailed: hourly email limit)', failed: ' (the email did not send)' }[line.delivery] ?? ''}`;
     case 'close': return `closed ${who}'s report “${d.subject || ''}”`;
     case 'reopen': return `reopened ${who}'s report “${d.subject || ''}”`;
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
@@ -595,14 +604,23 @@ function boot() {
   const reply = $('[data-console-reply]');
   const replyCount = $('[data-console-reply-count]');
   reply.message.addEventListener('input', () => { replyCount.textContent = `${reply.message.value.length} / ${TICKET_MAX}`; });
+  const replySend = $('[data-console-reply-send]');
+  const noEmail = $('[data-console-reply-noemail]');
+  const replyWords = () => {
+    const w = replyFormWords(noEmail.checked);
+    replySend.textContent = w.send;
+    reply.message.placeholder = w.placeholder;
+  };
+  noEmail.addEventListener('change', replyWords);
+  replyWords();
   reply.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = reply.message.value.trim();
     if (!text || !tickets.open) return;
-    const send = reply.querySelector('button[type="submit"]');
+    const send = replySend;
     send.disabled = true;
     try {
-      const r = await api.call(`admin/tickets/${tickets.open}/reply`, { method: 'POST', body: { message: text } });
+      const r = await api.call(`admin/tickets/${tickets.open}/reply`, { method: 'POST', body: { message: text, email: !noEmail.checked } });
       reply.message.value = '';
       replyCount.textContent = '';
       renderThread(r);

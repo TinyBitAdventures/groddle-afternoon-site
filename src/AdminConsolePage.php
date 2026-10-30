@@ -18,7 +18,8 @@ use Minn\Http\Route;
  * /console/, the administrators' console. Two tabs: Players (who is online,
  * finding a player, and acting on one: message, teleport, give, refill,
  * boot, ban; the bans and the activity log) and Reports (players' bug
- * reports as threads: read, reply, close, reopen; AdminTickets). #reports
+ * reports as threads: read, reply or add a note without an email, close,
+ * reopen; AdminTickets). #reports
  * opens the Reports tab, #report=<id> one report. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
  * sign-in and back; signed in without the capability it answers a plain 403.
@@ -37,7 +38,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'g491-1';
+    public const ASSET_KEY = 'g491-2';
 
     public function __construct(private Seams $minn)
     {
@@ -178,7 +179,7 @@ final readonly class AdminConsolePage
         <form class="console-reply" data-console-reply>
           <label for="console-reply-text">Reply</label>
           <textarea id="console-reply-text" name="message" rows="4" maxlength="2000" required placeholder="Plain text. The player sees it in the game and gets an email."></textarea>
-          <div class="console-reply-foot"><span class="console-sub" data-console-reply-count></span><button type="submit" class="console-primary">Send reply</button></div>
+          <div class="console-reply-foot"><span class="console-sub" data-console-reply-count></span><label class="console-check"><input type="checkbox" name="noemail" data-console-reply-noemail /> Don't email</label><button type="submit" class="console-primary" data-console-reply-send>Send reply</button></div>
         </form>
       </div>
     </section>
