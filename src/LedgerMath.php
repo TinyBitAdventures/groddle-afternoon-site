@@ -20,7 +20,7 @@ namespace Groddle\Minn;
  * gain): the pack and purse (playerState inventory, player.currants), the
  * trade hold (systems.features.trade.hold, js/trade.js), home furniture
  * storage, placed furniture and Storage Display Boxes (systems.features.
- * homes decor and towerDecor, js/home-decor.js) and stacks dropped on
+ * homes decor, towerDecor and the upper floors, floors.upper, js/home-decor.js) and stacks dropped on
  * streets (the droppedItems entry, js/world-items.js). Smaller stashes are
  * not counted: taking from one reads as a gain, which the budget pays for.
  *
@@ -28,7 +28,8 @@ namespace Groddle\Minn;
  * turn into a transform's outputs outside the budget (explain: recipes,
  * Cubimal boxes, artifact assembly, Economy::producing), rewards the source
  * pays for a marker the save carries are credited exactly once per
- * character (credits: quests, badges, level-ups, imagination cards), and a
+ * character (credits: quests, badges, level-ups, imagination cards, and
+ * the house's starter furniture, homeKit), and a
  * class only drop tables grant gains at most its cap a day (reconcile's
  * $capsLeft).
  */
@@ -110,7 +111,8 @@ final class LedgerMath
             }
             $homes = $state['systems']['features']['homes'] ?? null;
             if (is_array($homes)) {
-                $decors = array_merge([$homes['decor'] ?? null], is_array($homes['towerDecor'] ?? null) ? $homes['towerDecor'] : []);
+                // G153: the floors above the ground floor (homes-feature save floors.upper) hold placed pieces too.
+                $decors = array_merge([$homes['decor'] ?? null], is_array($homes['towerDecor'] ?? null) ? $homes['towerDecor'] : [], is_array($homes['floors']['upper'] ?? null) ? $homes['floors']['upper'] : []);
                 foreach ($decors as $decor) {
                     if (!is_array($decor)) {
                         continue;
@@ -475,6 +477,19 @@ final class LedgerMath
             $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
         }
         $view['currants'] += $allowed['currants'];
+        // The house's starter furniture, once (homeKit): only what the write shows beyond the ledger.
+        $kit = self::homeKit($entries, $credited, $economy);
+        $kitIn = self::covered($view, $holdings, $kit['goods']);
+        $owed = self::add($owed, $kitIn);
+        foreach ($kitIn['items'] as $c => $n) {
+            $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+            $credits['goods']['items'][$c] = ($credits['goods']['items'][$c] ?? 0) + $n;
+        }
+        if ($kit['rows'] !== []) {
+            ksort($credits['goods']['items']);
+            $credits['rows'] = array_merge($credits['rows'], $kit['rows']);
+            $credits['detail']['homeKit'] = (object) $kitIn['items'];
+        }
         $capsLeft = [];
         foreach ($credited['cap'] ?? [] as $c => $n) {
             $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
@@ -587,7 +602,8 @@ final class LedgerMath
                 if (($homes->decor ?? null) instanceof \stdClass) {
                     $decors[] = $homes->decor;
                 }
-                foreach (is_array($homes->towerDecor ?? null) ? $homes->towerDecor : [] as $d) {
+                $upper = ($homes->floors ?? null) instanceof \stdClass ? ($homes->floors->upper ?? null) : null;
+                foreach (array_merge(is_array($homes->towerDecor ?? null) ? $homes->towerDecor : [], is_array($upper) ? $upper : []) as $d) {
                     if ($d instanceof \stdClass) {
                         $decors[] = $d;
                     }
@@ -722,7 +738,10 @@ final class LedgerMath
      * purchases of each card (systems.features.imagination.counts,
      * js/imagination.js grantUpgrade; a card owned with no count counts once).
      *
-     * @return array{quests: list<string>, badges: list<string>, level: int, xp: int, mult: float, owned: list<string>, cards: array<string,int>}
+     * and whether the house has had its starter furniture
+     * (systems.features.homes.decor.starterKit, js/home-decor.js grantStarterKit).
+     *
+     * @return array{quests: list<string>, badges: list<string>, level: int, xp: int, mult: float, owned: list<string>, cards: array<string,int>, homeKit: bool}
      */
     public static function markers(array $entries): array
     {
@@ -750,7 +769,35 @@ final class LedgerMath
             'mult' => is_numeric($player['rewardMultiplier'] ?? null) ? (float) $player['rewardMultiplier'] : 1.0,
             'owned' => $owned,
             'cards' => $cards,
+            'homeKit' => ($state['systems']['features']['homes']['decor']['starterKit'] ?? null) === true,
         ];
+    }
+
+    /**
+     * The house's starter furniture, credited once per character (credited
+     * row home/kit): players/inc_furniture.js furniture_populate 73-113 gives
+     * a new house owner its set once (furniture_create_bag 44-53), and the
+     * game hands it over on the first visit inside (js/home-decor.js
+     * grantStarterKit, which sets decor.starterKit). The set is the economy
+     * table's credits.homeKit. It covers only what the write shows beyond
+     * the ledger (check), so a character whose ledger was seeded from a save
+     * that already held the set gains nothing from it.
+     *
+     * @return array{goods: array{items: array<string,int>, currants: int}, rows: list<array{0: string, 1: string, 2: int}>}
+     */
+    public static function homeKit(array $entries, array $credited, Economy $economy): array
+    {
+        if (isset($credited['home']['kit']) || !self::markers($entries)['homeKit']) {
+            return ['goods' => ['items' => [], 'currants' => 0], 'rows' => []];
+        }
+        $items = [];
+        foreach ((array) ($economy->credits('homeKit') ?? []) as $c => $n) {
+            if (is_string($c) && $economy->tradeable($c) && self::count($n) > 0) {
+                $items[$c] = self::count($n);
+            }
+        }
+        ksort($items);
+        return ['goods' => ['items' => $items, 'currants' => 0], 'rows' => [['home', 'kit', 1]]];
     }
 
     /** js/progression.js levelInfoForXp: the level a lifetime xp total reaches. */
