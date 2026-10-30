@@ -94,6 +94,26 @@ final class PlayerMail
         return ['Your Groddle Afternoon email changed', self::layout($home, $character . ' signs in with a new email.', $content), self::headers($home, $from)];
     }
 
+    /**
+     * An administrator replied to a player's bug report (AdminTickets): the
+     * reply, quoted as plain text, and the way back to the thread in the game.
+     *
+     * @return array{0: string, 1: string, 2: list<string>}
+     */
+    public static function ticketReply(string $home, string $from, string $character, string $subject, string $reply, string $link): array
+    {
+        $hi = $character !== '' ? 'Hi <strong>' . Html::esc($character) . '</strong>,' : 'Hi,';
+        $content = self::heading('We replied to your report')
+            . self::paragraph($hi)
+            . self::paragraph('An administrator replied to your bug report <strong>' . Html::esc($subject) . '</strong>:')
+            . '<div style="margin:0 0 18px;padding:14px 16px;border-left:4px solid ' . self::BORDER . ';border-radius:8px;background:' . self::BG . ';color:' . self::INK . ';white-space:normal;">'
+            . nl2br(Html::esc($reply), false) . '</div>'
+            . self::button($link, 'Read it in the game')
+            . self::small('Write back from the game: the bug button at the top, then your report. If more replies come before you read this one, we don\'t email again.');
+        $subjectLine = 'A reply to your Groddle Afternoon bug report';
+        return [$subjectLine, self::layout($home, 'An administrator replied to "' . $subject . '".', $content), self::headers($home, $from)];
+    }
+
     /** From "Groddle Afternoon", sent as HTML. @return list<string> */
     public static function headers(string $home, string $from): array
     {

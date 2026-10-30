@@ -21,13 +21,16 @@ use Minn\Db;
  * asking for the same email again within the minute is told to wait (it
  * learns only what it did itself); any other stop answers as if sent.
  *
- * Site-wide: at most groddle_mail_hour_cap (default HOUR_CAP) sign-up and
- * reset emails an hour; above it the forms say the site is busy, and the
+ * Site-wide: at most groddle_mail_hour_cap (default HOUR_CAP) sign-up,
+ * reset and report-reply emails an hour (a reply is a REPLY row, AdminTickets); above it the forms say the site is busy, and the
  * stop is logged (once every LOG_EVERY seconds).
  */
 final readonly class MailLimits
 {
     public const TABLE = 'groddle_mail_sends';
+
+    /** The kind of row an administrator's reply to a bug report mails (AdminTickets): counted in the hourly ceiling. */
+    public const REPLY = 'reply';
 
     public const RESET_GAP = 60;
     public const RESET_PER_DAY = 5;

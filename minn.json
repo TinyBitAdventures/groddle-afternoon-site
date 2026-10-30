@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.20",
+  "version": "0.5.21",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -434,6 +434,34 @@
       "game_day varchar(64) NOT NULL DEFAULT ''",
       "size int(10) unsigned NOT NULL DEFAULT 0",
       "PRIMARY KEY  (user_id,slot)"
+    ],
+    "groddle_tickets": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "player_user_id bigint(20) unsigned NOT NULL",
+      "status varchar(8) NOT NULL DEFAULT 'open'",
+      "subject varchar(80) NOT NULL DEFAULT ''",
+      "created_at datetime NOT NULL",
+      "updated_at datetime NOT NULL",
+      "last_message_at datetime NOT NULL",
+      "last_author_role varchar(8) NOT NULL DEFAULT 'player'",
+      "player_read_at datetime NULL DEFAULT NULL",
+      "admin_read_at datetime NULL DEFAULT NULL",
+      "context text NOT NULL",
+      "legacy_post_id bigint(20) unsigned NULL DEFAULT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY player_updated (player_user_id,updated_at)",
+      "KEY status_updated (status,updated_at)",
+      "UNIQUE KEY legacy_post_id (legacy_post_id)"
+    ],
+    "groddle_ticket_messages": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "ticket_id bigint(20) unsigned NOT NULL",
+      "author_user_id bigint(20) unsigned NOT NULL",
+      "author_role varchar(8) NOT NULL",
+      "body text NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY ticket_id (ticket_id,id)"
     ]
   }
 }

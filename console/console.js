@@ -10,6 +10,11 @@
  *   Shift+F10 / the Menu key on the focused row. Arrow keys move in the menu,
  *   Enter or Space picks, Escape closes and gives focus back.
  * - Bans with Unban, and the activity log of every administrator's action.
+ * - Reports (the second tab; src/AdminTickets.php): players' bug reports as
+ *   threads, unread first, with a status filter; a thread shows what the game
+ *   knew, the messages, a reply box (the player is emailed) and Close or
+ *   Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
+ *   opens the tab, #report=<id> a report.
  *
  * Everything a player or an administrator wrote is set as text, never HTML.
  * Pure helpers are exported for tests (spike tests/g407-admin-console.test.js).
@@ -22,6 +27,22 @@ export const REASON_MAX = 200;
 export const GIVE_STACKS = 10;
 export const GIVE_EACH = 999;
 export const GIVE_CURRANTS = 100000;
+export const TICKETS_POLL_MS = 15000;
+export const TICKET_MAX = 2000;
+
+/** A ticket's status in words (src/TicketStore.php STATUSES). */
+export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', closed: 'Closed' });
+
+/** What the game knew, in the order and words the old Bug report posts used (src/BugReports.php CONTEXT). */
+export const CONTEXT_LABELS = Object.freeze([['streetName', 'Street'], ['street', 'Street id'], ['x', 'x'], ['y', 'y'], ['build', 'Build'], ['page', 'Page'], ['agent', 'Browser'], ['screen', 'Screen']]);
+
+/** A report's context as [label, value] rows, errors last, empty ones left out. */
+export function contextRows(ctx) {
+  const c = ctx && typeof ctx === 'object' ? ctx : {};
+  const rows = CONTEXT_LABELS.filter(([k]) => typeof c[k] === 'string' && c[k] !== '').map(([k, label]) => [label, c[k]]);
+  (Array.isArray(c.errors) ? c.errors : []).forEach((e, i) => { if (typeof e === 'string' && e) rows.push([`Error ${i + 1}`, e]); });
+  return rows;
+}
 
 export const COPY = Object.freeze({
   serverUp: (n) => (n === 1 ? 'Realtime server up · 1 online' : `Realtime server up · ${n} online`),
@@ -106,6 +127,10 @@ export function logWords(line) {
     case 'unban': return `unbanned ${who}`;
     case 'give': return `gave ${who} ${d.text || 'something'}${how}`;
     case 'refill': return `refilled ${who}'s mood and energy${how}`;
+    case 'reply': return `replied to ${who}'s report “${d.subject || ''}”${{ mailed: ' (emailed)', unread: ' (not emailed: an earlier reply is still unread)', busy: ' (not emailed: hourly email limit)', failed: ' (the email did not send)' }[line.delivery] ?? ''}`;
+    case 'close': return `closed ${who}'s report “${d.subject || ''}”`;
+    case 'reopen': return `reopened ${who}'s report “${d.subject || ''}”`;
+    case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
   }
 }
@@ -438,24 +463,177 @@ function boot() {
     void opener;
   }
 
+  // == Tabs ==
+  const tablist = $('[data-console-tabs]');
+  const tabs = [...tablist.querySelectorAll('[role="tab"]')];
+  let tab = 'players';
+  function showTab(id, focus = false) {
+    tab = id;
+    for (const t of tabs) {
+      const on = t.dataset.consoleTab === id;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+      if (on && focus) t.focus();
+    }
+    for (const p of root.querySelectorAll('[data-console-tabpanel]')) p.hidden = p.dataset.consoleTabpanel !== id;
+    if (id === 'reports') loadTickets();
+  }
+  tablist.addEventListener('click', (e) => { const t = e.target.closest('[role="tab"]'); if (t) showTab(t.dataset.consoleTab); });
+  tablist.addEventListener('keydown', (e) => {
+    const at = tabs.indexOf(e.target.closest('[role="tab"]'));
+    if (at < 0) return;
+    const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    showTab(tabs[(to + tabs.length) % tabs.length].dataset.consoleTab, true);
+  });
+
+  // == Reports ==
+  const tickets = { list: [], counts: {}, status: 'all', open: 0, thread: null };
+  function chip(status) {
+    return el('span', { class: `console-chip console-chip-${status}`, text: TICKET_STATUS[status] || status });
+  }
+  function when(iso) {
+    return iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  }
+  function renderTickets() {
+    const list = $('[data-console-tickets]');
+    list.replaceChildren(...tickets.list.map((t) => {
+      const btn = el('button', { type: 'button', class: 'console-ticket', 'data-ticket': t.id, 'aria-current': t.id === tickets.open ? 'true' : null, onclick: () => openTicket(t.id) },
+        el('span', { class: 'console-ticket-top' },
+          t.unread ? el('span', { class: 'console-dot', title: 'Unread', 'aria-label': 'Unread' }) : null,
+          el('b', { text: t.subject || '(no words)' }),
+          chip(t.status)),
+        el('span', { class: 'console-sub', text: `${t.player.name} · ${t.lastAuthor === 'admin' ? 'you replied' : 'they wrote'} ${when(t.lastMessageAt)}` }));
+      return el('li', { 'data-unread': t.unread ? '1' : null }, btn);
+    }));
+    $('[data-console-tickets-empty]').hidden = tickets.list.length > 0;
+    const c = tickets.counts;
+    $('[data-console-tickets-count]').textContent = tickets.list.length ? String(tickets.list.length) : '';
+    for (const k of ['open', 'answered', 'closed']) $(`[data-console-status-count="${k}"]`).textContent = c[k] ? String(c[k]) : '';
+    $('[data-console-reports-unread]').textContent = c.unread ? String(c.unread) : '';
+    $('[data-console-tab="reports"]').setAttribute('aria-label', c.unread ? `Reports, ${c.unread} unread` : 'Reports');
+  }
+  async function loadTickets() {
+    let r;
+    try { r = await api.call(`admin/tickets?status=${tickets.status}`); } catch (err) { return failed(err); }
+    tickets.list = r.tickets || [];
+    tickets.counts = r.counts || {};
+    const legacy = Number(r.legacy) || 0;
+    $('[data-console-legacy]').hidden = legacy === 0;
+    $('[data-console-legacy-text]').textContent = legacy === 1 ? '1 bug report from before tickets is not a ticket yet.' : `${legacy} bug reports from before tickets are not tickets yet.`;
+    renderTickets();
+  }
+  $('[data-console-ticket-filter]').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-status]');
+    if (!b) return;
+    tickets.status = b.dataset.status;
+    for (const o of e.currentTarget.querySelectorAll('button')) o.setAttribute('aria-pressed', String(o === b));
+    loadTickets();
+  });
+  $('[data-console-migrate]').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      const r = await api.call('admin/tickets/migrate', { method: 'POST' });
+      say(r.text || 'Done.');
+      loadTickets();
+      loadLog();
+    } catch (err) { failed(err); } finally { e.currentTarget.disabled = false; }
+  });
+  function renderThread(r, focus = false) {
+    tickets.thread = r;
+    tickets.open = r.ticket.id;
+    const t = r.ticket;
+    $('[data-console-thread-empty]').hidden = true;
+    $('[data-console-thread-body]').hidden = false;
+    $('[data-console-thread-subject]').textContent = t.subject || '(no words)';
+    $('[data-console-thread-meta]').textContent = `#${t.id} from ${t.player.name}, ${when(t.createdAt)}`;
+    const st = $('[data-console-thread-status]');
+    st.className = `console-chip console-chip-${t.status}`;
+    st.textContent = TICKET_STATUS[t.status] || t.status;
+    $('[data-console-thread-close]').hidden = t.status === 'closed';
+    $('[data-console-thread-reopen]').hidden = t.status !== 'closed';
+    const rows = contextRows(r.context);
+    $('[data-console-context]').hidden = rows.length === 0;
+    $('[data-console-context-list]').replaceChildren(...rows.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })]));
+    $('[data-console-messages]').replaceChildren(...(r.messages || []).map((m) => el('li', { class: `console-msg console-msg-${m.author}` },
+      el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${when(m.at)}` })),
+      el('p', { class: 'console-msg-body', text: m.body }))));
+    const msgs = $('[data-console-messages]');
+    msgs.scrollTop = msgs.scrollHeight;
+    // Read now: its row loses the dot.
+    const row = tickets.list.find((x) => x.id === t.id);
+    if (row && row.unread) { row.unread = false; tickets.counts.unread = Math.max(0, (tickets.counts.unread || 1) - 1); }
+    if (row) Object.assign(row, { status: t.status, lastAuthor: t.lastAuthor, lastMessageAt: t.lastMessageAt });
+    renderTickets();
+    if (focus) $('[data-console-thread-subject]').focus();
+  }
+  async function openTicket(id, focus = true) {
+    try { renderThread(await api.call(`admin/tickets/${id}`), focus); } catch (err) { failed(err); }
+  }
+  const reply = $('[data-console-reply]');
+  const replyCount = $('[data-console-reply-count]');
+  reply.message.addEventListener('input', () => { replyCount.textContent = `${reply.message.value.length} / ${TICKET_MAX}`; });
+  reply.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = reply.message.value.trim();
+    if (!text || !tickets.open) return;
+    const send = reply.querySelector('button[type="submit"]');
+    send.disabled = true;
+    try {
+      const r = await api.call(`admin/tickets/${tickets.open}/reply`, { method: 'POST', body: { message: text } });
+      reply.message.value = '';
+      replyCount.textContent = '';
+      renderThread(r);
+      say(r.text || 'Replied.', r.delivery === 'failed' ? 'bad' : 'ok');
+      loadTickets();
+      loadLog();
+    } catch (err) { failed(err); } finally { send.disabled = false; }
+  });
+  reply.message.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); reply.requestSubmit(); } });
+  for (const [sel, kind] of [['[data-console-thread-close]', 'close'], ['[data-console-thread-reopen]', 'reopen']]) {
+    $(sel).addEventListener('click', async () => {
+      if (!tickets.open) return;
+      try {
+        const r = await api.call(`admin/tickets/${tickets.open}/${kind}`, { method: 'POST' });
+        renderThread(r);
+        say(r.text || 'Done.');
+        loadTickets();
+        loadLog();
+        $(kind === 'close' ? '[data-console-thread-reopen]' : '[data-console-thread-close]').focus();
+      } catch (err) { failed(err); }
+    });
+  }
+  function fromHash() {
+    const m = /^#report=(\d+)$/.exec(location.hash);
+    if (m) { showTab('reports'); openTicket(Number(m[1]), false); } else if (location.hash === '#reports') showTab('reports');
+  }
+  addEventListener('hashchange', fromHash);
+
   // == Start ==
   (async () => {
     try {
       const me = await api.call('me');
       state.me = Number(me?.player?.id) || 0;
     } catch { /* the lists say what went wrong */ }
+    fromHash();
     await pollOnline(true);
     loadBans();
     loadLog();
+    if (tab !== 'reports') loadTickets();
     let timer = setInterval(() => pollOnline(), POLL_MS);
     let logTimer = setInterval(() => loadLog(), LOG_POLL_MS);
+    let ticketTimer = setInterval(() => loadTickets(), TICKETS_POLL_MS);
     document.addEventListener('visibilitychange', () => {
       clearInterval(timer);
       clearInterval(logTimer);
+      clearInterval(ticketTimer);
       if (document.hidden) return;
       pollOnline();
+      loadTickets();
       timer = setInterval(() => pollOnline(), POLL_MS);
       logTimer = setInterval(() => loadLog(), LOG_POLL_MS);
+      ticketTimer = setInterval(() => loadTickets(), TICKETS_POLL_MS);
     });
   })();
 }
