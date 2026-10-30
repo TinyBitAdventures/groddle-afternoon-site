@@ -7,8 +7,8 @@ namespace Groddle\Minn;
 use Minn\RestError;
 
 /**
- * A picture a player's game uploads for their profile (Profiles): a PNG and
- * nothing else. The bytes are read chunk by chunk before anything else
+ * The avatar pictures a player's game uploads for their profile (Profiles):
+ * a PNG and nothing else (the home street is HomePicture's). The bytes are read chunk by chunk before anything else
  * touches them: the PNG signature, an IHDR first (its CRC checked, its size
  * within the kind's limits), every chunk well formed, IDAT present, IEND
  * last. When GD is there the picture is then decoded and written again, so
@@ -23,12 +23,12 @@ final class ProfilePng
      * What each kind may be: [min width, min height, max width, max height,
      * max bytes]. The avatar is the original's _172 still (172x248, PNGUtil.as
      * saveSinglesFromAvatarMc 87-88) drawn at up to 2x; the tile its _100
-     * (100x144) at up to 2x; the home the street as the player saw it.
+     * (100x144) at up to 2x. The home street is HomePicture's (WebP, JPEG
+     * or PNG).
      */
     public const KINDS = [
         'avatar' => [86, 124, 344, 496, 300 * 1024],
         'tile' => [50, 72, 200, 288, 160 * 1024],
-        'home' => [240, 80, 1920, 816, 600 * 1024],
     ];
 
     /**

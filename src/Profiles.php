@@ -27,6 +27,8 @@ use Minn\RestError;
  * 172x248 and image_100.png). The same here: the game renders the avatar
  * and the home street and uploads them (ProfilePng checks every byte), and
  * the player writes the description (the website's profile-bio) in the game.
+ * The home street is HomePicture's: WebP, JPEG or PNG, kept as GD writes it
+ * with its type, size and a phone-sized copy.
  * Level and badges are read from the character's own save; the email and
  * the account's made-up username are never shown or sent.
  *
@@ -107,11 +109,13 @@ final readonly class Profiles
         $body = $request->json();
         $key = self::key($body['key'] ?? null);
         $this->throttle($character['id'], 'home_at');
-        $home = ProfilePng::accept('home', $body['home'] ?? null);
+        $home = HomePicture::accept($body['home'] ?? null);
         $this->ensureRow($character['id']);
         $db = $this->minn->db;
         $now = gmdate('Y-m-d H:i:s');
-        $db->execute('UPDATE ' . $db->table(self::TABLE) . ' SET home = FROM_BASE64(?), home_key = ?, home_at = ?, updated_at = ? WHERE user_id = ?', [base64_encode($home['bytes']), $key, $now, $now, $character['id']]);
+        // FROM_BASE64(NULL) is NULL: no phone copy when the picture is already small (or GD is missing).
+        $small = $home['small'] === null ? null : base64_encode($home['small']);
+        $db->execute('UPDATE ' . $db->table(self::TABLE) . ' SET home = FROM_BASE64(?), home_type = ?, home_w = ?, home_h = ?, home_small = FROM_BASE64(?), home_key = ?, home_at = ?, updated_at = ? WHERE user_id = ?', [base64_encode($home['bytes']), $home['type'], $home['width'], $home['height'], $small, $key, $now, $now, $character['id']]);
         return Response::json($this->answer($character));
     }
 

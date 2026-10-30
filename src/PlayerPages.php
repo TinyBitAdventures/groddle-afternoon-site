@@ -40,7 +40,19 @@ final readonly class PlayerPages
     /** Tiles on one page of the grid. */
     public const PER_PAGE = 60;
 
-    private const KINDS = ['avatar' => 'avatar', 'tile' => 'tile', 'home' => 'home'];
+    /** A picture's path word => [its column, the column it was saved at, the column naming its type (null: PNG)]. */
+    private const KINDS = [
+        'avatar' => ['avatar', 'avatar_at', null],
+        'tile' => ['tile', 'avatar_at', null],
+        'home' => ['home', 'home_at', 'home_type'],
+        'home-small' => ['home_small', 'home_at', 'home_type'],
+    ];
+
+    /**
+     * How wide the home street shows (srcset sizes): the page's column,
+     * restoration.css .wrap (1160 less 32 px gutters, 16 px under 641 px).
+     */
+    private const HOME_SIZES = '(min-width: 1160px) 1096px, (min-width: 641px) calc(100vw - 64px), calc(100vw - 32px)';
 
     /** A profile's pages: path under /players/<name>/ => tab label (the path keeps the original site's word). */
     private const TABS = ['' => 'Profile', 'skills' => 'Skills', 'achievements' => 'Badges', 'buddies' => 'Buddies'];
@@ -153,7 +165,7 @@ final readonly class PlayerPages
         }
         $db = $this->minn->db;
         $character = $db->row('SELECT name, created_at FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]);
-        $profile = $db->row('SELECT about, avatar_at, home_at FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
+        $profile = $db->row('SELECT about, avatar_at, home_at, home_w, home_h, home_small IS NOT NULL AS home_has_small FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
         $facts = Profiles::fromSave($db, $id);
         // Below the listed level the page is the owner's alone.
         $own = $this->minn->reader->userId === $id;
@@ -244,6 +256,27 @@ final readonly class PlayerPages
             . "    </div>\n  </div>\n</header>\n";
     }
 
+    /**
+     * The home street's <img>: its size when known (no jump as it loads)
+     * and, when the site made a phone copy (HomePicture::SMALL_W), a srcset
+     * so a phone fetches that and a wide screen the full picture.
+     */
+    private static function homeImg(int $id, string $name, string $at, array $profile): string
+    {
+        $full = Profiles::imageUrl($id, 'home', $at);
+        $w = (int) ($profile['home_w'] ?? 0);
+        $h = (int) ($profile['home_h'] ?? 0);
+        $attrs = ' src="' . Html::attr($full) . '"';
+        if ($w > HomePicture::SMALL_W && !empty($profile['home_has_small'])) {
+            $srcset = Profiles::imageUrl($id, 'home-small', $at) . ' ' . HomePicture::SMALL_W . 'w, ' . $full . " {$w}w";
+            $attrs .= ' srcset="' . Html::attr($srcset) . '" sizes="' . Html::attr(self::HOME_SIZES) . '"';
+        }
+        if ($w > 0 && $h > 0) {
+            $attrs .= " width=\"{$w}\" height=\"{$h}\"";
+        }
+        return '<img' . $attrs . ' alt="' . Html::attr("{$name}'s home street") . '" loading="lazy" decoding="async" />';
+    }
+
     /** The profile: the home street, then the newest badges and skills and some buddies, each with a way to the rest. */
     private function overview(array $who): string
     {
@@ -253,7 +286,7 @@ final readonly class PlayerPages
         return "    <section class=\"profile-section\" aria-labelledby=\"profile-home\">\n      <h2 id=\"profile-home\">{$nameHtml}'s home street</h2>\n"
             . ($homeAt === null
                 ? "      <p class=\"profile-empty\">No picture of {$nameHtml}'s home yet. It appears after they visit their home street in multiplayer.</p>\n"
-                : '      <figure class="profile-home"><img src="' . Html::attr(Profiles::imageUrl($id, 'home', $homeAt)) . '" alt="' . Html::attr("{$name}'s home street") . "\" loading=\"lazy\" decoding=\"async\" /></figure>\n")
+                : '      <figure class="profile-home">' . self::homeImg($id, $name, $homeAt, $profile) . "</figure>\n")
             . "    </section>\n"
             . self::badgesSection($who, self::LATEST)
             . self::skillsSection($who, self::LATEST)
@@ -340,19 +373,22 @@ final readonly class PlayerPages
     }
 
     /**
-     * A picture the game uploaded, as image/png; versioned URLs are kept for a year. The path has no
+     * A picture the game uploaded, as its stored type (the avatar's two PNGs; the home's WebP, JPEG
+     * or PNG, and its phone copy home-small); versioned URLs are kept for a year. The path has no
      * .png: Kinsta's nginx answers any missing .png file itself, so PHP never saw those (2026-10-29).
      */
-    #[Route(Method::Get, '/players/{id:\d+}/{kind:avatar|tile|home}', policy: new Policy(Access::Public))]
+    #[Route(Method::Get, '/players/{id:\d+}/{kind:avatar|tile|home|home-small}', policy: new Policy(Access::Public))]
     public function image(Request $request, string $id, string $kind): Response
     {
-        $kind = self::KINDS[$kind] ?? throw new RouteMiss();
-        $at = $kind === 'home' ? 'home_at' : 'avatar_at';
+        [$column, $at, $typeColumn] = self::KINDS[$kind] ?? throw new RouteMiss();
         $db = $this->minn->db;
-        $row = $db->row("SELECT {$kind} AS png, {$at} AS at FROM " . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [(int) $id]);
-        if (!is_string($row['png'] ?? null) || $row['png'] === '' || !is_string($row['at'] ?? null)) {
+        $type = $typeColumn === null ? "'image/png'" : $typeColumn;
+        $row = $db->row("SELECT {$column} AS bytes, {$at} AS at, {$type} AS type FROM " . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [(int) $id]);
+        if (!is_string($row['bytes'] ?? null) || $row['bytes'] === '' || !is_string($row['at'] ?? null)) {
             throw new RouteMiss();
         }
+        // Only a type HomePicture keeps is ever sent (nosniff below holds the browser to it).
+        $contentType = in_array($row['type'] ?? null, HomePicture::TYPES, true) ? $row['type'] : 'image/png';
         // An unlisted character's pictures are its owner's alone, so a new account can't host images here.
         $listed = Profiles::fromSave($db, (int) $id)['level'] >= Profiles::LISTED_LEVEL;
         if (!$listed && $this->minn->reader->userId !== (int) $id) {
@@ -361,7 +397,7 @@ final readonly class PlayerPages
         $stamp = Profiles::stamp($row['at']);
         $etag = "\"{$kind}-{$stamp}\"";
         $headers = [
-            'Content-Type' => 'image/png',
+            'Content-Type' => $contentType,
             'X-Content-Type-Options' => 'nosniff',
             'Content-Security-Policy' => "default-src 'none'; sandbox",
             'Cache-Control' => !$listed ? 'private, no-store' : ($request->query('v') === $stamp ? 'public, max-age=31536000, immutable' : 'public, max-age=60'),
@@ -370,7 +406,7 @@ final readonly class PlayerPages
         if (trim((string) $request->header('if-none-match')) === $etag) {
             return new Response(304, $headers);
         }
-        return new Response(200, $headers + ['Content-Length' => (string) strlen($row['png'])], $row['png']);
+        return new Response(200, $headers + ['Content-Length' => (string) strlen($row['bytes'])], $row['bytes']);
     }
 
     /**
