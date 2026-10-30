@@ -31,12 +31,24 @@ use Minn\RestError;
  *   GET  admin/catalog          {"items":[{"c","name","plural"}]}   what a give may carry (the ledger's tradeable classes)
  *   GET  admin/streets          {"streets":[{"tsid","label","hub"}]}  the game's street index, for teleport
  *   POST admin/message {"player":id,"text":"…"}               delivery live | queued (offline: at their next connect) | down
+ *   POST admin/broadcast {"text":"…"}                         {"sent":n,"live":n,"failed":n,"text"}  everyone online now (below)
  *   POST admin/boot    {"player":id,"reason":"…"}             delivery live | offline | down
  *   POST admin/ban     {"player":id,"reason":"…"}             stored; delivery live (signed out now) | stored
  *   POST admin/unban   {"player":id}
  *   POST admin/give    {"player":id,"items":[{"c","n"}],"currants":n}   through the ledger; delivery live | saved
  *   POST admin/refill  {"player":id}                          mood and energy to full; delivery live | offline | down
  *   Row: {"id","name","level","street":{tsid,label}|null,"savedAt","banned":bool,"admin":bool}
+ *
+ * A broadcast (Austin 2026-10-30: "a broadcast option, to blast everyone at
+ * once") is admin/message to each player on the realtime server's online list
+ * at that moment: the server has no broadcast call of its own, so the site
+ * loops (sent: how many it sent to, live: how many the server reached, failed:
+ * the rest, someone who left in between or a server that stopped answering).
+ * Nobody offline is queued for: the server's queue is per player and keeps a
+ * message for 7 days (admin.go adminQueueFor), so "players who connect in the
+ * next few minutes" would need a server change; it is left out. One
+ * broadcast a minute (BROADCAST_GAP), for the whole site. One log line (kind
+ * broadcast, player 0, the text and the counts).
  *
  * Bans (groddle_bans, one row per suspended account): a banned account gets
  * no realtime ticket (RealtimeTicket), cannot load or write its multiplayer
@@ -68,6 +80,9 @@ final readonly class AdminConsole
     public const GIVE_STACKS = 10;
     public const GIVE_EACH = 999;
     public const GIVE_CURRANTS = 100000;
+
+    /** Seconds between two broadcasts, site-wide. */
+    public const BROADCAST_GAP = 60;
 
     public const LOG_PAGE = 50;
     public const SEARCH_MAX = 25;
@@ -227,6 +242,53 @@ final readonly class AdminConsole
             'queued' => "{$player['name']} is not online. They will see it when they next connect.",
             default => "The realtime server is not answering, so {$player['name']} did not get it.",
         });
+    }
+
+    #[Route(Method::Post, '/groddle/v1/admin/broadcast', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function broadcast(Request $request): Response
+    {
+        $admin = $this->minn->user();
+        if ($admin === null) {
+            throw new RestError('rest_not_logged_in', 'You are not currently logged in.', 401);
+        }
+        $text = self::messageText($request->json()['text'] ?? '');
+        if ($text === '') {
+            throw new RestError('groddle_admin_empty', 'Write a message first.', 400);
+        }
+        $db = $this->minn->db;
+        $now = time();
+        $last = $db->value('SELECT at FROM ' . $db->table(self::ACTIONS) . " WHERE kind = 'broadcast' ORDER BY id DESC LIMIT 1");
+        if (is_string($last) && ($wait = self::BROADCAST_GAP - ($now - (int) strtotime($last . ' UTC'))) > 0) {
+            throw new RestError('groddle_admin_broadcast_slow', "One message to everyone a minute: try again in {$wait} s.", 429, ['wait' => $wait]);
+        }
+        $call = new RealtimeCall($this->minn);
+        $online = $call->post('online', []);
+        if (!is_array($online['players'] ?? null)) {
+            throw new RestError('groddle_admin_down', 'The realtime server is not answering, so nobody got it.', 503);
+        }
+        $ids = [];
+        foreach ($online['players'] as $p) {
+            if (is_array($p) && is_int($p['id'] ?? null) && $p['id'] > 0) {
+                $ids[$p['id']] = true;
+            }
+        }
+        $sent = $live = 0;
+        foreach (array_keys($ids) as $player) {
+            $answer = $call->post('message', ['player' => $player, 'id' => 'am-' . bin2hex(random_bytes(8)), 'text' => $text]);
+            $sent++;
+            if (($answer['status'] ?? null) === 'sent') {
+                $live++;
+            }
+        }
+        $failed = $sent - $live;
+        $delivery = $sent === 0 ? 'none' : ($failed === 0 ? 'live' : ($live === 0 ? 'down' : 'some'));
+        self::recordAction($db, $admin->id, 0, 'broadcast', ['text' => $text, 'count' => $sent, 'live' => $live, 'failed' => $failed], $delivery, $now);
+        $words = static fn (int $n): string => $n === 1 ? '1 player' : "{$n} players";
+        return Response::json(['sent' => $sent, 'live' => $live, 'failed' => $failed, 'delivery' => $delivery, 'text' => match (true) {
+            $sent === 0 => 'Nobody is online, so nobody got it.',
+            $failed === 0 => 'Sent to ' . $words($live) . ' online.',
+            default => 'Sent to ' . $words($live) . ' online; ' . $words($failed) . ' had left or did not answer.',
+        }]);
     }
 
     #[Route(Method::Post, '/groddle/v1/admin/boot', policy: new Policy(Access::Cap, self::ADMIN))]

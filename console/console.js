@@ -12,6 +12,8 @@
  *   the click that ends selecting text leaves it shut (rowClickOpens). Arrow
  *   keys move in the menu, Enter or Space picks, Escape closes and gives focus
  *   back.
+ * - Message everyone: one message to every player online now (admin/broadcast),
+ *   with how many will see it and a confirm step; one a minute.
  * - Bans with Unban, and the activity log of every administrator's action.
  * - Reports (the second tab; src/AdminTickets.php): players' bug reports as
  *   threads, unread first, with a status filter; a thread shows what the game
@@ -71,6 +73,8 @@ export const COPY = Object.freeze({
   betweenStreets: 'Between streets',
   noStreet: 'Not saved yet',
   self: 'You',
+  broadcastCount: (n) => (n === 0 ? 'Nobody is online to see it.' : n === 1 ? '1 player online will see it.' : `${n} players online will see it.`),
+  broadcastConfirm: (n) => (n === 1 ? 'Send to 1 player?' : `Send to ${n} players?`),
 });
 
 /** "45 s", "12 min", "3 h 05 min", "2 d 4 h". */
@@ -159,6 +163,7 @@ export function logWords(line) {
     case 'reply': return `replied to ${who}'s report “${d.subject || ''}”${{ mailed: ' (emailed)', note: ' (a note, not emailed)', unread: ' (not emailed: an earlier reply is still unread)', busy: ' (not emailed: hourly email limit)', failed: ' (the email did not send)' }[line.delivery] ?? ''}`;
     case 'close': return `closed ${who}'s report “${d.subject || ''}”`;
     case 'reopen': return `reopened ${who}'s report “${d.subject || ''}”`;
+    case 'broadcast': return `messaged everyone online (${d.count ?? 0}): “${d.text || ''}”${d.failed ? ` (${d.failed} did not get it)` : ''}`;
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
   }
@@ -283,6 +288,7 @@ function boot() {
       server.dataset.state = r.server;
       renderOnline();
       renderFound();
+      renderBroadcast();
     } catch (err) {
       server.textContent = err?.status === 401 ? COPY.signedOut : COPY.serverDown;
       server.dataset.state = 'down';
@@ -297,6 +303,33 @@ function boot() {
       $('[data-console-found-empty]').hidden = state.found.length > 0;
       renderFound();
     } catch (err) { failed(err); }
+  });
+
+  // == Message everyone ==
+  const cast = $('[data-console-broadcast]');
+  const castCount = $('[data-console-broadcast-count]');
+  const castSend = $('[data-console-broadcast-send]');
+  const castLen = $('[data-console-broadcast-len]');
+  function renderBroadcast() {
+    const n = state.online.length;
+    castCount.textContent = COPY.broadcastCount(n);
+    castSend.disabled = n === 0;
+  }
+  cast.text.addEventListener('input', () => { castLen.textContent = `${cast.text.value.length} / ${TEXT_MAX}`; });
+  cast.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = cast.text.value.trim();
+    if (!text) { cast.text.focus(); return; }
+    const n = state.online.length;
+    if (n === 0) return;
+    // Outward-facing: a confirm step, so nothing goes by accident.
+    dialog(COPY.broadcastConfirm(n), [el('p', { class: 'console-quote', text }), el('p', { class: 'console-sub', text: 'Each player online sees it in their game as "Message from an administrator". Nobody offline gets it.' })], 'Send', async () => {
+      const r = await api.call('admin/broadcast', { method: 'POST', body: { text } });
+      cast.text.value = '';
+      castLen.textContent = '';
+      say(r.text || 'Sent.', r.failed ? 'bad' : 'ok');
+      loadLog();
+    });
   });
 
   // == Bans and the log ==

@@ -145,6 +145,8 @@
 .console-picture a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .console-picture img { display: block; max-width: 100%; width: auto; height: auto; max-height: 220px; }
 .console-reply { display: grid; gap: 6px; }
+.console-broadcast .console-reply-foot [data-console-broadcast-len] { margin-left: auto; }
+.console-quote { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--track); white-space: pre-wrap; overflow-wrap: anywhere; }
 .console-reply label { font-weight: 700; }
 .console-reply textarea { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 5em; }
 .console-reply textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

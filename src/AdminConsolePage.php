@@ -16,8 +16,8 @@ use Minn\Http\Route;
 
 /**
  * /console/, the administrators' console. Two tabs: Players (who is online,
- * finding a player, and acting on one: message, teleport, give, refill,
- * boot, ban; the bans and the activity log) and Reports (players' bug
+ * a message to everyone online, finding a player, and acting on one: message,
+ * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
  * reply or add a note without an email, close, reopen; AdminTickets). #reports
  * opens the Reports tab, #report=<id> one report. The page is served only to a signed-in
@@ -38,7 +38,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'g491-3';
+    public const ASSET_KEY = 'g491-4';
 
     public function __construct(private Seams $minn)
     {
@@ -113,6 +113,14 @@ final readonly class AdminConsolePage
         <tbody></tbody>
       </table>
       <p class="console-empty" data-console-online-empty hidden>Nobody is connected right now.</p>
+    </section>
+    <section class="console-panel console-broadcast" aria-labelledby="console-broadcast-title">
+      <div class="console-panel-head"><h2 id="console-broadcast-title">Message everyone</h2></div>
+      <form class="console-reply" data-console-broadcast>
+        <label for="console-broadcast-text" class="console-sr">Message to everyone online</label>
+        <textarea id="console-broadcast-text" name="text" rows="3" maxlength="500" required placeholder="Plain text. Everyone online sees it as &quot;Message from an administrator&quot;."></textarea>
+        <div class="console-reply-foot"><span class="console-sub" data-console-broadcast-count role="status" aria-live="polite">Nobody is online to see it.</span><span class="console-sub" data-console-broadcast-len></span><button type="submit" class="console-primary" data-console-broadcast-send disabled>Send</button></div>
+      </form>
     </section>
     <section class="console-panel console-log" aria-labelledby="console-log-title">
       <div class="console-panel-head"><h2 id="console-log-title">Activity</h2></div>
