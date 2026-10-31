@@ -335,20 +335,21 @@ final readonly class LedgerDrop
     /**
      * Ledger::catchUp for a take: the stack into the pack (LedgerMath::applyTrade) and, for a
      * tool, its wear (the stack's points), as the game applies one (features/drops-mp-feature.js
-     * apply: a first one takes the stack's points, one more keeps the more worn;
-     * systems.tools.condition, js/tools.js setToolRemaining).
+     * apply: the tools picked up take the stack's points, the ones held keep their own;
+     * systems.tools.condition, js/tools.js receiveToolCopy).
      *
      * @param array{trade: string, gave: array, got: array} $p
      */
     public static function catchUp(Db $db, array $entries, int $user, array $p): array
     {
         $row = $db->row('SELECT class_tsid, points FROM ' . $db->table(self::TABLE) . ' WHERE id = ?', [substr($p['trade'], 0, -2)]);
-        $had = self::packCount($entries, $row === null ? '' : (string) $row['class_tsid']);
+        $class = $row === null ? '' : (string) $row['class_tsid'];
+        $had = self::packCount($entries, $class);
         $entries = LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']);
         if ($row === null || $row['points'] === null) {
             return $entries;
         }
-        return self::withToolPoints($entries, (string) $row['class_tsid'], (int) $row['points'], $had > 0);
+        return self::withToolPoints($entries, $class, (int) $row['points'], $had, max(1, self::packCount($entries, $class) - $had));
     }
 
     private static function packCount(array $entries, string $class): int
@@ -358,8 +359,14 @@ final readonly class LedgerDrop
         return LedgerMath::count(is_array($state) ? ($state['inventory'][$class] ?? 0) : 0);
     }
 
-    /** A tool's points left in a stored save (systems.tools.condition[class]): $points, or the more worn when one was there. */
-    public static function withToolPoints(array $entries, string $class, int $points, bool $hadOne): array
+    /**
+     * A stored save's tools after a take (systems.tools.condition[class], js/tools.js): each tool
+     * held keeps its own wear in `copies` (pack order), the $had held before keep theirs and the
+     * $n picked up are added last with the stack's $points. An older save's one value per class
+     * is the first tool's; a held tool with no value of its own is new (null: full). `remaining`
+     * and `broken` repeat the tool in use, the first with points left (tool_base isWorking).
+     */
+    public static function withToolPoints(array $entries, string $class, int $points, int $had, int $n = 1): array
     {
         $raw = $entries['playerState'] ?? null;
         $state = is_string($raw) && $raw !== '' ? json_decode($raw, false) : null;
@@ -375,13 +382,38 @@ final readonly class LedgerDrop
         }
         $cond = $at;
         $row = ($cond->{$class} ?? null) instanceof \stdClass ? $cond->{$class} : null;
-        $mine = $row !== null && is_numeric($row->remaining ?? null) ? (int) $row->remaining : null;
-        $left = max(0, $hadOne && $mine !== null ? min($mine, $points) : $points);
-        if ($row === null) {
-            $row = (object) ['remaining' => $left, 'broken' => $left <= 0, 'uses' => 0, 'repairs' => 0];
+        if ($row !== null && is_array($row->copies ?? null)) {
+            $copies = array_map(static fn ($r) => is_numeric($r) ? max(0, (int) $r) : null, array_values($row->copies));
+        } elseif ($row !== null && is_numeric($row->remaining ?? null)) {
+            $copies = [($row->broken ?? false) === true ? 0 : max(0, (int) $row->remaining)];
         } else {
-            $row->remaining = $left;
-            $row->broken = $left <= 0;
+            $copies = [];
+        }
+        $copies = array_slice($copies, 0, max(0, $had));
+        while (count($copies) < $had) {
+            $copies[] = null;
+        }
+        for ($i = 0; $i < max(1, $n); $i++) {
+            $copies[] = max(0, $points);
+        }
+        $inUse = null;
+        foreach ($copies as $r) {
+            if ($r === null || $r >= 1) {
+                $inUse = $r;
+                break;
+            }
+        }
+        $first = $inUse ?? $copies[0];
+        if ($row === null) {
+            $row = (object) ['uses' => 0, 'repairs' => 0];
+        }
+        $row->copies = $copies;
+        if ($first !== null) {
+            $row->remaining = $first;
+            $row->broken = $first <= 0;
+        } else {
+            unset($row->remaining);
+            $row->broken = false;
         }
         $cond->{$class} = $row;
         $entries['playerState'] = (string) json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
