@@ -21,7 +21,7 @@ use Minn\RestError;
  *
  *   POST builder/drafts/{id}/validate {rules?, reach?}  validate scope; the report (7.2), at the current rev
  *   GET  builder/drafts/{id}/render.png                  render scope; image/png; X-Builder-Rev, X-Builder-Findings: <error>,<warn>
- *        ?street=<key>&view=full|camera&x=&y=&w=&h=&scale=0.05..1&overlay=geometry,reach,findings,arrivals,populations,grid&layers=a,b
+ *        ?street=<key>&view=full|camera&x=&y=&w=&h=&scale=0.05..1&overlay=geometry,reach,findings,arrivals,populations,grid,effects&layers=a,b
  *   POST builder/drafts/{id}/publish-request {note}      drafts:write; marks the draft ready (publishing stays local, P6)
  *   GET  builder/decos?q=&layer=&hub=&family=&animated=&limit=   drafts:read; catalog rows, best first
  *   GET  builder/style/{profile}                         drafts:read; default or hub-<id>
@@ -32,7 +32,7 @@ use Minn\RestError;
 final readonly class AdminBuilderAgent
 {
     private const BASE = '/groddle/v1/admin/builder';
-    public const OVERLAYS = ['geometry', 'reach', 'findings', 'arrivals', 'populations', 'grid'];
+    public const OVERLAYS = ['geometry', 'reach', 'findings', 'arrivals', 'populations', 'grid', 'effects'];
     /** New art sent to the worker with a render, at most (base64 grows it by a third). */
     private const ART_BYTES = 6_000_000;
 
@@ -205,7 +205,10 @@ final readonly class AdminBuilderAgent
         return $out;
     }
 
-    /** The 2x files of the new art one street draws, base64 by sha256 (the render page draws them). @return array<string, string> */
+    /**
+     * The 2x files of the new art one street draws (its decos', and its effects' particle art),
+     * base64 by sha256 (the render page draws them). @return array<string, string>
+     */
     private function art(\stdClass $zone, \stdClass $street): array
     {
         $used = [];
@@ -214,6 +217,11 @@ final readonly class AdminBuilderAgent
                 if (is_string($d->sprite ?? null) && str_starts_with($d->sprite, 'gz_')) {
                     $used[$d->sprite] = true;
                 }
+            }
+        }
+        foreach (is_array($street->emitters ?? null) ? $street->emitters : [] as $e) {
+            if (is_object($e) && is_string($e->sprite ?? null) && str_starts_with($e->sprite, 'gz_')) {
+                $used[$e->sprite] = true;
             }
         }
         $assets = new BuilderAssets($this->minn->db);

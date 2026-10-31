@@ -165,7 +165,8 @@ final readonly class AdminBuilder
      * The play-test bundle (spec 6.8): the zone's streets at the current rev, their index rows
      * (no file: js/street-loader.js registerDraftStreets primes them), their population as
      * ecology rows, the street keys, the hub, and the zone's edits on shipped streets (the
-     * play-test puts them on copies of those streets, so the ways into the zone show there too).
+     * play-test puts them on copies of those streets, so the ways into the zone show there too),
+     * and the zone's new art by name and sha256 (the play-test draws it from /builder-art/).
      */
     #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}/play', policy: new Policy(Access::Public))]
     public function play(Request $request, string $id): Response
@@ -201,7 +202,27 @@ final readonly class AdminBuilder
             'ecology' => (object) $ecology,
             'hub' => $zone->hub ?? null,
             'edits' => is_array($zone->edits ?? null) ? $zone->edits : [],
+            // The zone's own art (gz_), so the play-test draws it from /builder-art/<sha256>.
+            'art' => (object) self::newArt($zone),
         ];
+    }
+
+    /**
+     * The zone's new art for the play-test: name => {sha256} for every `origin: new` row with a
+     * stored file's hash (the bytes stay behind /builder-art/, an administrator's session only).
+     *
+     * @return array<string, array{sha256: string}>
+     */
+    public static function newArt(\stdClass $zone): array
+    {
+        $out = [];
+        $assets = $zone->assets ?? null;
+        foreach ($assets instanceof \stdClass ? get_object_vars($assets) : [] as $name => $row) {
+            if (str_starts_with((string) $name, 'gz_') && $row instanceof \stdClass && ($row->origin ?? null) === 'new' && is_string($row->sha256 ?? null) && preg_match('/^[0-9a-f]{64}$/', $row->sha256) === 1) {
+                $out[(string) $name] = ['sha256' => $row->sha256];
+            }
+        }
+        return $out;
     }
 
     /** The rev an If-Match header names ("7", 7 or W/"7"). */

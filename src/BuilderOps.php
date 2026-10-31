@@ -19,7 +19,7 @@ namespace Groddle\Minn;
  */
 final class BuilderOps
 {
-    public const STREET_FIELDS = ['label', 'internalLabel', 'hubId', 'hubName', 'gradient', 'musicFile', 'noMap', 'fogMap', 'bounds'];
+    public const STREET_FIELDS = ['label', 'internalLabel', 'hubId', 'hubName', 'gradient', 'musicFile', 'noMap', 'fogMap', 'bounds', 'rumble'];
     public const LAYER_FIELDS = ['name', 'z', 'w', 'h', 'hidden', 'filters'];
     public const DECO_FIELDS = ['sprite', 'name', 'signText', 'x', 'y', 'w', 'h', 'z', 'r', 'flip', 'hidden', 'animated'];
     private const ZONE_FIELDS = ['title', 'notes'];
@@ -30,6 +30,8 @@ final class BuilderOps
         'barrier' => ['list' => 'barriers', 'prefix' => 'wall_', 'fields' => ['x', 'y', 'h', 'pc_perm']],
         'ladder' => ['list' => 'ladders', 'prefix' => 'ladder_', 'fields' => ['x', 'y', 'w', 'h', 'tiling']],
         'signpost' => ['list' => 'signposts', 'prefix' => 'signpost_', 'fields' => ['x', 'y', 'w', 'h']],
+        // Zone ambient effects (the game's js/street-effects.js): steam vents, lava squirts, embers.
+        'emitter' => ['list' => 'emitters', 'prefix' => 'fx_', 'fields' => ['kind', 'layer', 'x', 'y', 'sprite', 'rate', 'size', 'height', 'spread', 'period', 'burst', 'hidden']],
     ];
     public const CONNECT_FIELDS = ['tsid', 'label', 'hub_id', 'hidden', 'arrive'];
     /** A zone edit's fields (schema $defs/streetEdit) and its two kinds. */
@@ -45,6 +47,9 @@ final class BuilderOps
     public const MAX_LAYERS = 24;
     public const MAX_DECOS = 1500;
     public const MAX_PLATFORMS = 600;
+    /** Zone ambient effects per street (the game's js/street-effects.js EFFECT_LIMITS). */
+    public const MAX_EMITTERS = 40;
+    public const EFFECT_KINDS = ['steam', 'lava', 'embers'];
 
     /** The JSON the store writes and compares: slashes and Unicode as they are. */
     public static function encode(mixed $value): string
@@ -499,7 +504,7 @@ final class BuilderOps
     }
 
     /**
-     * platform.*, barrier.*, ladder.* and signpost.* (ops.js applyGeometryOp).
+     * platform.*, barrier.*, ladder.*, signpost.* and emitter.* (ops.js applyGeometryOp).
      *
      * @return array{inverse: \stdClass, changed: list<string>}
      */
@@ -699,6 +704,24 @@ final class BuilderOps
                 $say("{$p}/street/platforms", 'A street has at least one platform.');
             } elseif (count($plats) > self::MAX_PLATFORMS) {
                 $say("{$p}/street/platforms", 'At most ' . self::MAX_PLATFORMS . ' platforms.');
+            }
+            $emitters = $s->emitters ?? null;
+            if ($emitters !== null) {
+                if (!is_array($emitters) || !array_is_list($emitters)) {
+                    $say("{$p}/street/emitters", 'emitters is a list.');
+                } elseif (count($emitters) > self::MAX_EMITTERS) {
+                    $say("{$p}/street/emitters", 'At most ' . self::MAX_EMITTERS . ' effects on a street.');
+                } else {
+                    foreach ($emitters as $j => $e) {
+                        if (!self::isObj($e) || !in_array($e->kind ?? null, self::EFFECT_KINDS, true) || !is_numeric($e->x ?? null) || !is_numeric($e->y ?? null)) {
+                            $say("{$p}/street/emitters/{$j}", 'An effect has a kind (steam, lava or embers), x and y.');
+                        }
+                    }
+                }
+            }
+            $rumble = $s->rumble ?? null;
+            if ($rumble !== null && (!self::isObj($rumble) || !is_array($rumble->every ?? null) || count($rumble->every) !== 2 || !is_numeric($rumble->duration ?? null) || !is_numeric($rumble->strength ?? null))) {
+                $say("{$p}/street/rumble", 'A rumble has every [min, max], a duration and a strength.');
             }
             $layers = $s->layers ?? null;
             if (!is_array($layers) || !array_is_list($layers) || $layers === []) {
