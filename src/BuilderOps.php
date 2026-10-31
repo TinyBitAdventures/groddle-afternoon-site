@@ -32,6 +32,9 @@ final class BuilderOps
         'signpost' => ['list' => 'signposts', 'prefix' => 'signpost_', 'fields' => ['x', 'y', 'w', 'h']],
     ];
     public const CONNECT_FIELDS = ['tsid', 'label', 'hub_id', 'hidden', 'arrive'];
+    /** A zone edit's fields (schema $defs/streetEdit) and its two kinds. */
+    public const EDIT_FIELDS = ['tsid', 'op', 'signpost', 'connect', 'newSignpost'];
+    public const EDIT_KINDS = ['add-connect', 'add-signpost'];
     /** Fields whose null is a value (a perm of null is hard both ways), not a missing value. */
     private const NULLABLE = ['pc_perm', 'item_perm'];
 
@@ -408,6 +411,82 @@ final class BuilderOps
                 self::need(is_int($at) && $at >= 0 && $at < (is_array($post->connects ?? null) ? count($post->connects) : 0), 'builder_no_connect', 'Signpost ' . (is_string($postId) ? $postId : '') . ' has no arm ' . (is_int($at) ? $at : '') . '.');
                 $inv = self::patch($post->connects[$at], self::prop($op, 'set'), self::prop($op, 'unset'), self::CONNECT_FIELDS, 'connect.set', self::prop($op, 'order'));
                 return ['inverse' => self::op(['op' => 'connect.set', 'street' => $street, 'signpost' => $postId, 'at' => $at] + $inv), 'changed' => ["{$street}/{$postId}"]];
+            case 'population.set':
+                $row = self::streetRow($zone, $street);
+                $pop = self::prop($op, 'population');
+                self::need($pop === null || (self::isObj($pop) && self::isObj($pop->counts ?? null)), 'builder_bad_op', 'population.set needs a population with counts, or null.');
+                $before = self::has($row, 'population') ? self::copy($row->population) : null;
+                $keys = array_map('strval', array_keys(get_object_vars($row)));
+                if ($pop === null) {
+                    unset($row->population);
+                } else {
+                    $row->population = self::copy($pop);
+                }
+                self::reorder($row, self::prop($op, 'order'));
+                $inverse = ['op' => 'population.set', 'street' => $street, 'population' => $before];
+                if ($pop === null && $before !== null) {
+                    $inverse['order'] = $keys;
+                }
+                return ['inverse' => self::op($inverse), 'changed' => ["{$street}/population"]];
+            case 'hubmap.set':
+                self::need(self::isObj($zone->hub ?? null), 'builder_no_hub', 'This draft has no hub yet.');
+                $map = self::prop($op, 'map');
+                self::need($map === null || (self::isObj($map) && is_array($map->streets ?? null)), 'builder_bad_op', 'hubmap.set needs a map with a streets list, or null.');
+                $before = self::has($zone->hub, 'map') ? self::copy($zone->hub->map) : null;
+                $keys = array_map('strval', array_keys(get_object_vars($zone->hub)));
+                if ($map === null) {
+                    unset($zone->hub->map);
+                } else {
+                    $zone->hub->map = self::copy($map);
+                }
+                self::reorder($zone->hub, self::prop($op, 'order'));
+                $inverse = ['op' => 'hubmap.set', 'map' => $before];
+                if ($map === null && $before !== null) {
+                    $inverse['order'] = $keys;
+                }
+                return ['inverse' => self::op($inverse), 'changed' => ['hub']];
+            case 'edit.add':
+                $e = self::prop($op, 'edit');
+                self::need(self::isObj($e) && is_string($e->tsid ?? null) && in_array($e->op ?? null, self::EDIT_KINDS, true), 'builder_bad_op', 'edit.add needs an edit with a tsid and an op (add-connect or add-signpost).');
+                foreach (array_keys(get_object_vars($e)) as $k) {
+                    self::need(in_array((string) $k, self::EDIT_FIELDS, true), 'builder_bad_op', "edit.add: \"{$k}\" is not an edit field.");
+                }
+                $c = $e->op === 'add-connect' ? ($e->connect ?? null) : null;
+                if ($e->op === 'add-connect') {
+                    self::need(is_string($e->signpost ?? null) && $e->signpost !== '' && self::isObj($c) && is_string($c->tsid ?? null) && is_string($c->label ?? null), 'builder_bad_op', 'An add-connect edit names a signpost and a connect with a tsid and a label.');
+                } else {
+                    self::need(self::isObj($e->newSignpost ?? null), 'builder_bad_op', 'An add-signpost edit carries the new signpost.');
+                }
+                if ($c !== null) {
+                    foreach (array_keys(get_object_vars($c)) as $k) {
+                        self::need(in_array((string) $k, self::CONNECT_FIELDS, true), 'builder_bad_op', "edit.add: \"{$k}\" is not a connect field.");
+                    }
+                }
+                $fresh = !is_array($zone->edits ?? null);
+                $edits = $fresh ? [] : $zone->edits;
+                $at = self::at(self::prop($op, 'at'), count($edits));
+                array_splice($edits, $at, 0, [self::copy($e)]);
+                $zone->edits = $edits;
+                self::reorder($zone, self::prop($op, 'order'));
+                $inverse = ['op' => 'edit.remove', 'at' => $at];
+                if ($fresh) {
+                    $inverse['prune'] = true;
+                }
+                return ['inverse' => self::op($inverse), 'changed' => ['edits']];
+            case 'edit.remove':
+                $edits = is_array($zone->edits ?? null) ? $zone->edits : [];
+                $at = self::prop($op, 'at');
+                self::need(is_int($at) && $at >= 0 && $at < count($edits), 'builder_no_edit', 'This draft has no edit ' . (is_int($at) ? $at : (is_string($at) ? $at : '')) . '.');
+                $keys = array_map('strval', array_keys(get_object_vars($zone)));
+                [$e] = array_splice($edits, $at, 1);
+                $inverse = ['op' => 'edit.add', 'edit' => $e, 'at' => $at];
+                if (self::prop($op, 'prune') === true && $edits === []) {
+                    unset($zone->edits);
+                    $inverse['order'] = $keys;
+                } else {
+                    $zone->edits = $edits;
+                }
+                return ['inverse' => self::op($inverse), 'changed' => ['edits']];
             default:
                 $parts = explode('.', $op->op);
                 $kind = $parts[0];

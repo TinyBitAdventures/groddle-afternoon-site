@@ -20,7 +20,7 @@ use Minn\RestError;
  * is on (groddle.localhost only for now, spec Q2): with it unset every route answers 404
  * builder_disabled, so a release ships the builder dark.
  *
- *   GET    builder/drafts[?all=1]              {"drafts":[{id,title,rev,state,streets:[{key,tsid,label}],updatedBy,updatedAt,createdAt}]}
+ *   GET    builder/drafts[?all=1]              {"drafts":[{id,title,rev,state,streets:[{key,tsid,label}],hub:{id,name,isNew},updatedBy,updatedAt,createdAt}]}
  *   POST   builder/drafts {id,title,hub?}      201 the zone (rev 1)
  *   GET    builder/drafts/{id}[?rev=n]         the zone; ETag "<rev>"; If-None-Match "<rev>" answers 304
  *   PUT    builder/drafts/{id} <zone>          If-Match: <rev> → {"rev"}; 409 builder_rev_conflict {rev}, 413, 422
@@ -162,7 +162,8 @@ final readonly class AdminBuilder
     /**
      * The play-test bundle (spec 6.8): the zone's streets at the current rev, their index rows
      * (no file: js/street-loader.js registerDraftStreets primes them), their population as
-     * ecology rows, the street keys and the hub.
+     * ecology rows, the street keys, the hub, and the zone's edits on shipped streets (the
+     * play-test puts them on copies of those streets, so the ways into the zone show there too).
      */
     #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}/play', policy: new Policy(Access::Cap, self::ADMIN))]
     public function play(Request $request, string $id): Response
@@ -197,6 +198,7 @@ final readonly class AdminBuilder
             'index' => (object) $index,
             'ecology' => (object) $ecology,
             'hub' => $zone->hub ?? null,
+            'edits' => is_array($zone->edits ?? null) ? $zone->edits : [],
         ];
     }
 

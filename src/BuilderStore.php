@@ -50,6 +50,7 @@ final class BuilderStore
                 'rev' => (int) $r['rev'],
                 'state' => (string) $r['state'],
                 'streets' => $streets,
+                'hub' => is_object($zone) && ($zone->hub ?? null) instanceof \stdClass ? ['id' => (string) ($zone->hub->id ?? ''), 'name' => (string) ($zone->hub->name ?? ''), 'isNew' => ($zone->hub->isNew ?? false) === true] : null,
                 'updatedBy' => (string) $r['updated_by'],
                 'updatedAt' => SaveShape::time((string) $r['updated_at']),
                 'createdAt' => SaveShape::time((string) $r['created_at']),
