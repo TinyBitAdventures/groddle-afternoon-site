@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.24",
+  "version": "0.5.25",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -504,6 +504,25 @@
       "note varchar(200) NOT NULL DEFAULT ''",
       "ops_summary text NOT NULL",
       "PRIMARY KEY  (draft_id,rev)"
+    ],
+    "groddle_builder_assets": [
+      "name varchar(96) NOT NULL",
+      "sha256 char(64) NOT NULL",
+      "draft_id varchar(48) NOT NULL",
+      "origin varchar(16) NOT NULL DEFAULT 'new'",
+      "licence varchar(16) NOT NULL",
+      "meta text NOT NULL",
+      "file2 mediumblob NOT NULL",
+      "file3 mediumblob NULL",
+      "width smallint(5) unsigned NOT NULL DEFAULT 0",
+      "height smallint(5) unsigned NOT NULL DEFAULT 0",
+      "bytes int(10) unsigned NOT NULL DEFAULT 0",
+      "report mediumtext NOT NULL",
+      "created_by varchar(24) NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (name)",
+      "UNIQUE KEY sha256 (sha256)",
+      "KEY draft_id (draft_id)"
     ]
   }
 }

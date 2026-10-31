@@ -146,6 +146,11 @@ final class BuilderStore
             if ($bad !== []) {
                 throw new RestError('builder_invalid', $bad[0]['message'], 422, ['findings' => $bad]);
             }
+            // New art's provenance is set at intake (BuilderAssets), never by an edit.
+            $art = (new BuilderAssets($this->db))->checkZone($zone);
+            if ($art !== []) {
+                throw new RestError('builder_invalid', $art[0], 422, ['findings' => array_map(static fn (string $m): array => ['path' => '/assets', 'message' => $m], $art)]);
+            }
             $json = BuilderOps::encode($zone);
             if (strlen($json) > BuilderOps::MAX_ZONE_BYTES) {
                 throw new RestError('builder_too_large', 'A draft is at most 4 MB.', 413);
