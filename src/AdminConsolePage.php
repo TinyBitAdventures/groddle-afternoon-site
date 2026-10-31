@@ -15,12 +15,14 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Two tabs: Players (who is online,
+ * /console/, the administrators' console. Two tabs, three with the level builder on: Players (who is online,
  * a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
  * reply or add a note without an email, close, reopen; AdminTickets). #reports
- * opens the Reports tab, #report=<id> one report. The page is served only to a signed-in
+ * opens the Reports tab, #report=<id> one report. Builder (only when AdminBuilder::enabled, the
+ * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
+ * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
  * sign-in and back; signed in without the capability it answers a plain 403.
  * The page itself carries no data: console/console.js reads everything from
@@ -38,7 +40,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'g491-4';
+    public const ASSET_KEY = 'builder-1';
 
     public function __construct(private Seams $minn)
     {
@@ -76,6 +78,7 @@ final readonly class AdminConsolePage
     private function document(): string
     {
         $path = $this->minn->request->path;
+        $builder = AdminBuilder::enabled($this->minn);
         $v = self::ASSET_KEY;
         $a = self::ASSETS;
         return "<!DOCTYPE html>\n<html lang=\"en-US\">\n<head>\n<meta charset=\"UTF-8\" />\n"
@@ -100,6 +103,10 @@ final readonly class AdminConsolePage
   <div class="console-tabs" role="tablist" aria-label="Console" data-console-tabs>
     <button type="button" role="tab" id="console-tab-players" aria-controls="console-players" aria-selected="true" data-console-tab="players">Players</button>
     <button type="button" role="tab" id="console-tab-reports" aria-controls="console-reports" aria-selected="false" tabindex="-1" data-console-tab="reports">Reports <span class="console-count console-count-unread" data-console-reports-unread></span></button>
+HTML
+            . ($builder ? "\n    <button type=\"button\" role=\"tab\" id=\"console-tab-builder\" aria-controls=\"console-builder\" aria-selected=\"false\" tabindex=\"-1\" data-console-tab=\"builder\">Builder</button>" : '')
+            . <<<'HTML'
+
   </div>
   <div class="console-grid" id="console-players" role="tabpanel" aria-labelledby="console-tab-players" data-console-tabpanel="players">
    <div class="console-col">
@@ -196,8 +203,36 @@ final readonly class AdminConsolePage
       </div>
     </section>
   </div>
-</main>
 HTML
-            . "\n</body>\n</html>\n";
+            . ($builder ? self::builderPanel() : '')
+            . "\n</main>\n</body>\n</html>\n";
+    }
+
+    /** The Builder tab: drafts (console.js fills them from AdminBuilder) and a new draft. */
+    private static function builderPanel(): string
+    {
+        return <<<'HTML'
+
+  <div class="console-builder" id="console-builder" role="tabpanel" aria-labelledby="console-tab-builder" data-console-tabpanel="builder" hidden>
+    <section class="console-panel console-drafts" aria-labelledby="console-drafts-title">
+      <div class="console-panel-head">
+        <h2 id="console-drafts-title">Drafts <span class="console-count" data-console-drafts-count></span></h2>
+        <p class="console-hint">Streets you are building. Nothing here reaches players until it is published from a game checkout. <a href="/console/builder/">Open the builder</a> to look at any street.</p>
+      </div>
+      <ul class="console-list console-draftlist" data-console-drafts aria-label="Drafts"></ul>
+      <p class="console-empty" data-console-drafts-empty hidden>No drafts yet. Start one below, then fork a street into it in the builder.</p>
+    </section>
+    <section class="console-panel console-newdraft" aria-labelledby="console-newdraft-title">
+      <div class="console-panel-head"><h2 id="console-newdraft-title">New draft</h2></div>
+      <form class="console-reply" data-console-newdraft>
+        <label for="console-draft-title">Title</label>
+        <input id="console-draft-title" name="title" type="text" maxlength="80" required autocomplete="off" placeholder="Mossy Hollow" />
+        <label for="console-draft-id">Id</label>
+        <input id="console-draft-id" name="id" type="text" maxlength="48" required autocomplete="off" spellcheck="false" pattern="[a-z][a-z0-9\-]{2,47}" placeholder="mossy-hollow" />
+        <div class="console-reply-foot"><span class="console-sub">Lowercase letters, digits and hyphens. It never changes.</span><button type="submit" class="console-primary">Start the draft</button></div>
+      </form>
+    </section>
+  </div>
+HTML;
     }
 }

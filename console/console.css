@@ -155,3 +155,15 @@
 .console-reply-foot .console-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .console-reply-foot .console-check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .console .console-reply .console-primary { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }
+
+/* Builder tab (the level builder's drafts; src/AdminBuilder.php) */
+.console-builder { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.console-builder[hidden] { display: none; }
+@media (max-width: 900px) { .console-builder { grid-template-columns: minmax(0, 1fr); } }
+.console-draftlist > li { display: grid; gap: .25rem; padding: .7rem 0; border-bottom: 1px solid var(--row-line); }
+.console-draftlist > li:last-child { border-bottom: 0; }
+.console-draft-title { color: var(--fg); }
+.console-draft-streets { display: flex; flex-wrap: wrap; gap: .25rem .75rem; margin: 0; padding: 0; list-style: none; font-size: .9em; }
+.console-draft-acts { display: flex; gap: .5rem; margin-top: .25rem; }
+.console-link-btn { display: inline-block; text-decoration: none; }
+.console-newdraft input[type="text"] { width: 100%; box-sizing: border-box; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; }

@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.23",
+  "version": "0.5.24",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -477,6 +477,33 @@
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (ticket_id)",
       "KEY player_user_id (player_user_id)"
+    ],
+    "groddle_builder_drafts": [
+      "id varchar(48) NOT NULL",
+      "title varchar(80) NOT NULL",
+      "rev int(10) unsigned NOT NULL DEFAULT 0",
+      "zone longtext NOT NULL",
+      "sha256 char(64) NOT NULL",
+      "state varchar(12) NOT NULL DEFAULT 'draft'",
+      "base_commit varchar(40) NULL",
+      "created_by varchar(24) NOT NULL",
+      "updated_by varchar(24) NOT NULL",
+      "created_at datetime NOT NULL",
+      "updated_at datetime NOT NULL",
+      "published_commit varchar(40) NULL",
+      "PRIMARY KEY  (id)",
+      "KEY state_updated (state,updated_at)"
+    ],
+    "groddle_builder_revisions": [
+      "draft_id varchar(48) NOT NULL",
+      "rev int(10) unsigned NOT NULL",
+      "zone longblob NOT NULL",
+      "sha256 char(64) NOT NULL",
+      "author varchar(24) NOT NULL",
+      "at datetime NOT NULL",
+      "note varchar(200) NOT NULL DEFAULT ''",
+      "ops_summary text NOT NULL",
+      "PRIMARY KEY  (draft_id,rev)"
     ]
   }
 }

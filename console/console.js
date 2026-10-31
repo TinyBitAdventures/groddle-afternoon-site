@@ -23,6 +23,11 @@
  *   ticked from report to report, for closing many related ones) and Close
  *   or Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
  *   opens the tab, #report=<id> a report.
+ * - Builder (the third tab, only when the site option groddle_builder_enabled is on;
+ *   src/AdminBuilder.php): the level builder's drafts with their streets, each opening the
+ *   builder page (/console/builder/#draft=<id>), Archive, and a new draft (title, and an id
+ *   made from it until you type your own). Loaded when the tab opens, then every
+ *   DRAFTS_POLL_MS while it is shown. #builder opens it.
  *
  * Everything a player or an administrator wrote is set as text, never HTML.
  * Pure helpers are exported for tests (spike tests/g407-admin-console.test.js).
@@ -37,6 +42,33 @@ export const GIVE_EACH = 999;
 export const GIVE_CURRANTS = 100000;
 export const TICKETS_POLL_MS = 15000;
 export const TICKET_MAX = 2000;
+export const DRAFTS_POLL_MS = 15000;
+
+/** A draft id from a title: lowercase words joined by hyphens, starting with a letter, 3 to 48 long (src/BuilderStore.php ID). */
+export function draftIdFrom(title) {
+  let id = String(title || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+/, '').replace(/-+$/, '').slice(0, 48).replace(/-+$/, '');
+  if (id.length > 0 && id.length < 3) id = `${id}-zone`.slice(0, 48);
+  return id;
+}
+
+/** Whether an id is a draft id the site takes. */
+export function draftIdOk(id) {
+  return /^[a-z][a-z0-9-]{2,47}$/.test(String(id || ''));
+}
+
+/** The builder page's address for a draft (and one of its streets). */
+export function builderHref(draft, street = '') {
+  const id = encodeURIComponent(String(draft || ''));
+  return `/console/builder/#draft=${id}${street ? `&street=${encodeURIComponent(street)}` : ''}`;
+}
+
+/** One draft's line under its title: rev, streets, when. */
+export function draftWords(d, when = (iso) => iso) {
+  const n = Array.isArray(d?.streets) ? d.streets.length : 0;
+  const streets = n === 0 ? 'no streets yet' : n === 1 ? '1 street' : `${n} streets`;
+  return `rev ${d?.rev ?? 0} · ${streets} · saved ${when(d?.updatedAt || '')}`;
+}
 
 /** The reply box's button and hint, emailing or not (Don't email ticked). */
 export function replyFormWords(noEmail) {
@@ -164,6 +196,13 @@ export function logWords(line) {
     case 'close': return `closed ${who}'s report “${d.subject || ''}”`;
     case 'reopen': return `reopened ${who}'s report “${d.subject || ''}”`;
     case 'broadcast': return `messaged everyone online (${d.count ?? 0}): “${d.text || ''}”${d.failed ? ` (${d.failed} did not get it)` : ''}`;
+    case 'builder': {
+      const title = d.title || d.draft || 'a draft';
+      if (d.text === 'archived') return `archived the draft “${title}”`;
+      if (d.text === 'created') return `started the draft “${title}”`;
+      const revs = d.from && d.from !== d.rev ? `revs ${d.from} to ${d.rev}` : `rev ${d.rev ?? '?'}`;
+      return `edited the draft “${title}” (${revs}, ${d.ops ?? 0} ${d.ops === 1 ? 'change' : 'changes'})`;
+    }
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
   }
@@ -547,6 +586,8 @@ function boot() {
     }
     for (const p of root.querySelectorAll('[data-console-tabpanel]')) p.hidden = p.dataset.consoleTabpanel !== id;
     if (id === 'reports') loadTickets();
+    if (id === 'builder') loadDrafts();
+    if (id === 'builder' && location.hash !== '#builder') history.replaceState(null, '', '#builder');
   }
   tablist.addEventListener('click', (e) => { const t = e.target.closest('[role="tab"]'); if (t) showTab(t.dataset.consoleTab); });
   tablist.addEventListener('keydown', (e) => {
@@ -557,6 +598,56 @@ function boot() {
     e.preventDefault();
     showTab(tabs[(to + tabs.length) % tabs.length].dataset.consoleTab, true);
   });
+
+  // == Builder ==
+  const drafts = { list: [], idTouched: false };
+  const draftForm = $('[data-console-newdraft]');
+  function renderDrafts() {
+    const list = $('[data-console-drafts]');
+    if (!list) return;
+    list.replaceChildren(...drafts.list.map((d) => el('li', { class: 'console-draft', 'data-draft': d.id },
+      el('div', { class: 'console-draft-top' },
+        el('a', { href: builderHref(d.id), class: 'console-draft-title' }, el('b', { text: d.title || d.id })),
+        el('span', { class: 'console-sub', text: ` ${d.id}` })),
+      el('span', { class: 'console-sub', text: draftWords(d, when) }),
+      d.streets?.length ? el('ul', { class: 'console-draft-streets', 'aria-label': `Streets in ${d.title || d.id}` },
+        ...d.streets.map((s) => el('li', {}, el('a', { href: builderHref(d.id, s.key), text: s.label || s.key })))) : null,
+      el('div', { class: 'console-draft-acts' },
+        el('a', { href: builderHref(d.id), class: 'console-small console-link-btn', text: 'Open' }),
+        el('button', { type: 'button', class: 'console-small', onclick: () => archiveDraft(d) , text: 'Archive' })))));
+    $('[data-console-drafts-empty]').hidden = drafts.list.length > 0;
+    $('[data-console-drafts-count]').textContent = drafts.list.length ? String(drafts.list.length) : '';
+  }
+  async function loadDrafts() {
+    if (!$('[data-console-drafts]')) return;
+    let r;
+    try { r = await api.call('admin/builder/drafts'); } catch (err) { return failed(err); }
+    drafts.list = r.drafts || [];
+    renderDrafts();
+  }
+  async function archiveDraft(d) {
+    if (!globalThis.confirm?.(`Archive “${d.title || d.id}”? It leaves this list; nothing is deleted.`)) return;
+    try {
+      await api.call(`admin/builder/drafts/${encodeURIComponent(d.id)}`, { method: 'DELETE' });
+      say(`Archived “${d.title || d.id}”.`);
+      loadDrafts();
+      loadLog();
+    } catch (err) { failed(err); }
+  }
+  if (draftForm) {
+    draftForm.title.addEventListener('input', () => { if (!drafts.idTouched) draftForm.id.value = draftIdFrom(draftForm.title.value); });
+    draftForm.id.addEventListener('input', () => { drafts.idTouched = draftForm.id.value !== ''; });
+    draftForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = draftForm.title.value.trim();
+      const id = draftForm.id.value.trim();
+      if (!draftIdOk(id)) { say('An id is 3 to 48 lowercase letters, digits and hyphens, starting with a letter.', 'bad'); draftForm.id.focus(); return; }
+      try {
+        await api.call('admin/builder/drafts', { method: 'POST', body: { id, title } });
+        location.href = builderHref(id);
+      } catch (err) { failed(err); }
+    });
+  }
 
   // == Reports ==
   const tickets = { list: [], counts: {}, status: 'all', open: 0, thread: null };
@@ -696,6 +787,7 @@ function boot() {
   function fromHash() {
     const m = /^#report=(\d+)$/.exec(location.hash);
     if (m) { showTab('reports'); openTicket(Number(m[1]), false); } else if (location.hash === '#reports') showTab('reports');
+    else if (location.hash === '#builder' && $('[data-console-tab="builder"]')) showTab('builder');
   }
   addEventListener('hashchange', fromHash);
 
@@ -713,16 +805,21 @@ function boot() {
     let timer = setInterval(() => pollOnline(), POLL_MS);
     let logTimer = setInterval(() => loadLog(), LOG_POLL_MS);
     let ticketTimer = setInterval(() => loadTickets(), TICKETS_POLL_MS);
+    const draftsTick = () => { if (tab === 'builder') loadDrafts(); };
+    let draftTimer = setInterval(draftsTick, DRAFTS_POLL_MS);
     document.addEventListener('visibilitychange', () => {
       clearInterval(timer);
       clearInterval(logTimer);
       clearInterval(ticketTimer);
+      clearInterval(draftTimer);
       if (document.hidden) return;
       pollOnline();
       loadTickets();
+      draftsTick();
       timer = setInterval(() => pollOnline(), POLL_MS);
       logTimer = setInterval(() => loadLog(), LOG_POLL_MS);
       ticketTimer = setInterval(() => loadTickets(), TICKETS_POLL_MS);
+      draftTimer = setInterval(draftsTick, DRAFTS_POLL_MS);
     });
   })();
 }

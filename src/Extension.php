@@ -20,7 +20,7 @@ use Minn\Extension\Seams;
  * (PlayerAccount) and with Google (GoogleSignIn), who is signed in (Player), the saves over the tables
  * minn.json declares (MultiplayerSave, SoloBackups), the realtime
  * server's ticket (RealtimeTicket), buddy lists (Buddies), groups and their chat (Groups), profiles
- * (Profiles) and visiting each other's homes with house keys (Neighbours), the owner's Butler taking visitors' parcels (ButlerParcels) and key-holders tending their gardens (HomeTending), the Magic Rock's daily iMG from visitors (HomePool) and what they pet, dig and water on a home street (HomeYard), the Auction House (LedgerAuction), bug reports as threads with the administrators (Tickets), signed-in players only, nonce-checked; an administrator's teleport for a stuck player (AdminTeleport, manage_options only) and the administrators' console (AdminConsole, its Reports tab AdminTickets, AdminConsolePage at /console/, manage_options only); and the public
+ * (Profiles) and visiting each other's homes with house keys (Neighbours), the owner's Butler taking visitors' parcels (ButlerParcels) and key-holders tending their gardens (HomeTending), the Magic Rock's daily iMG from visitors (HomePool) and what they pet, dig and water on a home street (HomeYard), the Auction House (LedgerAuction), bug reports as threads with the administrators (Tickets), signed-in players only, nonce-checked; an administrator's teleport for a stuck player (AdminTeleport, manage_options only) and the administrators' console (AdminConsole, its Reports tab AdminTickets, AdminConsolePage at /console/, manage_options only), and the level builder's drafts and page (AdminBuilder, AdminBuilderPage at /console/builder/, behind the option groddle_builder_enabled); and the public
  * Players pages (PlayerPages).
  */
 final class Extension implements MinnExtension
@@ -51,11 +51,13 @@ final class Extension implements MinnExtension
         $minn->routes(new PlayerPages($minn, $root));
         // The administrators' console page (/console/; its data is AdminConsole's REST routes).
         $minn->routes(new AdminConsolePage($minn));
+        // The level builder's page (/console/builder/; its drafts are AdminBuilder's REST routes), when groddle_builder_enabled is on.
+        $minn->routes(new AdminBuilderPage($minn));
         // A bug report's picture of the game, to its player and the administrators.
         $minn->routes(new TicketPictures($minn));
         // /privacy goes to the privacy policy page.
         $minn->routes(new PrivacyLinks($minn));
-        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerCrowns($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new Tickets($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new Snaps($minn), new AdminTeleport($minn), new AdminConsole($minn), new AdminTickets($minn), new GoogleSignIn($minn));
+        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerCrowns($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new Tickets($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new Snaps($minn), new AdminTeleport($minn), new AdminConsole($minn), new AdminTickets($minn), new AdminBuilder($minn), new GoogleSignIn($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
         // The report's section menu, drawn over its rendered content (nothing is written to the page).
