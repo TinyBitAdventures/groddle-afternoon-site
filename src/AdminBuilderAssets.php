@@ -27,6 +27,10 @@ use Minn\RestError;
  *        409 builder_asset_name_taken / builder_asset_exists; 413 past 200 a draft.
  *   GET  builder/assets?draft=<id>        {assets: [...]} metadata, reports, no bytes
  *   GET  builder/assets/{sha256 | name}   one asset's metadata and report
+ *   GET  builder/drafts/{id}/art/{sha256}[?size=3]   the kept WebP itself (2x, or the 3x), for the CLI's
+ *        publish: drafts:read, counted in the art rate (BuilderKeys::RATES), and only for art the
+ *        draft's zone names (an `origin: new` row with that sha256) or that this caller sent into
+ *        the draft. A keyed run of fetches is one log line per key, draft and 10 minutes.
  *
  * Intake itself is BuilderIntake (pure); the rows are BuilderAssets; the files are served by the
  * page route BuilderArt (/builder-art/<sha256>).
@@ -86,6 +90,65 @@ final readonly class AdminBuilderAssets
         $this->gate($request, 'drafts:read');
         $row = (new BuilderAssets($this->minn->db))->find($key) ?? throw new RestError('builder_not_found', 'No new art has that name or sha256.', 404);
         return Response::json($row)->withHeader('Cache-Control', 'no-store');
+    }
+
+    #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}/art/{sha:[0-9a-f]{64}}', policy: new Policy(Access::Public))]
+    public function file(Request $request, string $id, string $sha): Response
+    {
+        try {
+            $who = $this->gate($request, 'drafts:read', 'art');
+            $draft = (new BuilderStore($this->minn->db))->find($id) ?? throw new RestError('builder_not_found', 'No draft has that id.', 404);
+            $assets = new BuilderAssets($this->minn->db);
+            $row = $assets->find($sha);
+            if ($row === null || !self::artAllowed($draft['zone'], $id, $row, $who->author)) {
+                throw new RestError('builder_not_found', 'This draft names no new art with that sha256.', 404);
+            }
+            $three = $request->query('size') === '3';
+            $bytes = $assets->file($sha, $three);
+            if ($bytes === null || substr($bytes, 0, 4) !== 'RIFF' || substr($bytes, 8, 4) !== 'WEBP') {
+                throw new RestError('builder_not_found', $three ? 'That art has no 3x file.' : 'That art has no kept file.', 404);
+            }
+            if ($who->isKey()) {
+                self::logFetch($this->minn->db, $who, $id, (string) $draft['title'], (string) $row['name'], time());
+            }
+            return new Response(200, BuilderArt::headers(strlen($bytes)) + ['X-Builder-Sha256' => $sha, 'X-Builder-Name' => (string) $row['name']], $bytes);
+        } catch (RestError $e) {
+            return BuilderAuth::refusal($e);
+        }
+    }
+
+    /**
+     * PURE: whether a draft may hand out a kept picture: its zone names it (an `origin: new` row
+     * whose sha256 is the picture's, under the kept name), or the caller sent it into this draft
+     * (intake's created_by is the caller's author: the user id, or "key:<id>").
+     *
+     * @param array<string, mixed> $row BuilderAssets::find's shape
+     */
+    public static function artAllowed(\stdClass $zone, string $draftId, array $row, string $author): bool
+    {
+        $assets = $zone->assets ?? null;
+        $named = $assets instanceof \stdClass ? ($assets->{(string) $row['name']} ?? null) : null;
+        if ($named instanceof \stdClass && ($named->origin ?? null) === 'new' && ($named->sha256 ?? null) === $row['sha256']) {
+            return true;
+        }
+        return ($row['draft'] ?? null) === $draftId && ($row['createdBy'] ?? null) === $author && $author !== '';
+    }
+
+    /** One log line per run of a key's fetches from one draft (10 minutes), as BuilderStore merges saves. */
+    private static function logFetch(\Minn\Db $db, BuilderActor $who, string $draft, string $title, string $name, int $now): void
+    {
+        $t = $db->table(AdminConsole::ACTIONS);
+        $last = $db->row("SELECT id, at, admin_user_id, kind, detail FROM {$t} ORDER BY id DESC LIMIT 1");
+        $detail = is_array($last) ? json_decode((string) $last['detail'], true) : null;
+        if (is_array($last) && $last['kind'] === 'builder' && (int) $last['admin_user_id'] === $who->admin && is_array($detail)
+            && ($detail['draft'] ?? null) === $draft && ($detail['key'] ?? null) === $who->keyId && isset($detail['artFetched'])
+            && $now - (int) strtotime($last['at'] . ' UTC') <= BuilderStore::LOG_MERGE_S) {
+            $detail['artFetched'] = (int) $detail['artFetched'] + 1;
+            $detail['text'] = 'art fetched: ' . $detail['artFetched'] . ' files, last ' . $name;
+            $db->execute("UPDATE {$t} SET at = ?, detail = ? WHERE id = ?", [gmdate('Y-m-d H:i:s', $now), (string) json_encode($detail, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), (int) $last['id']]);
+            return;
+        }
+        AdminConsole::recordAction($db, $who->admin, 0, 'builder', ['draft' => $draft, 'title' => $title, 'artFetched' => 1, 'text' => 'art fetched: ' . $name, 'key' => $who->keyId], 'stored', $now);
     }
 
     /** The library's deco names (the built game's assets/decos/manifest.json), as name => true. @return array<string, bool> */

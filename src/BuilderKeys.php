@@ -34,7 +34,8 @@ use Minn\RestError;
  * Rotating the master revokes every key. The secret is shown once, when the key is made.
  *
  * Rate limits (spec 12), per key, counted over the nonces of the last minute: 120 writes, 20
- * renders, 60 validates; over them is 429 builder_rate_limited with Retry-After.
+ * renders, 60 validates, 300 fetches of new art's files; over them is 429 builder_rate_limited with
+ * Retry-After.
  */
 final class BuilderKeys
 {
@@ -50,8 +51,8 @@ final class BuilderKeys
     public const SECRET_OPTION = 'groddle_builder_secret_file';
     /** Every scope a key may hold. None reaches publishing, keys or any other admin route. */
     public const SCOPES = ['drafts:read', 'drafts:write', 'assets:write', 'validate', 'render'];
-    /** Calls a key may make in a minute, by kind (spec 12); reads are not limited. */
-    public const RATES = ['write' => 120, 'render' => 20, 'validate' => 60];
+    /** Calls a key may make in a minute, by kind (spec 12; art is new art's bytes, for publish); other reads are not limited. */
+    public const RATES = ['write' => 120, 'render' => 20, 'validate' => 60, 'art' => 300];
 
     public function __construct(private Db $db)
     {
