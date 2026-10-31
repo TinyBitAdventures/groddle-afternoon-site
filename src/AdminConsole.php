@@ -28,6 +28,9 @@ use Minn\RestError;
  *   GET  admin/players?q=…      {"players":[Row]}  characters by name (the start of it), online or not
  *   GET  admin/bans             {"bans":[{"player":{id,name},"reason","by":{id,name},"at"}]}
  *   GET  admin/log?before=<id>  {"lines":[{"id","at","kind","by":{id,name},"player":{id,name},"detail","delivery"}],"more":bool}
+ *   GET  admin/chatlog?player=&q=&kind=&since=&until=&refused=1&before=
+ *                               {"server":"up"|"down"|"off","lines":[Chat],"next":"…"|"","dropped":n,"days":n}
+ *                               the realtime server's chat log, newest first (chatQuery, below)
  *   GET  admin/catalog          {"items":[{"c","name","plural"}]}   what a give may carry (the ledger's tradeable classes)
  *   GET  admin/streets          {"streets":[{"tsid","label","hub"}]}  the game's street index, for teleport
  *   POST admin/message {"player":id,"text":"…"}               delivery live | queued (offline: at their next connect) | down
@@ -38,6 +41,15 @@ use Minn\RestError;
  *   POST admin/give    {"player":id,"items":[{"c","n"}],"currants":n}   through the ledger; delivery live | saved
  *   POST admin/refill  {"player":id}                          mood and energy to full; delivery live | offline | down
  *   Row: {"id","name","level","street":{tsid,label}|null,"savedAt","banned":bool,"admin":bool}
+ *   Chat: {"at","kind":"local"|"channel"|"party","where":{"id","label"},"player":{id,name},"text",
+ *          "delivered":bool,"why":""|"slow_down"|"silenced","skipped":n,"to":[{id,name}]}
+ *
+ * The chat log (Austin 2026-10-31, for spam and abuse moderation) lives on the
+ * realtime server (groddle-afternoon-server chatlog.go: a JSON file a UTC day,
+ * kept 30 days), never in this site's database: admin/chatlog asks the
+ * server's signed chatlog call and names what it answers (streets from the
+ * street index, channels in the game's words, groups from groddle_groups,
+ * players as the game names them now; the line keeps the name they spoke under).
  *
  * A broadcast (Austin 2026-10-30: "a broadcast option, to blast everyone at
  * once") is admin/message to each player on the realtime server's online list
@@ -85,6 +97,12 @@ final readonly class AdminConsole
     public const BROADCAST_GAP = 60;
 
     public const LOG_PAGE = 50;
+
+    /** Chat log lines a page (the server allows up to 200). */
+    public const CHAT_PAGE = 100;
+
+    /** The chat channels in the game's words (realtime server channels.go rooms). */
+    public const CHANNELS = ['global' => 'Global Chat', 'trade' => 'Trade Channel', 'help' => 'Live Help', 'newbie' => 'Live Help (new players)'];
     public const SEARCH_MAX = 25;
 
     public const SUSPENDED = 'This account is suspended.';
@@ -189,6 +207,132 @@ final readonly class AdminConsole
             ];
         }
         return Response::json(['lines' => $lines, 'more' => $more]);
+    }
+
+    #[Route(Method::Get, '/groddle/v1/admin/chatlog', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function chatlog(Request $request): Response
+    {
+        $query = [];
+        foreach (['player', 'q', 'kind', 'since', 'until', 'refused', 'before'] as $k) {
+            $query[$k] = $request->query($k);
+        }
+        $answer = (new RealtimeCall($this->minn))->post('chatlog', self::chatQuery($query));
+        $status = $answer['status'] ?? null;
+        if ($status === 'off') {
+            return Response::json(['server' => 'off', 'lines' => [], 'next' => '', 'dropped' => 0, 'days' => 0]);
+        }
+        if ($status !== 'ok' || !is_array($answer['lines'] ?? null)) {
+            return Response::json(['server' => 'down', 'lines' => [], 'next' => '', 'dropped' => 0, 'days' => 0]);
+        }
+        $raw = array_values(array_filter($answer['lines'], 'is_array'));
+        $ids = [];
+        $groups = [];
+        foreach ($raw as $l) {
+            $ids[] = (int) ($l['id'] ?? 0);
+            foreach (is_array($l['to'] ?? null) ? $l['to'] : [] as $to) {
+                $ids[] = (int) $to;
+            }
+            if (preg_match('/^group:([1-9]\d{0,18})$/', (string) ($l['where'] ?? ''), $m) === 1) {
+                $groups[] = (int) $m[1];
+            }
+        }
+        $names = (new Characters($this->minn->db))->namesOf(array_values(array_unique(array_filter($ids, static fn (int $id): bool => $id > 0))));
+        $groupNames = [];
+        if ($groups !== []) {
+            foreach ($this->minn->db->rows('SELECT id, name FROM ' . $this->minn->db->table(Groups::TABLE) . ' WHERE id IN (?)', [array_values(array_unique($groups))]) as $g) {
+                $groupNames[(int) $g['id']] = (string) $g['name'];
+            }
+        }
+        $index = $this->streetIndex();
+        $lines = [];
+        foreach ($raw as $l) {
+            $id = (int) ($l['id'] ?? 0);
+            $kind = (string) ($l['kind'] ?? '');
+            $where = (string) ($l['where'] ?? '');
+            $lines[] = [
+                'at' => (string) ($l['at'] ?? ''),
+                'kind' => $kind,
+                'where' => ['id' => $where, 'label' => self::chatWhere($kind, $where, $index, $groupNames)],
+                'player' => ['id' => $id, 'name' => (string) ($names[$id] ?? ($l['name'] ?? "#{$id}"))],
+                'spokeAs' => (string) ($l['name'] ?? ''),
+                'text' => (string) ($l['text'] ?? ''),
+                'delivered' => ($l['delivered'] ?? false) === true,
+                'why' => (string) ($l['why'] ?? ''),
+                'skipped' => max(0, (int) ($l['skipped'] ?? 0)),
+                'to' => array_map(fn (mixed $to): array => ['id' => (int) $to, 'name' => $this->nameOr($names, (int) $to)], is_array($l['to'] ?? null) ? $l['to'] : []),
+            ];
+        }
+        return Response::json([
+            'server' => 'up',
+            'lines' => $lines,
+            'next' => is_string($answer['next'] ?? null) ? $answer['next'] : '',
+            'dropped' => max(0, (int) ($answer['dropped'] ?? 0)),
+            'days' => max(0, (int) ($answer['days'] ?? 0)),
+        ]);
+    }
+
+    /**
+     * The console's search as the realtime server's chatlog call takes it (chatlog.go chatQuery):
+     * player is "#7" or "7" for an id, anything else a piece of the name; q a piece of the text;
+     * kind local, channel or party; since and until unix milliseconds (the viewer's local days,
+     * console.js chatlogParams); refused "1" for refused lines only; before the server's cursor.
+     * Anything that does not fit is left out rather than refused.
+     *
+     * @param array<string, mixed> $query
+     * @return array<string, mixed>
+     */
+    public static function chatQuery(array $query): array
+    {
+        $text = static fn (mixed $v, int $max): string => is_string($v) ? mb_substr(trim(preg_replace('/\s+/u', ' ', $v) ?? ''), 0, $max) : '';
+        $body = ['limit' => self::CHAT_PAGE];
+        $player = $text($query['player'] ?? null, 64);
+        if (preg_match('/^#?([1-9]\d{0,18})$/', $player, $m) === 1) {
+            $body['player'] = (int) $m[1];
+        } elseif ($player !== '') {
+            $body['name'] = $player;
+        }
+        $q = $text($query['q'] ?? null, 200);
+        if ($q !== '') {
+            $body['q'] = $q;
+        }
+        $kind = $query['kind'] ?? null;
+        if (in_array($kind, ['local', 'channel', 'party'], true)) {
+            $body['kind'] = $kind;
+        }
+        foreach (['since', 'until'] as $k) {
+            $v = $query[$k] ?? null;
+            if (is_string($v) && preg_match('/^[1-9]\d{0,15}$/', $v) === 1) {
+                $body[$k] = (int) $v;
+            }
+        }
+        if (($query['refused'] ?? null) === '1') {
+            $body['undelivered'] = true;
+        }
+        $before = $query['before'] ?? null;
+        if (is_string($before) && preg_match('/^\d{4}-\d{2}-\d{2}:\d{1,9}$/', $before) === 1) {
+            $body['before'] = $before;
+        }
+        return $body;
+    }
+
+    /**
+     * Where a chat line was said, in the game's words.
+     *
+     * @param array<string, array<string, mixed>> $streets the street index
+     * @param array<int, string> $groups group names by id
+     */
+    public static function chatWhere(string $kind, string $where, array $streets, array $groups): string
+    {
+        if ($kind === 'local') {
+            return (string) ($streets[$where]['label'] ?? $where);
+        }
+        if ($kind === 'party') {
+            return 'Party';
+        }
+        if (preg_match('/^group:(\d+)$/', $where, $m) === 1) {
+            return $groups[(int) $m[1]] ?? "Group {$m[1]}";
+        }
+        return self::CHANNELS[$where] ?? $where;
     }
 
     #[Route(Method::Get, '/groddle/v1/admin/catalog', policy: new Policy(Access::Cap, self::ADMIN))]

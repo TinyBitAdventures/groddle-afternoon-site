@@ -23,7 +23,14 @@
  *   ticked from report to report, for closing many related ones) and Close
  *   or Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
  *   opens the tab, #report=<id> a report.
- * - Builder (the third tab, only when the site option groddle_builder_enabled is on;
+ * - Chat log (a tab of its own; src/AdminConsole.php chatlog, the realtime server's log): what
+ *   players said on streets, in channels and in parties, newest first, refused lines marked
+ *   (too fast, or silenced in a channel). Search by player (a name, or #id), words, kind, and
+ *   days (the viewer's own days: chatlogParams), or refused lines only; Older pages back. Times
+ *   show in the viewer's time zone. A player's menu has Chat history, which opens the tab
+ *   filtered to them; a name in the log opens that player's menu. #chat opens it, #chat=<id>
+ *   filtered to one player.
+ * - Builder (the last tab, only when the site option groddle_builder_enabled is on;
  *   src/AdminBuilder.php): the level builder's drafts with their streets, each opening the
  *   builder page (/console/builder/#draft=<id>), Archive, and a new draft (title, and an id
  *   made from it until you type your own). Loaded when the tab opens, then every
@@ -135,6 +142,7 @@ export function menuFor(player, { me = 0, online = false } = {}) {
   const self = player.id === me;
   const items = [
     { id: 'message', label: 'Send a message…', enabled: true },
+    { id: 'chatlog', label: 'Chat history', enabled: true },
     { id: 'teleport', label: 'Teleport…', enabled: !self, reason: self ? 'Use /tp in your own game.' : '' },
     { id: 'give', label: 'Give…', enabled: true },
     { id: 'refill', label: 'Refill mood and energy', enabled: online, reason: online ? '' : 'Only for a connected game.' },
@@ -213,6 +221,60 @@ export function logWords(line) {
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
   }
+}
+
+/** The chat log's kinds in words (the server's local, channel, party). */
+export const CHAT_KIND = Object.freeze({ local: 'Street', channel: 'Channel', party: 'Party' });
+
+/** Milliseconds at the start of a local day "YYYY-MM-DD", plus days; null for anything else. */
+export function localDayStart(day, plus = 0) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
+  if (!m) return null;
+  const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + plus).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * The chat log search as admin/chatlog's query: player (a name, or #id), q, kind, refused, the cursor,
+ * and From and To as the viewer's local days (since: the start of From; until: the start of the day after To).
+ */
+export function chatlogParams({ player = '', q = '', kind = '', from = '', to = '', refused = false, before = '' } = {}) {
+  const p = new URLSearchParams();
+  const trimmed = (s) => String(s || '').trim();
+  if (trimmed(player)) p.set('player', trimmed(player));
+  if (trimmed(q)) p.set('q', trimmed(q));
+  if (CHAT_KIND[kind]) p.set('kind', kind);
+  const since = localDayStart(from);
+  const until = localDayStart(to, 1);
+  if (since !== null) p.set('since', String(since));
+  if (until !== null) p.set('until', String(until));
+  if (refused) p.set('refused', '1');
+  if (before) p.set('before', before);
+  return p.toString();
+}
+
+/** Why a line did not reach anyone, in words ('' when it did). */
+export function chatWhy(line) {
+  if (line?.delivered) return '';
+  const why = { slow_down: 'Refused: too fast', silenced: 'Refused: silenced in this channel' }[line?.why] || 'Refused';
+  const n = Number(line?.skipped) || 0;
+  return n > 0 ? `${why} (${n} more refused before it, not written)` : why;
+}
+
+/** A chat line's time in the viewer's time zone: "Oct 31, 2:03:05 PM" in their own format. */
+export function chatWhen(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/** The line under the chat log's search: how many, refusals, lines the server could not write, how long it keeps them. */
+export function chatStatus({ server = 'up', shown = 0, more = false, dropped = 0, days = 0 } = {}) {
+  if (server === 'off') return 'The realtime server keeps no chat log right now.';
+  if (server === 'down') return COPY.serverDown;
+  const parts = [shown === 0 ? 'No lines.' : `${shown} ${shown === 1 ? 'line' : 'lines'}, newest first${more ? ', more with Older' : ''}.`];
+  if (days > 0) parts.push(`Kept ${days} days.`);
+  if (dropped > 0) parts.push(`${dropped} ${dropped === 1 ? 'line was' : 'lines were'} too many to write at once and are not in the log.`);
+  return parts.join(' ');
 }
 
 // == The page ==
@@ -575,9 +637,57 @@ function boot() {
       dialog(`Ban ${p.name}`, [el('label', { text: 'Reason' }, reason), el('p', { class: 'console-sub', text: 'They are signed out now and cannot play multiplayer until unbanned. Their game and /play/online/ say the account is suspended.' })], 'Ban', async () => { await act('ban', p, { reason: reason.value }); }, { danger: true });
     } else if (kind === 'unban') {
       act('unban', p, {}).catch(failed);
+    } else if (kind === 'chatlog') {
+      openChat(p);
     }
     void opener;
   }
+
+  // == Chat log ==
+  const chat = { query: null, next: '', shown: 0, loaded: false };
+  const chatForm = $('[data-console-chat-form]');
+  function chatRow(l) {
+    const who = { id: l.player.id, name: l.player.name };
+    const name = el('button', { type: 'button', class: 'console-link', 'aria-haspopup': 'menu', title: l.spokeAs && l.spokeAs !== l.player.name ? `Said as ${l.spokeAs}` : null, text: l.player.name, onclick: (e) => openMenu(who, e.currentTarget, null) });
+    const said = el('td', { class: 'console-said' }, el('span', { text: l.text }));
+    const why = chatWhy(l);
+    if (why) said.append(el('span', { class: 'console-tag console-tag-bad', text: why }));
+    if (l.to?.length) said.append(el('span', { class: 'console-sub', text: ` To ${l.to.map((t) => t.name).join(', ')}` }));
+    return el('tr', { 'data-delivered': l.delivered ? null : 'false' },
+      el('td', { class: 'console-num' }, el('time', { datetime: l.at, text: chatWhen(l.at) })),
+      el('td', {}, el('span', { class: `console-kind console-kind-chat-${l.kind}`, text: CHAT_KIND[l.kind] || l.kind }), el('span', { text: ` ${l.where?.label || ''}` })),
+      el('td', { class: 'console-who' }, name, el('span', { class: 'console-sub', text: ` #${l.player.id}` })),
+      said);
+  }
+  async function loadChat(older = false) {
+    if (!older) chat.query = chatlogParams({ player: chatForm.player.value, q: chatForm.q.value, kind: chatForm.kind.value, from: chatForm.from.value, to: chatForm.to.value, refused: chatForm.refused.checked });
+    const q = older && chat.next ? `${chat.query}${chat.query ? '&' : ''}before=${encodeURIComponent(chat.next)}` : chat.query;
+    let r;
+    try { r = await api.call(`admin/chatlog${q ? `?${q}` : ''}`); } catch (err) { return failed(err); }
+    chat.loaded = true;
+    const body = $('[data-console-chat] tbody');
+    const rows = (r.lines || []).map(chatRow);
+    if (older) body.append(...rows);
+    else body.replaceChildren(...rows);
+    chat.shown = body.children.length;
+    chat.next = r.next || '';
+    $('[data-console-chat]').hidden = chat.shown === 0;
+    $('[data-console-chat-empty]').hidden = chat.shown > 0 || r.server !== 'up';
+    $('[data-console-chat-more]').hidden = !chat.next;
+    $('[data-console-chat-status]').textContent = chatStatus({ server: r.server, shown: chat.shown, more: Boolean(chat.next), dropped: r.dropped, days: r.days });
+  }
+  function openChat(player) {
+    chatForm.reset();
+    chatForm.player.value = `#${player.id}`;
+    chat.loaded = true; // showTab would load the unfiltered log first
+    showTab('chat');
+    history.replaceState(null, '', `#chat=${player.id}`);
+    loadChat();
+    chatForm.player.focus();
+  }
+  chatForm.addEventListener('submit', (e) => { e.preventDefault(); loadChat(); });
+  $('[data-console-chat-clear]').addEventListener('click', () => { chatForm.reset(); loadChat(); });
+  $('[data-console-chat-more]').addEventListener('click', () => loadChat(true));
 
   // == Tabs ==
   const tablist = $('[data-console-tabs]');
@@ -594,6 +704,8 @@ function boot() {
     for (const p of root.querySelectorAll('[data-console-tabpanel]')) p.hidden = p.dataset.consoleTabpanel !== id;
     if (id === 'reports') loadTickets();
     if (id === 'builder') loadDrafts();
+    if (id === 'chat' && !chat.loaded) loadChat();
+    if (id === 'chat' && !/^#chat(=\d+)?$/.test(location.hash)) history.replaceState(null, '', '#chat');
     if (id === 'builder' && location.hash !== '#builder') history.replaceState(null, '', '#builder');
   }
   tablist.addEventListener('click', (e) => { const t = e.target.closest('[role="tab"]'); if (t) showTab(t.dataset.consoleTab); });
@@ -795,6 +907,8 @@ function boot() {
     const m = /^#report=(\d+)$/.exec(location.hash);
     if (m) { showTab('reports'); openTicket(Number(m[1]), false); } else if (location.hash === '#reports') showTab('reports');
     else if (location.hash === '#builder' && $('[data-console-tab="builder"]')) showTab('builder');
+    else if (/^#chat=\d+$/.test(location.hash)) openChat({ id: Number(location.hash.slice(6)) });
+    else if (location.hash === '#chat') showTab('chat');
   }
   addEventListener('hashchange', fromHash);
 

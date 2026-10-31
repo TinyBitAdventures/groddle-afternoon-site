@@ -182,3 +182,35 @@
 .console-key-secret { width: 100%; box-sizing: border-box; padding: .5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
 .console-keylist > li + li { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--border); }
 .console-keylist .console-chip { margin-left: .4rem; }
+
+/* Chat log tab (AdminConsole::chatlog, the realtime server's log). */
+.console-chat[hidden] { display: none; }
+.console-chatsearch { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; margin-bottom: 8px; }
+.console-chatsearch label { display: grid; gap: 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.console-chatsearch input[type="search"] { width: 13em; }
+.console-chatsearch select { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.console-chatsearch .console-check { display: inline-flex; align-items: center; gap: 6px; padding-bottom: 7px; font-weight: 400; color: var(--fg); font-size: 14px; cursor: pointer; }
+.console-chatsearch .console-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.console-chatsearch :is(input, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.console-chatsearch-buttons { display: flex; gap: 6px; }
+.console .console-chatsearch .console-primary { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }
+.console-chat-status { margin: 0 0 6px; min-height: 1em; }
+.console-chattable tbody tr { cursor: default; }
+.console-chattable td { vertical-align: top; }
+.console-chattable td:first-child { width: 1%; color: var(--muted); font-size: 12px; }
+.console-chattable tbody tr[data-delivered="false"] { background: color-mix(in srgb, #c8553d 9%, transparent); }
+.console-said span:first-child { white-space: pre-wrap; }
+.console-said .console-tag { margin-left: 8px; }
+.console .console-link { padding: 0; border: 0; background: none; color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.console .console-link:hover { color: var(--accent); }
+.console-kind-chat-local { background: #477d38; color: #fff; }
+.console-kind-chat-channel { background: #2d6a8f; color: #fff; }
+.console-kind-chat-party { background: #e2b04a; color: #2a2208; }
+@media (max-width: 700px) {
+  .console-chattable thead { display: none; }
+  .console-chattable tr { display: grid; grid-template-columns: minmax(0, 1fr); padding: 6px 0; border-bottom: 1px solid var(--row-line); }
+  .console-chattable td { border: 0; padding: 2px 4px; }
+  .console-chattable td:first-child { width: auto; }
+  .console-chatsearch input[type="search"] { width: 100%; }
+  .console-chatsearch label { flex: 1 1 100%; }
+}

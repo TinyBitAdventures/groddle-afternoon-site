@@ -15,12 +15,15 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Two tabs, three with the level builder on: Players (who is online,
+ * /console/, the administrators' console. Three tabs, four with the level builder on: Players (who is online,
  * a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
  * reply or add a note without an email, close, reopen; AdminTickets). #reports
- * opens the Reports tab, #report=<id> one report. Builder (only when AdminBuilder::enabled, the
+ * opens the Reports tab, #report=<id> one report. Chat log: what players said on streets, in
+ * channels and in parties, from the realtime server's log (AdminConsole::chatlog), searched by
+ * player, words, kind and days; a player's menu has Chat history, which opens it filtered to them.
+ * #chat opens it, #chat=<id> filtered to one player. Builder (only when AdminBuilder::enabled, the
  * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
  * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
@@ -40,7 +43,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'builder-keys-1';
+    public const ASSET_KEY = 'chat-log-1';
 
     public function __construct(private Seams $minn)
     {
@@ -104,6 +107,7 @@ final readonly class AdminConsolePage
   <div class="console-tabs" role="tablist" aria-label="Console" data-console-tabs>
     <button type="button" role="tab" id="console-tab-players" aria-controls="console-players" aria-selected="true" data-console-tab="players">Players</button>
     <button type="button" role="tab" id="console-tab-reports" aria-controls="console-reports" aria-selected="false" tabindex="-1" data-console-tab="reports">Reports <span class="console-count console-count-unread" data-console-reports-unread></span></button>
+    <button type="button" role="tab" id="console-tab-chat" aria-controls="console-chat" aria-selected="false" tabindex="-1" data-console-tab="chat">Chat log</button>
 HTML
             . ($builder ? "\n    <button type=\"button\" role=\"tab\" id=\"console-tab-builder\" aria-controls=\"console-builder\" aria-selected=\"false\" tabindex=\"-1\" data-console-tab=\"builder\">Builder</button>" : '')
             . <<<'HTML'
@@ -202,6 +206,30 @@ HTML
           <div class="console-reply-foot"><span class="console-sub" data-console-reply-count></span><label class="console-check"><input type="checkbox" name="noemail" data-console-reply-noemail /> Don't email</label><button type="submit" class="console-primary" data-console-reply-send>Send reply</button></div>
         </form>
       </div>
+    </section>
+  </div>
+  <div class="console-chat" id="console-chat" role="tabpanel" aria-labelledby="console-tab-chat" data-console-tabpanel="chat" hidden>
+    <section class="console-panel console-chatlog" aria-labelledby="console-chatlog-title">
+      <div class="console-panel-head">
+        <h2 id="console-chatlog-title">Chat log</h2>
+        <p class="console-hint" data-console-chat-kept>What players said on streets, in channels and in parties, refused lines too. Times are in your time zone.</p>
+      </div>
+      <form class="console-chatsearch" data-console-chat-form role="search" aria-label="Search the chat log">
+        <label>Player <input name="player" type="search" maxlength="64" autocomplete="off" spellcheck="false" placeholder="Name or #id" /></label>
+        <label>Words <input name="q" type="search" maxlength="200" autocomplete="off" placeholder="Any words" /></label>
+        <label>Kind <select name="kind"><option value="">Any</option><option value="local">Street</option><option value="channel">Channel</option><option value="party">Party</option></select></label>
+        <label>From <input name="from" type="date" /></label>
+        <label>To <input name="to" type="date" /></label>
+        <label class="console-check"><input name="refused" type="checkbox" value="1" /> Refused only</label>
+        <div class="console-chatsearch-buttons"><button type="submit" class="console-primary">Search</button><button type="button" data-console-chat-clear>Clear</button></div>
+      </form>
+      <p class="console-sub console-chat-status" data-console-chat-status role="status" aria-live="polite"></p>
+      <table class="console-table console-chattable" data-console-chat hidden>
+        <thead><tr><th scope="col">When</th><th scope="col">Where</th><th scope="col">Player</th><th scope="col">Said</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="console-empty" data-console-chat-empty hidden>Nothing in the log matches.</p>
+      <button type="button" class="console-more" data-console-chat-more hidden>Older</button>
     </section>
   </div>
 HTML
