@@ -24,6 +24,17 @@ final class BuilderOps
     public const DECO_FIELDS = ['sprite', 'name', 'signText', 'x', 'y', 'w', 'h', 'z', 'r', 'flip', 'hidden', 'animated'];
     private const ZONE_FIELDS = ['title', 'notes'];
 
+    /** Geometry kinds: the street list each lives in, its id prefix and the fields an op may set. */
+    public const GEOMETRY = [
+        'platform' => ['list' => 'platforms', 'prefix' => 'plat_', 'fields' => ['x1', 'y1', 'x2', 'y2', 'pc_perm', 'item_perm']],
+        'barrier' => ['list' => 'barriers', 'prefix' => 'wall_', 'fields' => ['x', 'y', 'h', 'pc_perm']],
+        'ladder' => ['list' => 'ladders', 'prefix' => 'ladder_', 'fields' => ['x', 'y', 'w', 'h', 'tiling']],
+        'signpost' => ['list' => 'signposts', 'prefix' => 'signpost_', 'fields' => ['x', 'y', 'w', 'h']],
+    ];
+    public const CONNECT_FIELDS = ['tsid', 'label', 'hub_id', 'hidden', 'arrive'];
+    /** Fields whose null is a value (a perm of null is hard both ways), not a missing value. */
+    private const NULLABLE = ['pc_perm', 'item_perm'];
+
     /** Spec section 12. */
     public const MAX_ZONE_BYTES = 4194304;
     public const MAX_OPS = 500;
@@ -108,6 +119,42 @@ final class BuilderOps
         throw new BuilderOpError('builder_no_layer', 'No layer "' . (is_string($id) ? $id : '') . '" on this street.');
     }
 
+    /** The next free id of a geometry kind on a street (plat_<n>, wall_<n>, ladder_<n>, signpost_<n>). */
+    public static function nextGeometryId(\stdClass $street, string $kind): string
+    {
+        self::need(array_key_exists($kind, self::GEOMETRY), 'builder_bad_op', "No geometry kind \"{$kind}\".");
+        $g = self::GEOMETRY[$kind];
+        $n = 0;
+        $list = $street->{$g['list']} ?? null;
+        foreach (is_array($list) ? $list : [] as $item) {
+            $id = self::isObj($item) ? ($item->id ?? null) : null;
+            if (is_string($id) && str_starts_with($id, $g['prefix']) && preg_match('/^(\d+)$/D', substr($id, strlen($g['prefix'])), $m) === 1) {
+                $n = max($n, (int) $m[1]);
+            }
+        }
+        return $g['prefix'] . ($n + 1);
+    }
+
+    /**
+     * [list, index] of a geometry item by id (list is null when the street has none). The list is
+     * a copy (a PHP array): a caller that changes it writes it back.
+     *
+     * @return array{0: ?list<mixed>, 1: int}
+     */
+    public static function findGeometry(\stdClass $street, string $kind, mixed $id): array
+    {
+        $list = $street->{self::GEOMETRY[$kind]['list']} ?? null;
+        if (!is_array($list)) {
+            return [null, -1];
+        }
+        foreach ($list as $i => $g) {
+            if (self::isObj($g) && ($g->id ?? null) === $id) {
+                return [$list, $i];
+            }
+        }
+        return [$list, -1];
+    }
+
     /** Put an object's keys in $order (the keys it names first, the rest after, as they are), in place. */
     private static function reorder(\stdClass $target, mixed $order): void
     {
@@ -135,7 +182,7 @@ final class BuilderOps
     }
 
     /** @return array{set: \stdClass, unset: list<string>, order?: list<string>} */
-    private static function patch(\stdClass $target, mixed $set, mixed $unset, array $allowed, string $what, mixed $order = null): array
+    private static function patch(\stdClass $target, mixed $set, mixed $unset, array $allowed, string $what, mixed $order = null, array $nullable = []): array
     {
         $set ??= new \stdClass();
         $unset ??= [];
@@ -144,7 +191,7 @@ final class BuilderOps
         $keys = array_map('strval', array_keys(get_object_vars($set)));
         foreach ($keys as $k) {
             self::need(in_array($k, $allowed, true), 'builder_bad_op', "{$what}: \"{$k}\" cannot be set here.");
-            self::need($set->{$k} !== null, 'builder_bad_op', "{$what}: \"{$k}\" needs a value (unset removes a field).");
+            self::need($set->{$k} !== null || in_array($k, $nullable, true), 'builder_bad_op', "{$what}: \"{$k}\" needs a value (unset removes a field).");
         }
         foreach ($unset as $k) {
             self::need(is_string($k) && in_array($k, $allowed, true), 'builder_bad_op', "{$what}: \"" . (is_string($k) ? $k : '') . '" cannot be unset here.');
@@ -325,9 +372,122 @@ final class BuilderOps
                     $back['set'] = $inv['set'];
                 }
                 return ['inverse' => self::op($back), 'changed' => ["{$street}/{$id}"]];
+            case 'connect.add':
+                $s = self::streetRow($zone, $street)->street;
+                $postId = self::prop($op, 'signpost');
+                [$list, $i] = self::findGeometry($s, 'signpost', $postId);
+                self::need($i >= 0, 'builder_no_signpost', 'No signpost ' . (is_string($postId) ? $postId : '') . ' on this street.');
+                $post = $list[$i];
+                $c = self::prop($op, 'connect');
+                self::need(self::isObj($c) && is_string($c->tsid ?? null) && is_string($c->label ?? null), 'builder_bad_op', 'connect.add needs a connect with a tsid and a label.');
+                foreach (array_keys(get_object_vars($c)) as $k) {
+                    self::need(in_array((string) $k, self::CONNECT_FIELDS, true), 'builder_bad_op', "connect.add: \"{$k}\" is not a connect field.");
+                }
+                $connects = is_array($post->connects ?? null) ? $post->connects : [];
+                $at = self::at(self::prop($op, 'at'), count($connects));
+                array_splice($connects, $at, 0, [self::copy($c)]);
+                $post->connects = $connects;
+                return ['inverse' => self::op(['op' => 'connect.remove', 'street' => $street, 'signpost' => $postId, 'at' => $at]), 'changed' => ["{$street}/{$postId}"]];
+            case 'connect.remove':
+                $s = self::streetRow($zone, $street)->street;
+                $postId = self::prop($op, 'signpost');
+                [$list, $i] = self::findGeometry($s, 'signpost', $postId);
+                self::need($i >= 0, 'builder_no_signpost', 'No signpost ' . (is_string($postId) ? $postId : '') . ' on this street.');
+                $post = $list[$i];
+                $at = self::prop($op, 'at');
+                self::need(is_int($at) && $at >= 0 && $at < (is_array($post->connects ?? null) ? count($post->connects) : 0), 'builder_no_connect', 'Signpost ' . (is_string($postId) ? $postId : '') . ' has no arm ' . (is_int($at) ? $at : '') . '.');
+                [$c] = array_splice($post->connects, $at, 1);
+                return ['inverse' => self::op(['op' => 'connect.add', 'street' => $street, 'signpost' => $postId, 'connect' => $c, 'at' => $at]), 'changed' => ["{$street}/{$postId}"]];
+            case 'connect.set':
+                $s = self::streetRow($zone, $street)->street;
+                $postId = self::prop($op, 'signpost');
+                [$list, $i] = self::findGeometry($s, 'signpost', $postId);
+                self::need($i >= 0, 'builder_no_signpost', 'No signpost ' . (is_string($postId) ? $postId : '') . ' on this street.');
+                $post = $list[$i];
+                $at = self::prop($op, 'at');
+                self::need(is_int($at) && $at >= 0 && $at < (is_array($post->connects ?? null) ? count($post->connects) : 0), 'builder_no_connect', 'Signpost ' . (is_string($postId) ? $postId : '') . ' has no arm ' . (is_int($at) ? $at : '') . '.');
+                $inv = self::patch($post->connects[$at], self::prop($op, 'set'), self::prop($op, 'unset'), self::CONNECT_FIELDS, 'connect.set', self::prop($op, 'order'));
+                return ['inverse' => self::op(['op' => 'connect.set', 'street' => $street, 'signpost' => $postId, 'at' => $at] + $inv), 'changed' => ["{$street}/{$postId}"]];
             default:
+                $parts = explode('.', $op->op);
+                $kind = $parts[0];
+                $verb = $parts[1] ?? null;
+                if (array_key_exists($kind, self::GEOMETRY) && in_array($verb, ['add', 'remove', 'set'], true)) {
+                    return self::applyGeometry($zone, $op, $kind, $verb);
+                }
                 throw new BuilderOpError('builder_bad_op', "Unknown op \"{$op->op}\".");
         }
+    }
+
+    /**
+     * platform.*, barrier.*, ladder.* and signpost.* (ops.js applyGeometryOp).
+     *
+     * @return array{inverse: \stdClass, changed: list<string>}
+     */
+    private static function applyGeometry(\stdClass $zone, \stdClass $op, string $kind, string $verb): array
+    {
+        $g = self::GEOMETRY[$kind];
+        $name = $op->op;
+        $key = self::prop($op, 'street');
+        $street = self::streetRow($zone, $key)->street;
+        if ($verb === 'add') {
+            $item = self::prop($op, $kind);
+            self::need(self::isObj($item), 'builder_bad_op', "{$name} needs a {$kind}.");
+            $allowed = $kind === 'signpost' ? [...$g['fields'], 'connects'] : $g['fields'];
+            foreach (array_keys(get_object_vars($item)) as $k) {
+                self::need($k === 'id' || in_array((string) $k, $allowed, true), 'builder_bad_op', "{$name}: \"{$k}\" is not a {$kind} field.");
+            }
+            $hasId = self::has($item, 'id');
+            self::need(!$hasId || (is_string($item->id) && $item->id !== ''), 'builder_bad_op', "{$name}: an id is a string.");
+            if ($kind === 'signpost' && self::has($item, 'connects')) {
+                self::need(is_array($item->connects), 'builder_bad_op', 'signpost.add: connects is a list.');
+                foreach ($item->connects as $c) {
+                    self::need(self::isObj($c) && is_string($c->tsid ?? null) && is_string($c->label ?? null), 'builder_bad_op', 'signpost.add: each connect has a tsid and a label.');
+                    foreach (array_keys(get_object_vars($c)) as $k) {
+                        self::need(in_array((string) $k, self::CONNECT_FIELDS, true), 'builder_bad_op', "signpost.add: \"{$k}\" is not a connect field.");
+                    }
+                }
+            }
+            $id = $hasId ? $item->id : self::nextGeometryId($street, $kind);
+            self::need(self::findGeometry($street, $kind, $id)[1] < 0, 'builder_exists', "A {$kind} {$id} is already on this street.");
+            if ($hasId) {
+                $copy = self::copy($item);
+            } else {
+                // { id, ...item }: the id goes first.
+                $copy = new \stdClass();
+                $copy->id = $id;
+                foreach (get_object_vars(self::copy($item)) as $k => $v) {
+                    $copy->{$k} = $v;
+                }
+            }
+            $fresh = !is_array($street->{$g['list']} ?? null);
+            $list = $fresh ? [] : $street->{$g['list']};
+            array_splice($list, self::at(self::prop($op, 'at'), count($list)), 0, [$copy]);
+            $street->{$g['list']} = $list;
+            self::reorder($street, self::prop($op, 'order'));
+            $inverse = ['op' => "{$kind}.remove", 'street' => $key, 'id' => $id];
+            if ($fresh) {
+                $inverse['prune'] = true;
+            }
+            return ['inverse' => self::op($inverse), 'changed' => ["{$key}/{$id}"]];
+        }
+        $id = self::prop($op, 'id');
+        [$list, $i] = self::findGeometry($street, $kind, $id);
+        self::need($i >= 0, "builder_no_{$kind}", "No {$kind} " . (is_string($id) ? $id : '') . ' on this street.');
+        if ($verb === 'remove') {
+            $keys = array_map('strval', array_keys(get_object_vars($street)));
+            [$item] = array_splice($list, $i, 1);
+            $inverse = ['op' => "{$kind}.add", 'street' => $key, $kind => $item, 'at' => $i];
+            if (self::prop($op, 'prune') === true && $list === []) {
+                unset($street->{$g['list']});
+                $inverse['order'] = $keys;
+            } else {
+                $street->{$g['list']} = $list;
+            }
+            return ['inverse' => self::op($inverse), 'changed' => ["{$key}/{$id}"]];
+        }
+        $inv = self::patch($list[$i], self::prop($op, 'set'), self::prop($op, 'unset'), $g['fields'], $name, self::prop($op, 'order'), self::NULLABLE);
+        return ['inverse' => self::op(['op' => $name, 'street' => $key, 'id' => $id] + $inv), 'changed' => ["{$key}/{$id}"]];
     }
 
     /**
