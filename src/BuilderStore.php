@@ -160,7 +160,7 @@ final class BuilderStore
             $title = is_string($zone->title ?? null) ? $zone->title : $row['title'];
             $this->db->execute('UPDATE ' . $this->db->table(self::DRAFTS) . ' SET title = ?, rev = ?, zone = ?, sha256 = ?, updated_by = ?, updated_at = ? WHERE id = ?', [$title, $rev, $json, hash('sha256', $json), $author, $stamp, $id]);
             $this->keepRevision($id, $rev, $json, $author, $note, $summary, $stamp);
-            $this->log($admin, $id, $title, $rev, $summary, $count, $now);
+            $this->log($admin, $id, $title, $rev, $summary, $count, $now, $author);
             return ['rev' => $rev, 'zone' => $zone, 'extra' => $extra];
         });
     }
@@ -204,12 +204,14 @@ final class BuilderStore
     }
 
     /** One log line per run of saves (see the class comment). */
-    private function log(int $admin, string $id, string $title, int $rev, string $summary, int $count, int $now): void
+    private function log(int $admin, string $id, string $title, int $rev, string $summary, int $count, int $now, string $author = ''): void
     {
+        // A builder key's writes (author "key:<id>") name the key, and merge only with that key's own line.
+        $key = str_starts_with($author, 'key:') ? substr($author, 4) : null;
         $t = $this->db->table(AdminConsole::ACTIONS);
         $last = $this->db->row("SELECT id, at, admin_user_id, kind, detail FROM {$t} ORDER BY id DESC LIMIT 1");
         $detail = is_array($last) ? json_decode((string) $last['detail'], true) : null;
-        if (is_array($last) && $last['kind'] === 'builder' && (int) $last['admin_user_id'] === $admin && is_array($detail) && ($detail['draft'] ?? null) === $id && isset($detail['from'])
+        if (is_array($last) && $last['kind'] === 'builder' && (int) $last['admin_user_id'] === $admin && is_array($detail) && ($detail['draft'] ?? null) === $id && isset($detail['from']) && ($detail['key'] ?? null) === $key
             && $now - (int) strtotime($last['at'] . ' UTC') <= self::LOG_MERGE_S) {
             $detail['rev'] = $rev;
             $detail['title'] = $title;
@@ -219,6 +221,6 @@ final class BuilderStore
             $this->db->execute("UPDATE {$t} SET at = ?, detail = ? WHERE id = ?", [gmdate('Y-m-d H:i:s', $now), (string) json_encode($detail, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), (int) $last['id']]);
             return;
         }
-        AdminConsole::recordAction($this->db, $admin, 0, 'builder', ['draft' => $id, 'title' => $title, 'from' => $rev, 'rev' => $rev, 'ops' => $count, 'saves' => 1, 'text' => mb_substr($summary, 0, 200)], 'stored', $now);
+        AdminConsole::recordAction($this->db, $admin, 0, 'builder', ['draft' => $id, 'title' => $title, 'from' => $rev, 'rev' => $rev, 'ops' => $count, 'saves' => 1, 'text' => mb_substr($summary, 0, 200)] + ($key === null ? [] : ['key' => $key]), 'stored', $now);
     }
 }

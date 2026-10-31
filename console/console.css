@@ -167,3 +167,18 @@
 .console-draft-acts { display: flex; gap: .5rem; margin-top: .25rem; }
 .console-link-btn { display: inline-block; text-decoration: none; }
 .console-newdraft input[type="text"] { width: 100%; box-sizing: border-box; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; }
+/* —— Builder keys (console/builder-keys.js) —— */
+.console-keys { grid-column: 1 / -1; }
+.console-chip-closed { background: var(--track); color: var(--fg); }
+.console-newkey input[type="text"], .console-newkey input[type="number"] { width: 100%; box-sizing: border-box; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; }
+.console-newkey input:focus-visible, .console-key-secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.console-key-scopes { display: flex; flex-wrap: wrap; gap: .35rem 1rem; border: 0; margin: .5rem 0; padding: 0; }
+.console-key-scopes legend { padding: 0; margin-bottom: .35rem; font-weight: 700; }
+.console-key-scope { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.console-key-scope input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.console-key-scope input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.console-key-shown { margin: .5rem 0; padding: 10px; border: 2px solid var(--accent); border-radius: 8px; }
+.console-key-shown p { margin: 0 0 .5rem; }
+.console-key-secret { width: 100%; box-sizing: border-box; padding: .5rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.console-keylist > li + li { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--border); }
+.console-keylist .console-chip { margin-left: .4rem; }

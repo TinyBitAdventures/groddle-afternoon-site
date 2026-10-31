@@ -1,13 +1,13 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.25",
+  "version": "0.5.26",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
   },
   "extension": "Groddle\\Minn\\Extension",
   "needs": {
-    "http": ["https://challenges.cloudflare.com/turnstile/v0/siteverify", "https://www.googleapis.com/oauth2/v3/certs", "https://play.groddleafternoon.com/ws", "http://127.0.0.1:8793/ws"]
+    "http": ["https://challenges.cloudflare.com/turnstile/v0/siteverify", "https://www.googleapis.com/oauth2/v3/certs", "https://play.groddleafternoon.com/ws", "http://127.0.0.1:8793/ws", "http://127.0.0.1:8794/validate", "http://127.0.0.1:8794/render", "http://127.0.0.1:8794/decos", "http://127.0.0.1:8794/style", "http://127.0.0.1:8794/guide"]
   },
   "blocks": [
     "groddle/stamp",
@@ -523,6 +523,26 @@
       "PRIMARY KEY  (name)",
       "UNIQUE KEY sha256 (sha256)",
       "KEY draft_id (draft_id)"
+    ],
+    "groddle_builder_keys": [
+      "key_id char(16) NOT NULL",
+      "label varchar(60) NOT NULL",
+      "scopes varchar(120) NOT NULL",
+      "created_by bigint(20) unsigned NOT NULL",
+      "created_at datetime NOT NULL",
+      "expires_at datetime NOT NULL",
+      "last_used_at datetime NULL",
+      "revoked_at datetime NULL",
+      "PRIMARY KEY  (key_id)"
+    ],
+    "groddle_builder_nonces": [
+      "key_id char(16) NOT NULL",
+      "nonce char(16) NOT NULL",
+      "kind varchar(12) NOT NULL",
+      "at datetime NOT NULL",
+      "PRIMARY KEY  (key_id,nonce)",
+      "KEY key_kind_at (key_id,kind,at)",
+      "KEY at (at)"
     ]
   }
 }

@@ -15,8 +15,9 @@ use Minn\RestError;
 
 /**
  * The level builder's asset intake over REST (the game's docs/level-builder/spec.md 8.3, 9.1, 13;
- * phase P5). Every route is manage_options only and off unless groddle_builder_enabled is on, as
- * AdminBuilder's are.
+ * phase P5). Every route is an administrator's or a builder key's (BuilderAuth: assets:write to
+ * send art, drafts:read to list it), and off unless groddle_builder_enabled is on, as AdminBuilder's
+ * are.
  *
  *   POST builder/assets {draft, name, file2, file3?, licence, author, tool?, prompt?, inputs?, role?}
  *        201 {report, asset, op}: kept. asset is the zone's assets{} row; op is the asset.set op
@@ -32,7 +33,6 @@ use Minn\RestError;
  */
 final readonly class AdminBuilderAssets
 {
-    private const ADMIN = 'manage_options';
     private const BASE = '/groddle/v1/admin/builder';
     /** Two files of 8 MB as base64, and the words around them. */
     private const MAX_BODY = 23_000_000;
@@ -41,10 +41,10 @@ final readonly class AdminBuilderAssets
     {
     }
 
-    #[Route(Method::Post, self::BASE . '/assets', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Post, self::BASE . '/assets', policy: new Policy(Access::Public))]
     public function intake(Request $request): Response
     {
-        $admin = $this->gate();
+        $who = $this->gate($request, 'assets:write', 'write');
         if (strlen($request->body) > self::MAX_BODY) {
             throw new RestError('builder_too_large', 'Send at most 8 MB a file.', 413);
         }
@@ -61,18 +61,18 @@ final readonly class AdminBuilderAssets
         if (!$done['ok']) {
             throw new RestError('builder_asset_refused', self::firstRefusal($done['report']), 422, ['report' => $done['report']]);
         }
-        [$asset, $new] = (new BuilderAssets($this->minn->db))->keep($draft, $done, (string) $admin);
+        [$asset, $new] = (new BuilderAssets($this->minn->db))->keep($draft, $done, $who->author);
         $name = (string) $done['report']['name'];
         if ($new) {
-            AdminConsole::recordAction($this->minn->db, $admin, 0, 'builder', ['draft' => $draft, 'title' => $name, 'text' => 'new art ' . $name . ' (' . $asset['licence'] . ')'], 'stored');
+            AdminConsole::recordAction($this->minn->db, $who->admin, 0, 'builder', ['draft' => $draft, 'title' => $name, 'text' => 'new art ' . $name . ' (' . $asset['licence'] . ')'] + ($who->isKey() ? ['key' => $who->keyId] : []), 'stored');
         }
         return Response::json(['report' => $done['report'], 'asset' => $asset, 'op' => ['op' => 'asset.set', 'name' => $name, 'asset' => $asset], 'kept' => $new], $new ? 201 : 200)->withHeader('Cache-Control', 'no-store');
     }
 
-    #[Route(Method::Get, self::BASE . '/assets', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Get, self::BASE . '/assets', policy: new Policy(Access::Public))]
     public function list(Request $request): Response
     {
-        $this->gate();
+        $this->gate($request, 'drafts:read');
         $draft = (string) ($request->query('draft') ?? '');
         if (preg_match(BuilderStore::ID, $draft) !== 1) {
             throw new RestError('builder_not_found', 'Name the draft (?draft=).', 404);
@@ -80,10 +80,10 @@ final readonly class AdminBuilderAssets
         return Response::json(['assets' => (new BuilderAssets($this->minn->db))->forDraft($draft)])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[Route(Method::Get, self::BASE . '/assets/{key:[a-z0-9_]+}', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Get, self::BASE . '/assets/{key:[a-z0-9_]+}', policy: new Policy(Access::Public))]
     public function one(Request $request, string $key): Response
     {
-        $this->gate();
+        $this->gate($request, 'drafts:read');
         $row = (new BuilderAssets($this->minn->db))->find($key) ?? throw new RestError('builder_not_found', 'No new art has that name or sha256.', 404);
         return Response::json($row)->withHeader('Cache-Control', 'no-store');
     }
@@ -119,16 +119,9 @@ final readonly class AdminBuilderAssets
         return 'That art was not taken.';
     }
 
-    /** The caller's id, once the builder is on (AdminBuilder's gate). */
-    private function gate(): int
+    /** Who the request speaks for (BuilderAuth: a session, or a key with the scope). */
+    private function gate(Request $request, ?string $scope, string $kind = 'read'): BuilderActor
     {
-        if (!AdminBuilder::enabled($this->minn)) {
-            throw new RestError('builder_disabled', 'The level builder is not turned on for this site.', 404);
-        }
-        $user = $this->minn->user();
-        if ($user === null) {
-            throw new RestError('rest_not_logged_in', 'You are not currently logged in.', 401);
-        }
-        return $user->id;
+        return (new BuilderAuth($this->minn))->gate($request, $scope, $kind);
     }
 }

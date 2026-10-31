@@ -15,9 +15,11 @@ use Minn\RestError;
 
 /**
  * The level builder's drafts over REST (the game's docs/level-builder/spec.md 5 and 8.3, phase
- * P1): groddle/v1/admin/builder/*, every route manage_options only, as the console's (the editor
- * page is AdminBuilderPage, /console/builder/). Off unless the site option groddle_builder_enabled
- * is on (groddle.localhost only for now, spec Q2): with it unset every route answers 404
+ * P1): groddle/v1/admin/builder/*, every route an administrator's (manage_options, the session
+ * with its REST nonce) or a builder key's with the scope the route names (P4, BuilderAuth: the
+ * routes are declared public and the gate is the first line of each). The editor page is
+ * AdminBuilderPage, /console/builder/. Off unless the site option groddle_builder_enabled is on
+ * (groddle.localhost only for now, spec Q2): with it unset every route answers 404
  * builder_disabled, so a release ships the builder dark.
  *
  *   GET    builder/drafts[?all=1]              {"drafts":[{id,title,rev,state,streets:[{key,tsid,label}],hub:{id,name,isNew},updatedBy,updatedAt,createdAt}]}
@@ -27,16 +29,16 @@ use Minn\RestError;
  *   POST   builder/drafts/{id}/ops {ops,note}  If-Match → {"rev","changed":[...]}; a failing op: 422 builder_invalid {op}
  *   GET    builder/drafts/{id}/revisions       {"revisions":[{rev,at,author,note,ops,bytes}]}
  *   POST   builder/drafts/{id}/restore {rev}   If-Match → {"rev"}: the old rev copied forward
- *   GET    builder/drafts/{id}/play            the play-test bundle (js/builder/draft-play.js)
+ *   GET    builder/drafts/{id}/play            the play-test bundle (js/builder/draft-play.js); the session only
  *   DELETE builder/drafts/{id}                 archived, never deleted
  *
- * A write without If-Match is refused (428 builder_rev_required). Errors keep the site's shape,
+ * Key scopes: drafts:read for the reads, drafts:write (counted as writes for the rate limit) for
+ * the rest. A write without If-Match is refused (428 builder_rev_required). Errors keep the site's shape,
  * {code, message, data:{status, ...}}.
  */
 final readonly class AdminBuilder
 {
     public const OPTION = 'groddle_builder_enabled';
-    private const ADMIN = 'manage_options';
     private const BASE = '/groddle/v1/admin/builder';
 
     public function __construct(private Seams $minn)
@@ -49,17 +51,17 @@ final readonly class AdminBuilder
         return in_array(strtolower(trim((string) ($minn->site->option(self::OPTION) ?? ''))), ['1', 'yes', 'true', 'on'], true);
     }
 
-    #[Route(Method::Get, self::BASE . '/drafts', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Get, self::BASE . '/drafts', policy: new Policy(Access::Public))]
     public function drafts(Request $request): Response
     {
-        $this->gate();
+        $this->gate($request, 'drafts:read');
         return Response::json(['drafts' => $this->store()->list($request->query('all') === '1')])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[Route(Method::Post, self::BASE . '/drafts', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Post, self::BASE . '/drafts', policy: new Policy(Access::Public))]
     public function create(Request $request): Response
     {
-        $admin = $this->gate();
+        $who = $this->gate($request, 'drafts:write', 'write');
         $body = BuilderOps::decode($request->body);
         $id = is_object($body) && is_string($body->id ?? null) ? $body->id : '';
         $title = is_object($body) && is_string($body->title ?? null) ? trim($body->title) : '';
@@ -70,14 +72,14 @@ final readonly class AdminBuilder
             throw new RestError('builder_bad_title', 'Give the draft a title of up to 80 characters.', 400);
         }
         $hub = is_object($body) && ($body->hub ?? null) instanceof \stdClass ? $body->hub : null;
-        $zone = $this->store()->create($id, $title, $hub, (string) $admin, $admin);
+        $zone = $this->store()->create($id, $title, $hub, $who->author, $who->admin);
         return Response::json($zone, 201)->withHeader('ETag', '"1"')->withHeader('Cache-Control', 'no-store');
     }
 
-    #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}', policy: new Policy(Access::Public))]
     public function draft(Request $request, string $id): Response
     {
-        $this->gate();
+        $this->gate($request, 'drafts:read');
         $row = $this->row($id);
         $want = $request->query('rev');
         if ($want !== null && $want !== '' && (int) $want !== $row['rev']) {
@@ -91,24 +93,24 @@ final readonly class AdminBuilder
         return Response::json($row['zone'])->withHeader('ETag', $etag)->withHeader('Cache-Control', 'no-store');
     }
 
-    #[Route(Method::Put, self::BASE . '/drafts/{id:[a-z0-9-]+}', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Put, self::BASE . '/drafts/{id:[a-z0-9-]+}', policy: new Policy(Access::Public))]
     public function replace(Request $request, string $id): Response
     {
-        $admin = $this->gate();
+        $who = $this->gate($request, 'drafts:write', 'write');
         $ifMatch = self::ifMatch($request);
         self::sized($request);
         $next = BuilderOps::decode($request->body);
         if (!$next instanceof \stdClass) {
             throw new RestError('builder_invalid', 'Send the zone as a JSON object.', 422);
         }
-        $done = $this->store()->write($id, $ifMatch, static fn (\stdClass $zone): array => [$next, 'replaced the zone', 1], (string) $admin, $admin, 'replaced');
+        $done = $this->store()->write($id, $ifMatch, static fn (\stdClass $zone): array => [$next, 'replaced the zone', 1], $who->author, $who->admin, 'replaced');
         return Response::json(['rev' => $done['rev']])->withHeader('ETag', '"' . $done['rev'] . '"');
     }
 
-    #[Route(Method::Post, self::BASE . '/drafts/{id:[a-z0-9-]+}/ops', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Post, self::BASE . '/drafts/{id:[a-z0-9-]+}/ops', policy: new Policy(Access::Public))]
     public function ops(Request $request, string $id): Response
     {
-        $admin = $this->gate();
+        $who = $this->gate($request, 'drafts:write', 'write');
         $ifMatch = self::ifMatch($request);
         self::sized($request);
         $body = BuilderOps::decode($request->body);
@@ -127,35 +129,35 @@ final readonly class AdminBuilder
                 throw new RestError('builder_invalid', $e->getMessage(), 422, ['op' => $e->index, 'reason' => $e->errorCode]);
             }
             return [$zone, BuilderOps::summary($ops), count($ops), ['changed' => $r['changed']]];
-        }, (string) $admin, $admin, $note);
+        }, $who->author, $who->admin, $note);
         return Response::json(['rev' => $done['rev'], 'changed' => $done['extra']['changed'] ?? []])->withHeader('ETag', '"' . $done['rev'] . '"');
     }
 
-    #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}/revisions', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}/revisions', policy: new Policy(Access::Public))]
     public function revisions(Request $request, string $id): Response
     {
-        $this->gate();
+        $this->gate($request, 'drafts:read');
         $this->row($id);
         return Response::json(['revisions' => $this->store()->revisions($id)])->withHeader('Cache-Control', 'no-store');
     }
 
-    #[Route(Method::Post, self::BASE . '/drafts/{id:[a-z0-9-]+}/restore', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Post, self::BASE . '/drafts/{id:[a-z0-9-]+}/restore', policy: new Policy(Access::Public))]
     public function restore(Request $request, string $id): Response
     {
-        $admin = $this->gate();
+        $who = $this->gate($request, 'drafts:write', 'write');
         $ifMatch = self::ifMatch($request);
         $body = BuilderOps::decode($request->body);
         $rev = is_object($body) && is_int($body->rev ?? null) ? $body->rev : 0;
         $old = $this->store()->revision($id, $rev) ?? throw new RestError('builder_not_found', 'That draft has no such rev.', 404);
-        $done = $this->store()->write($id, $ifMatch, static fn (\stdClass $zone): array => [$old, "restored rev {$rev}", 1], (string) $admin, $admin, "restored rev {$rev}");
+        $done = $this->store()->write($id, $ifMatch, static fn (\stdClass $zone): array => [$old, "restored rev {$rev}", 1], $who->author, $who->admin, "restored rev {$rev}");
         return Response::json(['rev' => $done['rev'], 'restored' => $rev])->withHeader('ETag', '"' . $done['rev'] . '"');
     }
 
-    #[Route(Method::Delete, self::BASE . '/drafts/{id:[a-z0-9-]+}', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Delete, self::BASE . '/drafts/{id:[a-z0-9-]+}', policy: new Policy(Access::Public))]
     public function archive(Request $request, string $id): Response
     {
-        $admin = $this->gate();
-        $this->store()->archive($id, $admin);
+        $who = $this->gate($request, 'drafts:write', 'write');
+        $this->store()->archive($id, $who->admin);
         return Response::json(['id' => $id, 'state' => 'archived']);
     }
 
@@ -165,10 +167,10 @@ final readonly class AdminBuilder
      * ecology rows, the street keys, the hub, and the zone's edits on shipped streets (the
      * play-test puts them on copies of those streets, so the ways into the zone show there too).
      */
-    #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}/play', policy: new Policy(Access::Cap, self::ADMIN))]
+    #[Route(Method::Get, self::BASE . '/drafts/{id:[a-z0-9-]+}/play', policy: new Policy(Access::Public))]
     public function play(Request $request, string $id): Response
     {
-        $this->gate();
+        $this->gate($request, null);
         $row = $this->row($id);
         return Response::json(self::bundle($row['zone']))->withHeader('Cache-Control', 'no-store');
     }
@@ -219,17 +221,10 @@ final readonly class AdminBuilder
         }
     }
 
-    /** The caller's id, once the builder is on. */
-    private function gate(): int
+    /** Who the request speaks for, once the builder is on: a session, or a key with the scope (BuilderAuth). */
+    private function gate(Request $request, ?string $scope, string $kind = 'read'): BuilderActor
     {
-        if (!self::enabled($this->minn)) {
-            throw new RestError('builder_disabled', 'The level builder is not turned on for this site.', 404);
-        }
-        $user = $this->minn->user();
-        if ($user === null) {
-            throw new RestError('rest_not_logged_in', 'You are not currently logged in.', 401);
-        }
-        return $user->id;
+        return (new BuilderAuth($this->minn))->gate($request, $scope, $kind);
     }
 
     /** @return array{id: string, title: string, rev: int, state: string, zone: \stdClass} */

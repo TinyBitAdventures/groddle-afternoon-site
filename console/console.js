@@ -198,10 +198,17 @@ export function logWords(line) {
     case 'broadcast': return `messaged everyone online (${d.count ?? 0}): “${d.text || ''}”${d.failed ? ` (${d.failed} did not get it)` : ''}`;
     case 'builder': {
       const title = d.title || d.draft || 'a draft';
+      const by = d.key ? ` with key ${d.key}` : '';
+      if (d.text === 'key made') return `made the builder key “${d.label || d.key}”`;
+      if (d.text === 'key revoked') return `revoked the builder key “${d.label || d.key}”`;
+      if (d.text === 'key deleted') return `deleted the builder key “${d.label || d.key}”`;
       if (d.text === 'archived') return `archived the draft “${title}”`;
+      if (d.text === 'purged') return `deleted the archived draft “${title}” for good`;
       if (d.text === 'created') return `started the draft “${title}”`;
+      if (String(d.text || '').startsWith('ready')) return `marked the draft “${title}” ready to publish${by}`;
+      if (String(d.text || '').startsWith('new art ')) return `took in ${d.text.slice(8)} for “${title}”${by}`;
       const revs = d.from && d.from !== d.rev ? `revs ${d.from} to ${d.rev}` : `rev ${d.rev ?? '?'}`;
-      return `edited the draft “${title}” (${revs}, ${d.ops ?? 0} ${d.ops === 1 ? 'change' : 'changes'})`;
+      return `edited the draft “${title}” (${revs}, ${d.ops ?? 0} ${d.ops === 1 ? 'change' : 'changes'})${by}`;
     }
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;

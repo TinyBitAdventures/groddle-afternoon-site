@@ -40,7 +40,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'builder-1';
+    public const ASSET_KEY = 'builder-keys-1';
 
     public function __construct(private Seams $minn)
     {
@@ -88,6 +88,7 @@ final readonly class AdminConsolePage
             . Extension::head()
             . "<link rel=\"stylesheet\" href=\"{$a}console.css?v={$v}\" />\n"
             . "<script type=\"module\" src=\"{$a}console.js?v={$v}\"></script>\n"
+            . ($builder ? "<script type=\"module\" src=\"{$a}builder-keys.js?v={$v}\"></script>\n" : '')
             . "</head>\n<body class=\"notes console-page\">\n"
             . SiteNav::nav(SiteNav::links($this->minn, 0), $path) . "\n"
             . <<<'HTML'
