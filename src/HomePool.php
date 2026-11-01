@@ -90,7 +90,7 @@ final readonly class HomePool
 
     /**
      * A key-holder's harvest of a garden on the home street (include/garden.js:579, pick; HomeTending).
-     * The other visitor acts the source paid for (the class doc) are HomeYard's (data/yard-verbs.json "pool"); mining and Making on a home street have no visitor verb yet.
+     * The other visitor acts the source paid for (the class doc) are HomeYard's (data/yard-verbs.json "pool"), mining and the home street's resource nodes too (MPVISIT); Making at a machine has no visitor verb (the remake's machines are pack tools, never placed on a street).
      */
     public const HARVEST = 5;
 

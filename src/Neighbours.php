@@ -504,8 +504,12 @@ final readonly class Neighbours
     /**
      * What a visitor sees of the homes feature's slice: the house's decor,
      * the street's and back yard's cultivations and their styles, and where
-     * the house stands. Not the Magic Rock's flags, the house visit counts or
-     * the Tower floors.
+     * the house stands. Not the Magic Rock's flags or the house visit counts.
+     * MPVISIT: the Tower too, as it stands (the home-tower slice's look and
+     * floors, without its project, secrets or visit counts) and each floor's
+     * furniture, since the source's Tower is a public home location anyone
+     * the owner has not blocked may enter and ride to every floor
+     * (locations/tower.js:2-22, 584-620; inc_pols.js:452-458).
      */
     public static function homesSlice(?object $state): ?object
     {
@@ -525,7 +529,25 @@ final readonly class Neighbours
                 $out->{$key} = $value;
             }
         }
+        $tower = self::feature($state, 'home-tower');
+        if (($tower->built ?? false) === true) {
+            $look = (object) [];
+            foreach (['built', 'floors', 'expanding', 'style', 'config', 'facingRight', 'name', 'floorLabels'] as $key) {
+                if (isset($tower->{$key})) {
+                    $look->{$key} = $tower->{$key};
+                }
+            }
+            $out->tower = $look;
+            if (is_array($homes->towerDecor ?? null)) {
+                $out->towerDecor = $homes->towerDecor;
+            }
+        }
         $json = json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (is_string($json) && strlen($json) > self::HOME_BUDGET && isset($out->towerDecor)) {
+            // The Tower's floors are the first to go: the street and house still show.
+            unset($out->towerDecor);
+            $json = json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
         if (!is_string($json) || strlen($json) > self::HOME_BUDGET) {
             return null;
         }

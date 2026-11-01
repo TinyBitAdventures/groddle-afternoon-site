@@ -33,11 +33,27 @@ use Minn\RestError;
  *   and tree a game day (canHarvest). Remove, trantsform and poison are the
  *   owner's or a key-holder's (wood_tree.js 117, 152, 303).
  *
+ * - Rocks and resource nodes the owner cultivated (MPVISIT; game
+ *   js/yard-stock-mp.js): mine a rock (items/include/mining.js verbs.mine:
+ *   a pick and Mining I), harvest a Peat Bog (peat_1.js), dig a Dirt Pile
+ *   (dirt_pile.js), scrape a Mortar Barnacle (mortar_barnacle.js), scoop a
+ *   Jellisac (jellisac.js). None asks for the owner or a key; the yield is
+ *   the actor's (mining.js:344, peat_1.js:268, dirt_pile.js 413/431,
+ *   mortar_barnacle.js:261). Here the site rolls a swing's chunks and keeps
+ *   the rock's chunks, each node's stock and daily limits per visitor and
+ *   the cultivation's wear, from the owner's stored street (the world rock
+ *   slots, the resource-nodes slot, the cultivations' wear) and the acts
+ *   still waiting for the owner's game, so every visitor and the owner see
+ *   one rock. A worn-out cultivation takes no more (cultivation.js addWear,
+ *   replaceWithDepleted: the owner's game turns it into its proto).
+ *
  * Each of these acts by someone who is not the owner adds a fixed amount to
  * the owner's Magic Rock pool (inc_cultivation.js cultivation_add_img_rewards
  * 168-178; the amounts are in data/yard-verbs.json "pool", from the handlers:
  * npc_piggy.js 1664/1764, npc_butterfly.js 1187/1356, npc_chicken.js 1560,
- * patch.js 615/714, include/trants.js 90/196/420, wood_tree.js 1018).
+ * patch.js 615/714, include/trants.js 90/196/420, wood_tree.js 1018; a rock
+ * mined out include/mining.js 388-401, peat_1.js:301, dirt_pile.js:470,
+ * mortar_barnacle.js:304, jellisac.js:234).
  *
  * The realtime server sees the visitor on HOME_<owner> and asks here, signed
  * (groddle-afternoon-server home_yard.go); this class decides from the
@@ -72,7 +88,7 @@ final readonly class HomeYard
 
     public const WAITING_MAX = 200;
 
-    public const KINDS = ['animal', 'plot', 'tree'];
+    public const KINDS = ['animal', 'plot', 'tree', 'rock', 'node'];
     public const ANIMAL_VERBS = ['npc_piggy' => ['pet', 'nibble'], 'npc_butterfly' => ['massage', 'milk'], 'npc_chicken' => ['squeeze']];
     public const PLOT_VERBS = ['dig', 'tend'];
     public const TREE_VERBS = ['pet', 'water', 'harvest'];
@@ -96,6 +112,21 @@ final readonly class HomeYard
     public const TEXT_WOOD_WATERED = 'I don\'t want to be watered right now!'; // wood_tree.js verbs.water
     public const TEXT_NOTHING = 'There\'s nothing to pick, cowboy!'; // trant_base verbs.harvest
     public const TEXT_SMALL = 'This tree is too small to harvest.'; // js/trants.js canHarvestTrant
+    public const TEXT_MINED = 'This rock is mined out. Wait for it to respawn.'; // js/mining.js mineRock
+    public const TEXT_WORN = 'That has been used up. It needs restoring first.'; // ours: cultivation.js replaceWithDepleted
+    /** js/resource-nodes.js gateVerb (the objects.go notReady words). */
+    public const NOT_READY = [
+        'mortar_barnacle' => 'This barnacle is not ready yet!', // mortar_barnacle.js:64
+        'jellisac' => 'This Jellisac is not ready yet!', // jellisac.js:54
+        'dirt_pile' => 'There isn\'t enough dirt left to dig.', // dirt_pile.js:113
+        'peat_1' => 'No more peat here!', // peat_1.js:143
+    ];
+    /** js/resource-nodes.js gateVerb daily limit words. */
+    public const DAILY_TEXT = [
+        'dirt_pile' => 'You\'ve dug this dirt pile enough for today.',
+        'peat_1' => 'You can\'t harvest this peat more than once per game day.',
+        'peat_1:2' => 'You can\'t harvest this peat more than twice per game day.',
+    ];
 
     public function __construct(private Seams $minn)
     {
@@ -143,18 +174,21 @@ final readonly class HomeYard
                 return ['status' => 'refused', 'why' => 'no_home', 'text' => HomePool::TEXT_NO_HOME];
             }
             $t = $db->table(self::TABLE);
-            $waiting = $db->rows("SELECT id, kind, target, verb, took, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id", [$owner]);
+            $waiting = self::unapplied($state, $db->rows("SELECT id, kind, target, verb, took, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id", [$owner]));
             if (count($waiting) >= self::WAITING_MAX) {
                 return ['status' => 'refused', 'why' => 'busy', 'text' => self::TEXT_BUSY];
             }
-            $skills = self::learned(Neighbours::state($db, $visitor));
+            $visitorState = Neighbours::state($db, $visitor);
+            $skills = self::learned($visitorState);
             $uses = self::usesOf($db, $owner, $visitor, $day);
             $nowMs = (int) floor(microtime(true) * 1000);
-            $judged = self::judge($rules, $state, $waiting, $uses, $skills, $kind, $id, $verb, $nowMs);
+            $judged = $kind === 'rock' || $kind === 'node'
+                ? self::judgeStock($rules, $state, $waiting, $uses, self::upgrades($visitorState), $kind, $id, $verb, $nowMs, static fn (int $lo, int $hi): int => random_int($lo, $hi))
+                : self::judge($rules, $state, $waiting, $uses, $skills, $kind, $id, $verb, $nowMs);
             if (isset($judged['why'])) {
                 return ['status' => 'refused', 'why' => $judged['why'], 'text' => $judged['text']];
             }
-            $pool = (int) ($rules['pool'][$judged['pool']] ?? 0);
+            $pool = (int) ($rules['pool'][$judged['pool'] ?? ''] ?? 0);
             $n = ($uses[$verb . ':' . $id] ?? 0) + 1;
             HomePool::mark($db, $owner, $visitor, $day, 'y-' . $verb . '-' . $id . '-' . $n, $pool);
             HomePool::mark($db, $owner, $visitor, $day, $opMark, $pool);
@@ -176,7 +210,7 @@ final readonly class HomeYard
                 'status' => 'settled',
                 'added' => $pool,
                 'today' => $today,
-                'act' => ['id' => $op, 'kind' => $kind, 'target' => $id, 'verb' => $verb, 'took' => $took, 'at' => $nowMs, 'got' => (object) $got],
+                'act' => ['id' => $op, 'kind' => $kind, 'target' => $id, 'verb' => $verb, 'took' => $took, 'at' => $nowMs, 'got' => (object) $got] + (isset($judged['left']) ? ['left' => $judged['left']] : []),
             ];
         });
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
@@ -198,9 +232,22 @@ final readonly class HomeYard
         if (!Neighbours::hasHome($state)) {
             throw new RestError('groddle_yard_none', HomePool::TEXT_NO_HOME, 404);
         }
-        $waiting = $db->rows('SELECT id, kind, target, verb, took, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id', [$owner]);
+        $waiting = self::unapplied($state, $db->rows('SELECT id, kind, target, verb, took, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id', [$owner]));
         $nowMs = (int) floor(microtime(true) * 1000);
         $rules = self::rules();
+        // MPVISIT: the rocks and resource nodes as they stand now (worn-out ones are protos: not listed).
+        $rocks = [];
+        foreach (self::homeRocks($rules, $state) as $r) {
+            if (!self::worn($rules, $state, $waiting, $r['item'])) {
+                $rocks[] = ['id' => $r['id'], 'classId' => $r['classId'], 'rx' => $r['rx'], 'rock' => self::rockNow($rules, $state, $waiting, $r, $nowMs)];
+            }
+        }
+        $nodes = [];
+        foreach (self::homeNodes($rules, $state) as $n) {
+            if (!self::worn($rules, $state, $waiting, $n['item'])) {
+                $nodes[] = ['id' => $n['id'], 'classTsid' => $n['classTsid'], 'rx' => $n['rx'], 'dy' => $n['dy'], 'node' => self::nodeNow($rules, $state, $waiting, $n, $nowMs)];
+            }
+        }
         $patches = [];
         foreach (self::patchItems($state) as $key => $rx) {
             $plot = self::plotNow(self::storedPlot($state, $key), $key, $waiting, $nowMs, $rules);
@@ -224,6 +271,8 @@ final readonly class HomeYard
             'cult' => is_object($homes?->cult ?? null) ? $homes->cult : (object) [],
             'patches' => $patches,
             'animals' => $animals,
+            'rocks' => $rocks,
+            'nodes' => $nodes,
             'mine' => (object) $mine,
         ]);
     }
@@ -258,7 +307,12 @@ final readonly class HomeYard
         if (!is_string($id)) {
             return false;
         }
-        return $kind === 'animal' ? preg_match('/^a\d{1,6}$/', $id) === 1 : preg_match('/^patch(_dark)?:\d{1,2}$/', $id) === 1;
+        return match ($kind) {
+            'animal' => preg_match('/^a\d{1,6}$/', $id) === 1,
+            'rock' => preg_match('/^rock:\d{1,2}$/', $id) === 1,
+            'node' => preg_match('/^node:[a-z][a-z0-9_]{2,19}:\d{1,2}$/', $id) === 1,
+            default => preg_match('/^patch(_dark)?:\d{1,2}$/', $id) === 1,
+        };
     }
 
     /**
@@ -410,6 +464,277 @@ final readonly class HomeYard
             $plot->since = $due;
             $plot->dueAt = 0;
         }
+    }
+
+    // —— Rocks and resource nodes (MPVISIT; game js/yard-stock-mp.js) ——
+
+    /**
+     * Whether a visitor's mining swing or node verb may happen now, and what it
+     * does: the pool key (a rock pays only when the swing mines it out), the
+     * chunks a swing takes ("took", rolled here), the items credited. A refusal
+     * is ['why' => …, 'text' => …].
+     *
+     * @param array<string, int> $uses "<verb>:<id>" => the visitor's uses today
+     * @param list<string> $upgrades the visitor's imagination upgrades (daily limits)
+     * @param callable(int, int): int $roll random_int
+     * @return array<string, mixed>
+     */
+    public static function judgeStock(array $rules, ?object $state, array $waiting, array $uses, array $upgrades, string $kind, string $id, string $verb, int $nowMs, callable $roll): array
+    {
+        if ($kind === 'rock') {
+            $row = null;
+            foreach (self::homeRocks($rules, $state) as $r) {
+                if ($r['id'] === $id) {
+                    $row = $r;
+                }
+            }
+            $def = $row !== null ? ($rules['rocks'][$row['classId']] ?? null) : null;
+            if ($row === null || $def === null || $verb !== 'mine') {
+                return ['why' => 'gone', 'text' => self::TEXT_GONE];
+            }
+            if (self::worn($rules, $state, $waiting, $row['item'])) {
+                return ['why' => 'worn', 'text' => self::TEXT_WORN];
+            }
+            $rock = self::rockNow($rules, $state, $waiting, $row, $nowMs);
+            if ($rock['depleted'] || $rock['chunksRemaining'] <= 0) {
+                return ['why' => 'empty', 'text' => self::TEXT_MINED];
+            }
+            // include/mining.js: the whole roll, even past what is left (js/mining.js mineRock).
+            $took = $roll((int) $def['min'], (int) $def['max']);
+            $cleared = $rock['chunksRemaining'] - $took <= 0;
+            return ['pool' => $cleared ? 'rock:' . $def['type'] : '', 'took' => $took, 'got' => [(string) $def['chunk'] => $took], 'left' => max(0, $rock['chunksRemaining'] - $took)];
+        }
+        $row = null;
+        foreach (self::homeNodes($rules, $state) as $n) {
+            if ($n['id'] === $id) {
+                $row = $n;
+            }
+        }
+        $rule = $row !== null ? ($rules['nodes'][$row['cls']] ?? null) : null;
+        if ($row === null || $rule === null || $verb !== $rule['verb']) {
+            return ['why' => 'gone', 'text' => self::TEXT_GONE];
+        }
+        if (self::worn($rules, $state, $waiting, $row['item'])) {
+            return ['why' => 'worn', 'text' => self::TEXT_WORN];
+        }
+        $node = self::nodeNow($rules, $state, $waiting, $row, $nowMs);
+        if ($node['units'] < (int) $rule['ready']) {
+            return ['why' => 'not_ready', 'text' => self::NOT_READY[$row['cls']] ?? self::TEXT_GONE];
+        }
+        if (is_array($rule['daily'] ?? null)) {
+            $limit = (int) $rule['daily']['base'];
+            foreach ($rule['daily']['upgrades'] as $up => $n) {
+                if (in_array($up, $upgrades, true)) {
+                    $limit = max($limit, (int) $n);
+                }
+            }
+            if (($uses[$verb . ':' . $id] ?? 0) >= $limit) {
+                return ['why' => 'limit', 'text' => self::DAILY_TEXT[$row['cls'] . ($limit > 1 ? ':2' : '')] ?? self::DAILY_TEXT[$row['cls']] ?? 'You have done that enough for today.'];
+            }
+        }
+        [$c, $n] = $rule['yield'];
+        $left = $rule['after'] !== null ? (int) $rule['after'] : max((int) $rule['min'], $node['units'] - max(1, (int) $rule['consume']));
+        return ['pool' => 'node:' . $row['cls'], 'took' => 1, 'got' => [(string) $c => (int) $n], 'left' => $left];
+    }
+
+    /** The street's live rocks in cultivation order (homes-feature rockItems): id, class, rx, the cultivation. */
+    public static function homeRocks(array $rules, ?object $state): array
+    {
+        $out = [];
+        foreach (self::cultItems($state) as $item) {
+            if (($rules['cult'][$item->protoClass ?? '']['kind'] ?? '') !== 'rock' || ($item->depleted ?? false) === true) {
+                continue;
+            }
+            $i = count($out);
+            $class = preg_replace('/_\d+$/', '_1', is_string($item->endClass ?? null) ? $item->endClass : 'rock_metal_1');
+            $out[] = ['id' => 'rock:' . $i, 'index' => $i, 'classId' => $class, 'rx' => is_numeric($item->rx ?? null) ? (int) $item->rx : 0, 'item' => $item];
+        }
+        return $out;
+    }
+
+    /** The street's resource nodes a visitor may use (homes-feature nodeKeyMap order), each with its cultivation. */
+    public static function homeNodes(array $rules, ?object $state): array
+    {
+        $out = [];
+        $counters = [];
+        foreach (self::cultItems($state) as $item) {
+            $cult = $rules['cult'][$item->protoClass ?? ''] ?? null;
+            if ($cult === null || $cult['kind'] !== 'node' || ($item->depleted ?? false) === true) {
+                continue;
+            }
+            foreach ($cult['nodes'] as [$cls, $dx, $dy]) {
+                $n = $counters[$cls] ?? 0;
+                $counters[$cls] = $n + 1;
+                if (!isset($rules['nodes'][$cls])) {
+                    continue;
+                }
+                $end = is_string($item->endClass ?? null) && preg_match('/^peat_[123]$/', $item->endClass) === 1 ? $item->endClass : 'peat_1';
+                $out[] = [
+                    'id' => 'node:' . $cls . ':' . $n,
+                    'key' => $cls . ':' . $n,
+                    'cls' => $cls,
+                    'classTsid' => $cls === 'peat_1' ? $end : $cls,
+                    'rx' => (is_numeric($item->rx ?? null) ? (int) $item->rx : 0) + (int) $dx,
+                    'dy' => (int) $dy,
+                    'item' => $item,
+                ];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * A rock as it stands at now: the stored world slot (game.js
+     * streetWorldState().rocks[i]), then each waiting swing on it, a mined-out
+     * rock reforming respawnMs on with its full chunks (js/mining.js tickMineRock).
+     *
+     * @return array{chunksRemaining: int, depleted: bool, respawnAt: int}
+     */
+    public static function rockNow(array $rules, ?object $state, array $waiting, array $row, int $nowMs): array
+    {
+        $def = $rules['rocks'][$row['classId']] ?? ['chunks' => 50];
+        $full = (int) $def['chunks'];
+        $slot = $state?->world?->streets?->{self::STREET}?->rocks[$row['index']] ?? null;
+        $s = is_object($slot) && ($slot->classId ?? '') === $row['classId'] && is_object($slot->rock ?? null) ? $slot->rock : null;
+        $rock = [
+            'chunksRemaining' => $s !== null && is_numeric($s->chunksRemaining ?? null) ? max(0, (int) $s->chunksRemaining) : $full,
+            'depleted' => $s !== null && ($s->depleted ?? false) === true,
+            'respawnAt' => $s !== null && is_numeric($s->respawnAt ?? null) ? (int) $s->respawnAt : 0,
+        ];
+        $back = $s !== null && is_numeric($s->respawnChunks ?? null) && (int) $s->respawnChunks > 0 ? (int) $s->respawnChunks : $full;
+        $tick = static function (int $at) use (&$rock, &$back, $full): void {
+            if ($rock['depleted'] && $at >= $rock['respawnAt']) {
+                $rock = ['chunksRemaining' => $back, 'depleted' => false, 'respawnAt' => 0];
+                $back = $full;
+            }
+        };
+        foreach ($waiting as $w) {
+            if ((string) $w['kind'] !== 'rock' || (string) $w['target'] !== $row['id']) {
+                continue;
+            }
+            $at = (int) $w['at_ms'];
+            $tick($at);
+            if ($rock['depleted']) {
+                continue;
+            }
+            $rock['chunksRemaining'] -= (int) $w['took'];
+            if ($rock['chunksRemaining'] <= 0) {
+                $rock = ['chunksRemaining' => 0, 'depleted' => true, 'respawnAt' => $at + (int) ($rules['respawnMs'] ?? 45000)];
+            }
+        }
+        $tick($nowMs);
+        return $rock;
+    }
+
+    /**
+     * A node as it stands at now: the stored resource-nodes slot (or a fresh
+     * one), then each waiting use, one regrow step every mean regrow delay
+     * (js/resource-nodes.js tickResourceNode runs the owner's own timer).
+     *
+     * @return array{units: int, regrowAt: int, totalHarvests: int}
+     */
+    public static function nodeNow(array $rules, ?object $state, array $waiting, array $row, int $nowMs): array
+    {
+        $rule = $rules['nodes'][$row['cls']];
+        $s = $state?->world?->streets?->{self::STREET}?->features?->{'resource-nodes'}?->nodes?->{$row['key']} ?? null;
+        $node = [
+            'units' => is_object($s) && is_numeric($s->units ?? null) ? (int) $s->units : (int) $rule['initial'],
+            'regrowAt' => is_object($s) && is_numeric($s->regrowAt ?? null) ? (int) $s->regrowAt : 0,
+            'totalHarvests' => is_object($s) && is_numeric($s->totalHarvests ?? null) ? (int) $s->totalHarvests : 0,
+        ];
+        [$lo, $hi, $step] = array_map('intval', $rule['regrow']);
+        $step = max(1, $step);
+        $mean = (int) (round((($lo + $hi) / 2) / $step) * $step);
+        $max = (int) $rule['max'];
+        $tick = static function (int $at) use (&$node, $mean, $max): void {
+            if ($node['units'] >= $max) {
+                $node['regrowAt'] = 0;
+                return;
+            }
+            if ($node['regrowAt'] <= 0) {
+                $node['regrowAt'] = $at + $mean;
+                return;
+            }
+            for ($guard = 0; $guard < 64 && $node['units'] < $max && $at >= $node['regrowAt']; $guard++) {
+                $node['units']++;
+                $node['regrowAt'] = $node['units'] < $max ? $node['regrowAt'] + $mean : 0;
+            }
+        };
+        foreach ($waiting as $w) {
+            if ((string) $w['kind'] !== 'node' || (string) $w['target'] !== $row['id']) {
+                continue;
+            }
+            $at = (int) $w['at_ms'];
+            $tick($at);
+            $node['units'] = $rule['after'] !== null ? (int) $rule['after'] : max((int) $rule['min'], $node['units'] - max(1, (int) $rule['consume']));
+            $node['regrowAt'] = $at + $mean;
+            $node['totalHarvests']++;
+        }
+        $tick($nowMs);
+        return $node;
+    }
+
+    /**
+     * Whether a cultivation is worn out (include/cultivation.js addWear,
+     * getMaxWear: max wear x 1 + 0.05 a restore, js/home-cultivation.js): its
+     * stored wear (a node cultivation's harvests the owner's game has not
+     * counted in yet too) and the waiting acts on its rocks or nodes.
+     */
+    public static function worn(array $rules, ?object $state, array $waiting, object $item): bool
+    {
+        $cult = $rules['cult'][$item->protoClass ?? ''] ?? null;
+        if ($cult === null) {
+            return true;
+        }
+        $life = $rules['life'] ?? ['step' => 0.05, 'max' => 20];
+        $steps = max(0, min((int) $life['max'], is_numeric($item->lifeSteps ?? null) ? (int) floor((float) $item->lifeSteps) : 0));
+        $max = (float) $cult['maxWear'] * (1 + (float) $life['step'] * $steps);
+        $used = is_numeric($item->wear ?? null) ? (float) $item->wear : 0.0;
+        $mine = [];
+        if ($cult['kind'] === 'rock') {
+            foreach (self::homeRocks($rules, $state) as $r) {
+                if ($r['item'] === $item) {
+                    $mine[] = $r['id'];
+                }
+            }
+        } else {
+            $harvests = 0;
+            foreach (self::homeNodes($rules, $state) as $n) {
+                if ($n['item'] === $item) {
+                    $mine[] = $n['id'];
+                    $s = $state?->world?->streets?->{self::STREET}?->features?->{'resource-nodes'}?->nodes?->{$n['key']} ?? null;
+                    $harvests += is_object($s) && is_numeric($s->totalHarvests ?? null) ? (int) $s->totalHarvests : 0;
+                }
+            }
+            $used = max($used, (float) $harvests);
+        }
+        foreach ($waiting as $w) {
+            if (in_array((string) $w['target'], $mine, true) && in_array((string) $w['kind'], ['rock', 'node'], true)) {
+                $used += 1;
+            }
+        }
+        return $max > 0 && $used >= $max;
+    }
+
+    /** The home street's cultivations in the owner's save. */
+    private static function cultItems(?object $state): array
+    {
+        $items = $state?->systems?->features?->homes?->cult?->items ?? [];
+        return array_values(array_filter(is_array($items) ? $items : [], static fn ($i): bool => is_object($i) && is_string($i->protoClass ?? null)));
+    }
+
+    /** playerState.player.imaginationUpgrades of a stored save. */
+    public static function upgrades(?object $state): array
+    {
+        $list = $state?->player?->imaginationUpgrades ?? [];
+        return array_values(array_filter(is_array($list) ? $list : [], 'is_string'));
+    }
+
+    /** Waiting acts the owner's stored save does not yet list as applied (those are in its things already). */
+    public static function unapplied(?object $state, array $rows): array
+    {
+        $done = array_flip(self::applied($state));
+        return array_values(array_filter($rows, static fn (array $r): bool => !isset($done[(string) $r['id']])));
     }
 
     /** cultivation_get_available / js/homes-feature.js soilKeyMap: the home street's Patches as plot keys => their x from the house. */
