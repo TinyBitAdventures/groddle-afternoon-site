@@ -13,7 +13,10 @@ namespace Groddle\Minn;
  * The bytes are untrusted, as a Snap's are. The type comes from the bytes alone: a PNG or a WebP,
  * walked chunk by chunk before anything decodes them (lengths, CRCs, the header first, the end
  * last), with the size read from the header and checked before GD allocates anything. GD then
- * decodes the pixels and writes a new lossless WebP, which is all that is kept: every chunk but the
+ * decodes the pixels and writes a new WebP, which is all that is kept: lossless for a PNG or a lossless
+ * WebP, lossy at quality KEPT_QUALITY (alpha kept lossless) for a lossy WebP, so art that came in small
+ * stays small (lane GROUNDED: 27 AI pieces sent as 3.0 MB of lossy WebP were kept as 6.8 MB of
+ * lossless, more than a render could carry; kept lossy they are 1.9 MB). Every chunk but the
  * image data is gone (a PNG's text chunks, a WebP's EXIF and XMP, colour profiles, anything after
  * the end), so a PHP payload in a text chunk comes out as pixels or not at all. The report names
  * what was stripped. The kept file is only ever served as image/webp (AdminBuilderAssets::art).
@@ -39,6 +42,8 @@ final class BuilderIntake
 {
     /** The most bytes one file may arrive as (8 MiB). */
     public const MAX_BYTES = 8_388_608;
+    /** The quality a lossy WebP is written again at (GD's imagewebp; its alpha stays lossless). */
+    public const KEPT_QUALITY = 90;
     /** The most a kept file may be after re-encoding (a mediumblob holds 16 MiB). */
     public const MAX_KEPT = 15_728_640;
     public const MAX_SIDE = 4096;
@@ -100,7 +105,7 @@ final class BuilderIntake
         $refused = static fn (): bool => array_filter($findings, static fn (array $f): bool => $f['severity'] === 'refuse') !== [];
         $report = ['name' => $name, 'role' => $role];
         if ($two !== null) {
-            $report['file2'] = ['type' => $two['type'], 'w' => $two['w'], 'h' => $two['h'], 'bytes' => $two['bytes'], 'stripped' => $two['stripped']];
+            $report['file2'] = ['type' => $two['type'], 'w' => $two['w'], 'h' => $two['h'], 'bytes' => $two['bytes'], 'stripped' => $two['stripped']] + (($two['lossy'] ?? false) ? ['lossy' => true] : []);
         }
         if ($three !== null) {
             $report['file3'] = ['type' => $three['type'], 'w' => $three['w'], 'h' => $three['h'], 'bytes' => $three['bytes'], 'stripped' => $three['stripped']];
@@ -152,21 +157,23 @@ final class BuilderIntake
         $report['colour'] = $stats;
         self::style($stats, $role, $ctx['palette'] ?? [], $say);
 
-        $file2 = self::webp($kept, $say);
+        // Lossy in, lossy kept: a lossy WebP is written again lossy, everything else lossless.
+        $lossy = ($two['lossy'] ?? false) === true;
+        $file2 = self::webp($kept, $say, $lossy);
         $file3 = null;
         if ($img3 !== null && $three !== null) {
             $k3w = (int) round($kw * 1.5);
             $k3h = (int) round($kh * 1.5);
             $x3 = max(0, min($three['w'] - $k3w, (int) round($side * 1.5)));
             $y3 = max(0, $three['h'] - $k3h);
-            $file3 = self::webp(self::cleared($img3, $x3, $y3, min($k3w, $three['w']), min($k3h, $three['h'])), $say);
+            $file3 = self::webp(self::cleared($img3, $x3, $y3, min($k3w, $three['w']), min($k3h, $three['h'])), $say, ($three['lossy'] ?? false) === true);
         }
         if ($file2 === null || ($img3 !== null && $file3 === null) || $refused()) {
             return self::done(false, $report, $findings);
         }
         $sha = hash('sha256', $file2);
         $report['sha256'] = $sha;
-        $report['kept'] = ['w' => $kw, 'h' => $kh, 'bytes' => strlen($file2)] + ($file3 !== null ? ['bytes3' => strlen($file3)] : []);
+        $report['kept'] = ['w' => $kw, 'h' => $kh, 'bytes' => strlen($file2), 'encoding' => $lossy ? 'lossy q' . self::KEPT_QUALITY : 'lossless'] + ($file3 !== null ? ['bytes3' => strlen($file3)] : []);
         $report['id'] = 'in-' . substr($sha, 0, 16);
         $asset = ['origin' => 'new', 'licence' => $prov['licence']];
         $asset['source'] = $prov['author'] . (isset($prov['tool']) ? ' with ' . $prov['tool'] : '');
@@ -403,7 +410,7 @@ final class BuilderIntake
         return ['type' => 'png', 'w' => $w, 'h' => $h, 'alpha' => $alpha, 'stripped' => $stripped];
     }
 
-    /** @return array{type: string, w: int, h: int, alpha: bool, stripped: list<string>} */
+    /** @return array{type: string, w: int, h: int, alpha: bool, stripped: list<string>, lossy: bool} */
     public static function walkWebp(string $b): array
     {
         $len = strlen($b);
@@ -416,6 +423,7 @@ final class BuilderIntake
         $w = $h = 0;
         $alpha = false;
         $image = false;
+        $lossy = false;
         $stripped = [];
         for ($n = 0; $at < $len; $n++) {
             if ($n > 10_000 || $at + 8 > $len) {
@@ -469,6 +477,7 @@ final class BuilderIntake
                         $h = unpack('v', substr($data, 8, 2))[1] & 0x3FFF;
                     }
                     $image = true;
+                    $lossy = true;
                     break;
                 case 'ALPH':
                     break;
@@ -479,7 +488,7 @@ final class BuilderIntake
         if (!$image || $w < 1 || $h < 1) {
             throw $bad('the WebP has no image data.');
         }
-        return ['type' => 'webp', 'w' => $w, 'h' => $h, 'alpha' => $alpha, 'stripped' => $stripped];
+        return ['type' => 'webp', 'w' => $w, 'h' => $h, 'alpha' => $alpha, 'stripped' => $stripped, 'lossy' => $lossy];
     }
 
     /** GD's reading of the pixels, as a true colour image with alpha, or null (refused). */
@@ -703,18 +712,18 @@ final class BuilderIntake
         }
     }
 
-    /** A lossless WebP of the image, or null (refused). */
-    private static function webp(\GdImage $img, callable $say): ?string
+    /** A WebP of the image (lossless, or lossy at KEPT_QUALITY with its alpha lossless), or null (refused). */
+    private static function webp(\GdImage $img, callable $say, bool $lossy = false): ?string
     {
         ob_start();
-        $ok = imagewebp($img, null, defined('IMG_WEBP_LOSSLESS') ? IMG_WEBP_LOSSLESS : 101);
+        $ok = imagewebp($img, null, $lossy ? self::KEPT_QUALITY : (defined('IMG_WEBP_LOSSLESS') ? IMG_WEBP_LOSSLESS : 101));
         $out = (string) ob_get_clean();
         if (!$ok || strlen($out) < 20 || substr($out, 0, 4) !== 'RIFF' || substr($out, 8, 4) !== 'WEBP') {
             $say('format', 'refuse', 'encode', 'The picture could not be written again as a WebP.');
             return null;
         }
         if (strlen($out) > self::MAX_KEPT) {
-            $say('size', 'refuse', 'too_large', 'Written again as a lossless WebP it is over 15 MB. Send it smaller.');
+            $say('size', 'refuse', 'too_large', 'Written again as a WebP it is over 15 MB. Send it smaller.');
             return null;
         }
         return $out;
