@@ -20,7 +20,8 @@ use Minn\RestError;
  * the publish request. An administrator's session or a builder key with the scope (BuilderAuth).
  *
  *   POST builder/drafts/{id}/validate {rules?, reach?}  validate scope; the report (7.2), at the current rev
- *   GET  builder/drafts/{id}/render.png                  render scope; image/png; X-Builder-Rev, X-Builder-Findings: <error>,<warn>
+ *   GET  builder/drafts/{id}/render.png                  render scope; image/png; X-Builder-Rev, X-Builder-Findings: <error>,<warn>,
+ *        X-Builder-Art-Left-Out: <n> <name>,<name> (new art over ART_BYTES, drawn as placeholders; AST-007 on the render)
  *        ?street=<key>&view=full|camera&x=&y=&w=&h=&scale=0.05..1&overlay=geometry,reach,findings,arrivals,populations,grid,effects&layers=a,b
  *   POST builder/drafts/{id}/publish-request {note}      drafts:write; marks the draft ready (publishing stays local, P6)
  *   GET  builder/decos?q=&layer=&hub=&family=&animated=&limit=   drafts:read; catalog rows, best first
@@ -33,8 +34,13 @@ final readonly class AdminBuilderAgent
 {
     private const BASE = '/groddle/v1/admin/builder';
     public const OVERLAYS = ['geometry', 'reach', 'findings', 'arrivals', 'populations', 'grid', 'effects'];
-    /** New art sent to the worker with a render, at most (base64 grows it by a third). */
-    private const ART_BYTES = 6_000_000;
+    /**
+     * New art sent to the worker with a render, at most (base64 grows it by a third; the worker
+     * takes 24 MB a call). 12 MB carries a whole AI-art street as WebP with room to spare (lane
+     * GROUNDED: Mount Ashomel's 27 pieces are 1.9 MB kept); what still does not fit is named, never
+     * dropped silently: X-Builder-Art-Left-Out and an AST-007 finding on the render.
+     */
+    public const ART_BYTES = 12_000_000;
 
     public function __construct(private Seams $minn)
     {
@@ -76,13 +82,15 @@ final readonly class AdminBuilderAgent
             if (!$street instanceof \stdClass) {
                 throw new RestError('builder_not_found', 'This draft has no street with that key.', 404);
             }
+            [$art, $left] = $this->art($row['zone'], $street);
             $reply = (new BuilderWorker($this->minn))->call('render', [
                 'draft' => $id,
                 'rev' => $row['rev'],
                 'zone' => $row['zone'],
                 'params' => $params,
                 'assetFiles' => $this->assetFiles($id),
-                'art' => $this->art($row['zone'], $street),
+                'art' => $art === [] ? new \stdClass() : $art,
+                'artLeftOut' => array_map(static fn (string $n): array => ['name' => $n, 'why' => 'over the ' . (int) (self::ART_BYTES / 1_000_000) . ' MB of new art a render carries'], $left),
             ], 45.0, 6_000_000);
             if ($reply->code !== 200 || !str_starts_with($reply->body, "\x89PNG")) {
                 $data = json_decode($reply->body, true);
@@ -95,6 +103,7 @@ final readonly class AdminBuilderAgent
                 'X-Builder-Rev' => (string) $row['rev'],
                 'X-Builder-Findings' => (string) ($reply->header('x-builder-findings') ?? ''),
                 'X-Builder-Size' => (string) ($reply->header('x-builder-size') ?? ''),
+                'X-Builder-Art-Left-Out' => count($left) . ($left === [] ? '' : ' ' . implode(',', $left)),
             ], $reply->body));
         } catch (RestError $e) {
             return BuilderAuth::refusal($e);
@@ -207,9 +216,20 @@ final readonly class AdminBuilderAgent
 
     /**
      * The 2x files of the new art one street draws (its decos', and its effects' particle art),
-     * base64 by sha256 (the render page draws them). @return array<string, string>
+     * base64 by sha256 (the render page draws them), up to ART_BYTES; and the names left out (a
+     * missing file, or over the budget). @return array{0: array<string, string>, 1: list<string>}
      */
     private function art(\stdClass $zone, \stdClass $street): array
+    {
+        return self::pickArt($zone, $street, fn (string $sha): ?string => (new BuilderAssets($this->minn->db))->file($sha));
+    }
+
+    /**
+     * PURE (given the files): which art goes with a render. Smallest first, so as many pieces as
+     * fit go; the rest are named. @param callable(string): ?string $file
+     * @return array{0: array<string, string>, 1: list<string>}
+     */
+    public static function pickArt(\stdClass $zone, \stdClass $street, callable $file, int $budget = self::ART_BYTES): array
     {
         $used = [];
         foreach (is_array($street->layers ?? null) ? $street->layers : [] as $layer) {
@@ -224,19 +244,33 @@ final readonly class AdminBuilderAgent
                 $used[$e->sprite] = true;
             }
         }
-        $assets = new BuilderAssets($this->minn->db);
-        $out = [];
-        $total = 0;
+        $files = [];
+        $left = [];
         foreach (array_keys($used) as $name) {
             $sha = $zone->assets->{$name}->sha256 ?? null;
-            $bytes = is_string($sha) ? $assets->file($sha) : null;
-            if ($bytes === null || $total + strlen($bytes) > self::ART_BYTES) {
+            if (!is_string($sha)) {
+                continue; // a library twin or art with no kept file: not this budget's to name
+            }
+            $bytes = $file($sha);
+            if ($bytes === null) {
+                $left[] = $name;
+                continue;
+            }
+            $files[] = [$name, $sha, $bytes];
+        }
+        usort($files, static fn (array $a, array $b): int => strlen($a[2]) <=> strlen($b[2]) ?: strcmp($a[0], $b[0]));
+        $out = [];
+        $total = 0;
+        foreach ($files as [$name, $sha, $bytes]) {
+            if ($total + strlen($bytes) > $budget) {
+                $left[] = $name;
                 continue;
             }
             $total += strlen($bytes);
             $out[$sha] = base64_encode($bytes);
         }
-        return $out;
+        sort($left);
+        return [$out, $left];
     }
 
     /** @return array{id: string, title: string, rev: int, state: string, zone: \stdClass} */
