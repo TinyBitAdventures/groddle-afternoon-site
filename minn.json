@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.29",
+  "version": "0.5.30",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -353,6 +353,7 @@
       "id varchar(40) NOT NULL",
       "owner_id bigint(20) unsigned NOT NULL",
       "class_tsid varchar(32) NOT NULL",
+      "place varchar(10) NOT NULL DEFAULT 'street'",
       "rx int(11) NOT NULL DEFAULT 0",
       "fuel int(11) NOT NULL DEFAULT 0",
       "music tinyint(1) NOT NULL DEFAULT 1",

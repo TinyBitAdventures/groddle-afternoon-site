@@ -44,8 +44,21 @@ use Minn\RestError;
  *   with it (the remake's machines are pack tools).
  * - Where it may stand (machine_stand.js canDrop 770-788): not within 200 px
  *   of another machine nor within 70 px of an end of the street. Ours: at most
- *   8 on one street; only the owner's own home street (the source allowed any
- *   street but an instance).
+ *   8 in one place; only the owner's own home: the home street, the house
+ *   (its ground floor, HOUSE_<id>) and the Tower's floors (lane HOMES2, Austin
+ *   2026-11-01: "Machines may stand on the home street, in the house and in
+ *   the Tower"; the source allowed any location but an instance). Each row
+ *   keeps its place ("street", "house", "tower:<floor>"), named by the
+ *   realtime server from the street the actor stands on; the 200 px counts
+ *   only machines in the same place (findCloseStack looks through one
+ *   location's items, players/player.js 1152-1186), and in a room the ends
+ *   are its inner walls (the house's side walls 76 px inside each end
+ *   segment, a Tower floor's 130 to 1102: the game's home-decor
+ *   interiorBounds, data "rooms").
+ * - Only a machine on the home street pays the owner's pool: the house is not
+ *   public (inc_cultivation.js:170) and the Magic Rock reads only the home
+ *   street's rewards (players/inc_houses.js 1706-1709), so a Tower's were
+ *   never collected.
  *
  * Everything that moves items goes through the ledger (G335), the same
  * bookkeeping LedgerSpend uses: a job's ingredients and a refuel's Fuel Cells
@@ -64,11 +77,11 @@ use Minn\RestError;
  * taken).
  *
  *   POST groddle/v1/homes/machines   (the realtime server, signed; home_machines.go)
- *        {"op":"hm-<16 hex>","owner":7,"actor":9,"verb":"place|take|use|collect|refuel|music|check",
+ *        {"op":"hm-<16 hex>","owner":7,"actor":9,"place":"street|house|tower:<0..8>","verb":"place|take|use|collect|refuel|music|check",
  *         "id":"hm-…","class":"fuelmaker","rx":120,"fuel":50,"key":"fuel_cell","qty":2,"all":true,"force":true,"on":true}
  *        200 {"status":"settled","machine":{…}|null,"gone":"hm-…"?,"receipt":{"op","gave"|"got"}?,"taken":{"class","fuel"}?,"paid":[…],"now":ms}
  *        | 409 {"status":"refused","why":"…","text":"…","machine":{…}|null,"now":ms}
- *   GET  groddle/v1/homes/{owner}/machines   anyone not blocked: the machines as they stand, and whether I may pick one up
+ *   GET  groddle/v1/homes/{owner}/machines   anyone not blocked: the machines as they stand (each with its place), whether I may pick one up, and the house's back yard and wall segments
  *   GET  groddle/v1/homes/machines           mine to apply: my placed machines (id, class), and what I picked up (dropped once my save lists it)
  *
  * Table groddle_home_machines.
@@ -80,6 +93,8 @@ final readonly class HomeMachines
     public const SLICE = 'home-machines';
     public const STREET = 'RH_HOME_EXT';
     public const VERBS = ['place', 'take', 'use', 'collect', 'refuel', 'music', 'check'];
+    public const PLACE_STREET = 'street';
+    public const PLACE_HOUSE = 'house';
     public const ENGINEERING = 'engineering_1';
     /** The furthest from the house a machine may stand (ours: past any yard). */
     public const RX_MAX = 20000;
@@ -130,9 +145,14 @@ final readonly class HomeMachines
             || ($verb !== 'place' && $verb !== 'check' && !self::opId($b['id'] ?? null))) {
             throw new RestError('groddle_machine_invalid', 'Name the act.', 400);
         }
+        $place = $b['place'] ?? self::PLACE_STREET;
+        if (!self::placeId($place)) {
+            throw new RestError('groddle_machine_invalid', 'Name the place.', 400);
+        }
         if ($owner !== $actor && $this->blocked($owner, $actor)) {
             return Response::json(['status' => 'refused', 'why' => 'blocked', 'text' => self::TEXT_BLOCKED, 'now' => self::nowMs()], 409);
         }
+        $b['place'] = $place;
         $mayTake = $verb === 'take' && ($owner === $actor || (new Neighbours($this->minn))->holdsKeyTo($owner, $actor));
         $out = Ledger::atomically($this->minn->db, fn (): array => $this->run($op, $owner, $actor, $verb, $b, $mayTake));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
@@ -165,22 +185,27 @@ final readonly class HomeMachines
                 return $refuse('no_home', HomePool::TEXT_NO_HOME);
             }
             $class = $b['class'] ?? null;
-            $placed = array_values(array_filter($rows, static fn (array $r): bool => $r['status'] === 'placed'));
-            $why = self::placeWhy($rules, $placed, $class, $b['rx'] ?? null);
+            $place = (string) $b['place'];
+            $placed = array_values(array_filter($rows, static fn (array $r): bool => $r['status'] === 'placed' && $r['place'] === $place));
+            $span = self::span($rules, $place, $state);
+            if ($span === false) {
+                return $refuse('here', sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')));
+            }
+            $why = self::placeWhy($rules, $placed, $class, $b['rx'] ?? null, $span);
             if ($why !== null) {
                 return $refuse($why, $why === 'many' ? self::TEXT_MANY : sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')));
             }
             $fuel = max(0, min((int) $rules['maxFuel'], is_int($b['fuel'] ?? null) ? $b['fuel'] : (int) $rules['fresh']));
-            $row = ['id' => $op, 'owner' => $owner, 'class' => $class, 'rx' => (int) $b['rx'], 'fuel' => $fuel, 'music' => true, 'job' => null, 'contents' => [], 'status' => 'placed', 'taken_op' => null, 'taker' => null];
+            $row = ['id' => $op, 'owner' => $owner, 'class' => $class, 'place' => $place, 'rx' => (int) $b['rx'], 'fuel' => $fuel, 'music' => true, 'job' => null, 'contents' => [], 'status' => 'placed', 'taken_op' => null, 'taker' => null];
             $stamp = gmdate('Y-m-d H:i:s');
-            $db->execute("INSERT INTO {$t} (id, owner_id, class_tsid, rx, fuel, music, job, contents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, NULL, '{}', 'placed', ?, ?)",
-                [$op, $owner, $class, $row['rx'], $fuel, $stamp, $stamp]);
+            $db->execute("INSERT INTO {$t} (id, owner_id, class_tsid, place, rx, fuel, music, job, contents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, NULL, '{}', 'placed', ?, ?)",
+                [$op, $owner, $class, $place, $row['rx'], $fuel, $stamp, $stamp]);
             return $answer('settled', ['machine' => self::view($row)]);
         }
 
         if ($verb === 'check') {
             $id = $b['id'] ?? null;
-            return $answer('settled', ['machine' => is_string($id) && isset($rows[$id]) && $rows[$id]['status'] === 'placed' ? self::view($rows[$id]) : null]);
+            return $answer('settled', ['machine' => is_string($id) && isset($rows[$id]) && $rows[$id]['status'] === 'placed' && $rows[$id]['place'] === $b['place'] ? self::view($rows[$id]) : null]);
         }
 
         $id = (string) $b['id'];
@@ -192,7 +217,8 @@ final readonly class HomeMachines
             }
         }
         $row = $rows[$id] ?? null;
-        if ($row === null || $row['status'] !== 'placed') {
+        // The actor stands where the machine does (the verbs' ok_states "in_location").
+        if ($row === null || $row['status'] !== 'placed' || $row['place'] !== $b['place']) {
             return $refuse('gone', self::TEXT_GONE);
         }
         $label = self::label($rules, $row['class']);
@@ -308,6 +334,9 @@ final readonly class HomeMachines
             'owner' => $owner,
             'name' => (new Characters($db))->namesOf([$owner])[$owner] ?? '',
             'cult' => is_object($homes?->cult ?? null) ? $homes->cult : (object) [],
+            // Where the house's machines stand: past the back yard, between the house's walls.
+            'backYard' => is_object($homes?->backYard ?? null) ? $homes->backYard : (object) [],
+            'segments' => self::houseSegments(self::rules(), $state),
             'mayTake' => $owner === $me || (new Neighbours($this->minn))->holdsKeyTo($owner, $me),
         ]);
     }
@@ -350,8 +379,48 @@ final readonly class HomeMachines
         return (string) ($rules['machines'][$class]['label'] ?? $class);
     }
 
-    /** machine_stand.js canDrop and ours: why a machine may not stand at rx, or null. */
-    public static function placeWhy(array $rules, array $placed, mixed $class, mixed $rx): ?string
+    public static function placeId(mixed $place): bool
+    {
+        return is_string($place) && preg_match('/^(street|house|tower:[0-8])$/', $place) === 1;
+    }
+
+    /** The house's wall segments in a stored save (home-decor normalizeHomeDecorState: 6 to 20, 7 when unset). */
+    public static function houseSegments(array $rules, ?object $state): int
+    {
+        $room = $rules['rooms'];
+        $decor = $state?->systems?->features?->homes?->decor ?? null;
+        $n = is_object($decor) && is_numeric($decor->wallSegments ?? null) ? (int) floor((float) $decor->wallSegments) : (int) $room['startSegments'];
+        return max((int) $room['minSegments'], min((int) $room['maxSegments'], $n));
+    }
+
+    /**
+     * Where a machine may go in a place: null on the home street (the game
+     * checks its ends from the street's layout), [lo, hi] in room x for the
+     * house or a Tower floor (the inner walls), or false when there is no such
+     * room (no Tower, or a floor it does not have).
+     *
+     * @return array{0: int, 1: int}|false|null
+     */
+    public static function span(array $rules, string $place, ?object $state): array|false|null
+    {
+        $room = $rules['rooms'];
+        if ($place === self::PLACE_STREET) {
+            return null;
+        }
+        if ($place === self::PLACE_HOUSE) {
+            $w = self::houseSegments($rules, $state) * (int) $room['segmentW'];
+            return [(int) $room['endCap'], $w - (int) $room['endCap']];
+        }
+        $tower = $state?->systems?->features?->{'home-tower'} ?? null;
+        $floor = (int) substr($place, 6);
+        if (!is_object($tower) || ($tower->built ?? false) !== true || $floor >= (int) ($tower->floors ?? 0)) {
+            return false;
+        }
+        return [(int) $room['towerLeft'], (int) $room['towerRight']];
+    }
+
+    /** machine_stand.js canDrop and ours: why a machine may not stand at rx (in the place's span, when it has one), or null. */
+    public static function placeWhy(array $rules, array $placed, mixed $class, mixed $rx, ?array $span = null): ?string
     {
         if (!is_string($class) || !isset($rules['machines'][$class])) {
             return 'class';
@@ -361,6 +430,9 @@ final readonly class HomeMachines
         }
         if (!is_int($rx) || abs($rx) > self::RX_MAX) {
             return 'here';
+        }
+        if ($span !== null && ($rx <= $span[0] + (int) $rules['edge'] || $rx >= $span[1] - (int) $rules['edge'])) {
+            return 'edge';
         }
         foreach ($placed as $r) {
             if (abs((int) $r['rx'] - $rx) < (int) $rules['spacing']) {
@@ -492,7 +564,8 @@ final readonly class HomeMachines
             if ($items !== []) {
                 $row['contents'][$user] = ['items' => $items, 'at' => (int) $job['ready']];
             }
-            if ((int) $job['user'] !== $owner) {
+            // Only the home street pays (inc_cultivation.js:170 is_public; inc_houses.js 1706-1709 reads the street's alone).
+            if ((int) $job['user'] !== $owner && ($row['place'] ?? self::PLACE_STREET) === self::PLACE_STREET) {
                 $paid = ['user' => (int) $job['user'], 'amount' => (int) $rules['pool'], 'day' => HomePool::dayOf((int) $job['ready']), 'id' => $row['id']];
             }
             $row['job'] = null;
@@ -513,6 +586,7 @@ final readonly class HomeMachines
         return [
             'id' => $row['id'],
             'class' => $row['class'],
+            'place' => $row['place'] ?? self::PLACE_STREET,
             'rx' => $row['rx'],
             'fuel' => $row['fuel'],
             'music' => $row['music'],
@@ -542,6 +616,7 @@ final readonly class HomeMachines
             'id' => (string) $r['id'],
             'owner' => (int) $r['owner_id'],
             'class' => (string) $r['class_tsid'],
+            'place' => self::placeId($r['place'] ?? null) ? (string) $r['place'] : self::PLACE_STREET,
             'rx' => (int) $r['rx'],
             'fuel' => (int) $r['fuel'],
             'music' => (int) $r['music'] === 1,
