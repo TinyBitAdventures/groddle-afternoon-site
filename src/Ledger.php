@@ -471,20 +471,54 @@ final readonly class Ledger
         $this->lock($user, $now);
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
         foreach ($pending as $p) {
-            // G332: a give carries a note's writing or a wrapped box (LedgerGift), which a count alone cannot; a furniture sale takes that very piece out of the house (LedgerFurniture); a picked-up tool its wear (LedgerDrop).
-            $entries = match (true) {
-                LedgerGift::isGift($p['trade']) => LedgerGift::catchUp($this->db, $entries, $user, $p),
-                LedgerFurniture::isSale($p['trade']) => LedgerFurniture::catchUp($this->db, $entries, $user, $p),
-                // A tool picked up keeps its wear (the stack's points), as a live pickup does.
-                LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
-                // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.
-                LedgerUse::isUse($p['trade']) => LedgerUse::catchUp($entries, $p),
-                default => LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']),
-            };
+            $entries = $this->applyOne($entries, $user, $p);
             $this->stamp($p['trade'], $this->sideOf($p['trade'], $user), $now);
             $this->log($user, 'credit', ['trade' => $p['trade'], 'applied' => 'on load'], $now);
         }
         return ['entries' => $entries, 'changed' => $pending !== []];
+    }
+
+    /**
+     * A copy the player keeps over one saved elsewhere (MultiplayerSave takeover): every
+     * settled trade the other copy applied since this copy was last saved ($since, the
+     * server's time of that save; never more than PENDING_FOR back) and this copy does not
+     * list is applied to it, as a boot read applies what nobody has. So a gift, sale, pickup
+     * or swap the other window took in counts once, and what it gave away does not come back.
+     * Trades not applied anywhere yet stay pending for the write's own check.
+     */
+    public function reapply(int $user, array $entries, int $since, int $now): array
+    {
+        $this->lock($user, $now);
+        $from = gmdate('Y-m-d H:i:s', max($since - 2, $now - self::PENDING_FOR));
+        $t = $this->db->table(self::TRADES);
+        $rows = $this->db->rows("SELECT trade_id, a_id, b_id, a_gave, b_gave FROM {$t} WHERE status = 'settled' AND ((a_id = ? AND a_applied_at >= ?) OR (b_id = ? AND b_applied_at >= ?)) ORDER BY created_at, trade_id", [$user, $from, $user, $from]);
+        foreach ($rows as $r) {
+            $id = (string) $r['trade_id'];
+            if (in_array($id, LedgerMath::applied($entries), true)) {
+                continue;
+            }
+            $gaveA = LedgerMath::goods(json_decode((string) $r['a_gave'], true));
+            $gaveB = LedgerMath::goods(json_decode((string) $r['b_gave'], true));
+            $p = (int) $r['a_id'] === $user ? ['trade' => $id, 'gave' => $gaveA, 'got' => $gaveB] : ['trade' => $id, 'gave' => $gaveB, 'got' => $gaveA];
+            $entries = $this->applyOne($entries, $user, $p);
+            $this->log($user, 'credit', ['trade' => $id, 'applied' => 'on takeover'], $now);
+        }
+        return $entries;
+    }
+
+    /** One settled trade applied to a stored save, the way its kind needs. */
+    private function applyOne(array $entries, int $user, array $p): array
+    {
+        // G332: a give carries a note's writing or a wrapped box (LedgerGift), which a count alone cannot; a furniture sale takes that very piece out of the house (LedgerFurniture); a picked-up tool its wear (LedgerDrop).
+        return match (true) {
+            LedgerGift::isGift($p['trade']) => LedgerGift::catchUp($this->db, $entries, $user, $p),
+            LedgerFurniture::isSale($p['trade']) => LedgerFurniture::catchUp($this->db, $entries, $user, $p),
+            // A tool picked up keeps its wear (the stack's points), as a live pickup does.
+            LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
+            // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.
+            LedgerUse::isUse($p['trade']) => LedgerUse::catchUp($entries, $p),
+            default => LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']),
+        };
     }
 
     private function sideOf(string $trade, int $user): string

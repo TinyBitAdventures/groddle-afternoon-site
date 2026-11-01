@@ -188,7 +188,8 @@ final readonly class AdminTeleport
             $entries = array_filter((array) $save->entries, 'is_string');
             $entries['location'] = TeleportPlace::locationEntry($tsid, $at['x'], $at['y'], (int) floor(microtime(true) * 1000));
             $json = SaveShape::encode(['kind' => $save->kind, 'format' => $save->format, 'entries' => $entries]);
-            $db->execute("UPDATE {$table} SET data = ?, version = version + 1, updated_at = ? WHERE user_id = ? AND version = ?", [$json, gmdate('Y-m-d H:i:s'), $user, (int) $row['version']]);
+            // Nobody's page wrote this copy: an open game page is asked before it writes over the move (MultiplayerSave::decide).
+            $db->execute("UPDATE {$table} SET data = ?, version = version + 1, updated_at = ?, writer = '', seq = 0 WHERE user_id = ? AND version = ?", [$json, gmdate('Y-m-d H:i:s'), $user, (int) $row['version']]);
             return true;
         });
     }

@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.27",
+  "version": "0.5.28",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -359,6 +359,8 @@
       "data longtext NOT NULL",
       "version bigint(20) unsigned NOT NULL DEFAULT 0",
       "updated_at datetime NOT NULL",
+      "writer varchar(32) NOT NULL DEFAULT ''",
+      "seq bigint(20) unsigned NOT NULL DEFAULT 0",
       "PRIMARY KEY  (user_id)"
     ],
     "groddle_players": [
