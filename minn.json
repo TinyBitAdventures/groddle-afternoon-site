@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.28",
+  "version": "0.5.29",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -348,6 +348,24 @@
       "PRIMARY KEY  (id)",
       "KEY owner_id (owner_id,at_ms)",
       "KEY visitor_id (visitor_id)"
+    ],
+    "groddle_home_machines": [
+      "id varchar(40) NOT NULL",
+      "owner_id bigint(20) unsigned NOT NULL",
+      "class_tsid varchar(32) NOT NULL",
+      "rx int(11) NOT NULL DEFAULT 0",
+      "fuel int(11) NOT NULL DEFAULT 0",
+      "music tinyint(1) NOT NULL DEFAULT 1",
+      "job text NULL",
+      "contents text NULL",
+      "status varchar(8) NOT NULL DEFAULT 'placed'",
+      "taken_op varchar(40) NULL",
+      "taker_id bigint(20) unsigned NULL",
+      "created_at datetime NOT NULL",
+      "updated_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY owner_id (owner_id)",
+      "KEY taker_id (taker_id)"
     ],
     "groddle_home_visitors": [
       "user_id bigint(20) unsigned NOT NULL",

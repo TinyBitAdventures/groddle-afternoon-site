@@ -1,0 +1,16 @@
+{"_doc":"Written by groddle-afternoon game tools/build-home-machines.mjs from js/home-machines.js, js/machines.js, js/machine-rooms.js and assets/content/recipes.json: machines each machine's label, the skill its use needs and its recipes (waitMs a unit, fuel the tank a unit burns, limit the task limit, in and out per unit); pool the Magic Rock iMG a finished job by someone not the owner adds (inc_making.js:836); maxFuel, perCell and fresh the tank; extraMs a job's added time; dayMs a game day; storeDays how long output waits for anyone but the owner; spacing and edge where one may stand; max machines a home street keeps; saveFuel and taskCards the cards that change fuel and the task limit.",
+"pool":7,"maxFuel":200,"perCell":50,"fresh":50,"extraMs":2200,"dayMs":14400000,"storeDays":6,"spacing":200,"edge":70,"max":8,
+"saveFuel":{"blockmaking_save_fuel_2":0.4,"blockmaking_save_fuel_1":0.2},"taskCards":{"recipe_task_limit_machines_2":2,"recipe_task_limit_machines_1":1.5},
+"machines":{
+"blockmaker":{"label":"Blockmaker","skill":"blockmaking_1","recipes":{
+"grade_aa_earth_block":{"id":"190","name":"Urth Block","waitMs":15000,"fuel":5,"limit":10,"in":{"earth":5,"loam":2,"heavy_gas":1},"out":{"grade_aa_earth_block":1}}}},
+"fuelmaker":{"label":"Fuelmaker","skill":"fuelmaking_1","recipes":{
+"fuel_cell":{"id":"192","name":"Fuel Cell","waitMs":20000,"fuel":1,"limit":10,"in":{"jellisac_clump":12,"peat":8,"white_gas":2},"out":{"fuel_cell":1}}}},
+"metalmaker":{"label":"Metal Machine","skill":"metalwork_1","recipes":{
+"girder":{"id":"281","name":"Girder","waitMs":30000,"fuel":12,"limit":5,"in":{"molybdenum":8,"plain_metal":12},"out":{"girder":1}},
+"metal_post":{"id":"280","name":"Metal Bar","waitMs":20000,"fuel":6,"limit":10,"in":{"copper":2,"tin":3},"out":{"metal_post":1}},
+"metal_rod":{"id":"279","name":"Metal Rod","waitMs":10000,"fuel":1,"limit":20,"in":{"tin":1,"plain_metal":1},"out":{"metal_rod":1}}}},
+"woodworker":{"label":"Woodworker","skill":"woodworking_1","recipes":{
+"beam":{"id":"278","name":"Beam","waitMs":20000,"fuel":8,"limit":10,"in":{"wood_post":4},"out":{"beam":1}},
+"board":{"id":"253","name":"Board","waitMs":2500,"fuel":1,"limit":40,"in":{"plank":4},"out":{"board":1}},
+"wood_post":{"id":"277","name":"Wood Post","waitMs":10000,"fuel":2,"limit":20,"in":{"board":4},"out":{"wood_post":1}}}}}}
