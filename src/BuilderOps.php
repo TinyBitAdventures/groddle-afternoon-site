@@ -22,7 +22,7 @@ final class BuilderOps
     public const STREET_FIELDS = ['label', 'internalLabel', 'hubId', 'hubName', 'gradient', 'musicFile', 'noMap', 'fogMap', 'bounds', 'rumble'];
     public const LAYER_FIELDS = ['name', 'z', 'w', 'h', 'hidden', 'filters'];
     public const DECO_FIELDS = ['sprite', 'name', 'signText', 'x', 'y', 'w', 'h', 'z', 'r', 'flip', 'hidden', 'animated'];
-    private const ZONE_FIELDS = ['title', 'notes'];
+    private const ZONE_FIELDS = ['title', 'notes', 'ledges'];
 
     /** Geometry kinds: the street list each lives in, its id prefix and the fields an op may set. */
     public const GEOMETRY = [
