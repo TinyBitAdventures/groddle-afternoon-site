@@ -94,7 +94,7 @@ export function pictureSrc(picture) {
 export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', closed: 'Closed' });
 
 /** What the game knew, in the order and words the old Bug report posts used (src/BugReports.php CONTEXT). */
-export const CONTEXT_LABELS = Object.freeze([['streetName', 'Street'], ['street', 'Street id'], ['x', 'x'], ['y', 'y'], ['build', 'Build'], ['page', 'Page'], ['agent', 'Browser'], ['screen', 'Screen']]);
+export const CONTEXT_LABELS = Object.freeze([['streetName', 'Street'], ['street', 'Street id'], ['x', 'x'], ['y', 'y'], ['build', 'Build'], ['page', 'Page'], ['agent', 'Browser'], ['screen', 'Screen'], ['panels', 'Open windows']]);
 
 /** A report's context as [label, value] rows, errors last, empty ones left out. */
 export function contextRows(ctx) {
