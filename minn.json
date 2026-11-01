@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.30",
+  "version": "0.5.31",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -343,6 +343,7 @@
       "target varchar(24) NOT NULL",
       "verb varchar(8) NOT NULL",
       "took int(11) NOT NULL DEFAULT 0",
+      "what varchar(80) NULL",
       "at_ms bigint(20) unsigned NOT NULL DEFAULT 0",
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (id)",

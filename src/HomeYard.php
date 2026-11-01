@@ -28,10 +28,20 @@ use Minn\RestError;
  *   free is the owner's (set_free: container.owner == pc).
  * - Patches: dig with a shovel and tend with a hoe (items/patch.js verbs.dig
  *   120-214, verbs.tend 315-); removing one is the owner's (verbs.remove 63).
+ *   HOMES2: plant a Seasoned Bean in a tended Patch (verbs.plant 216-310,
+ *   no owner check; not planted, messy or dug, 235-254): the bean leaves the
+ *   visitor's ledger as a spend, the Seedling is the owner's street's with
+ *   the visitor as its planter (plantBean 742-790, owner = pc :747), and the
+ *   planter's grow card sets its timers (patch_seedling.js 218-226); pet a
+ *   Seedling, three pets in all from anyone (patch_seedling.js onPetted
+ *   196-250). Neither adds to the pool.
  * - Trees grown in them: pet, water and harvest (trant_base verbs 463-600,
  *   include/trants.js; wood_tree.js 474-560), a harvest limited per player
  *   and tree a game day (canHarvest). Remove, trantsform and poison are the
- *   owner's or a key-holder's (wood_tree.js 117, 152, 303).
+ *   owner's or a key-holder's (wood_tree.js 117, 152, 303). HOMES2: a Wood
+ *   Tree's harvest too (once a game day per player, canHarvest 586-612): the
+ *   Planks by its maturity are the visitor's (plankProdMap 880-887), and it
+ *   loses a maturity every second harvest (744-764); no pool.
  *
  * - Rocks and resource nodes the owner cultivated (MPVISIT; game
  *   js/yard-stock-mp.js): mine a rock (items/include/mining.js verbs.mine:
@@ -46,6 +56,13 @@ use Minn\RestError;
  *   still waiting for the owner's game, so every visitor and the owner see
  *   one rock. A worn-out cultivation takes no more (cultivation.js addWear,
  *   replaceWithDepleted: the owner's game turns it into its proto).
+ * - HOMES2: a Firefly Hive's Fireflies (firefly_hive.js: one every 60 s up to
+ *   10), whistled into the visitor's own jar (firefly_jar.js verbs.open
+ *   129-216, no owner check); each caught is gone 10 s for everyone and wears
+ *   the hive a use. A jar filled on a home street pays its pool 25
+ *   (firefly_jar.js:383); the site cannot see the visitor's jar, so each
+ *   seventh Firefly a visitor catches there in a game day counts as one
+ *   (data "jarFull").
  *
  * Each of these acts by someone who is not the owner adds a fixed amount to
  * the owner's Magic Rock pool (inc_cultivation.js cultivation_add_img_rewards
@@ -90,9 +107,9 @@ final readonly class HomeYard
 
     public const KINDS = ['animal', 'plot', 'tree', 'rock', 'node'];
     public const ANIMAL_VERBS = ['npc_piggy' => ['pet', 'nibble'], 'npc_butterfly' => ['massage', 'milk'], 'npc_chicken' => ['squeeze']];
-    public const PLOT_VERBS = ['dig', 'tend'];
+    public const PLOT_VERBS = ['dig', 'tend', 'pet', 'plant'];
     public const TREE_VERBS = ['pet', 'water', 'harvest'];
-    public const WOOD_VERBS = ['pet', 'water'];
+    public const WOOD_VERBS = ['pet', 'water', 'harvest'];
     public const LABELS = ['npc_piggy' => 'Piggy', 'npc_butterfly' => 'Butterfly', 'npc_chicken' => 'Chicken'];
 
     /** Animal Kinship VI lets you nibble without petting and milk without a massage first (js/animal-kinship.js). */
@@ -114,6 +131,12 @@ final readonly class HomeYard
     public const TEXT_SMALL = 'This tree is too small to harvest.'; // js/trants.js canHarvestTrant
     public const TEXT_MINED = 'This rock is mined out. Wait for it to respawn.'; // js/mining.js mineRock
     public const TEXT_WORN = 'That has been used up. It needs restoring first.'; // ours: cultivation.js replaceWithDepleted
+    public const TEXT_WOOD_DAILY = 'You can only harvest from this tree once per game day.'; // wood_tree.js:495
+    public const TEXT_PET_NO_MORE = "You don't need to pet this seedling any more. Just wait a few minutes."; // patch_seedling.js:249
+    public const TEXT_PLANTED = "There's already a seedling here."; // patch.js:238
+    public const TEXT_MESSY = 'You should probably tend to the weeds first.'; // patch.js:245
+    public const TEXT_HOLE = 'You need to wait for the hole to fill in first.'; // patch.js:252
+    public const TEXT_NO_BEAN = "You don't have a seasoned bean to plant."; // ours (js/patches.js NO_SEASONED_BEAN_MSG)
     /** js/resource-nodes.js gateVerb (the objects.go notReady words). */
     public const NOT_READY = [
         'mortar_barnacle' => 'This barnacle is not ready yet!', // mortar_barnacle.js:64
@@ -148,6 +171,10 @@ final readonly class HomeYard
         $kind = is_array($b) ? ($b['kind'] ?? null) : null;
         $id = is_array($b) ? ($b['id'] ?? null) : null;
         $verb = is_array($b) ? ($b['verb'] ?? null) : null;
+        $what = is_array($b) ? ($b['what'] ?? null) : null;
+        if ($verb === 'plant' && (!is_string($what) || !isset(self::rules()['beans'][$what]))) {
+            throw new RestError('groddle_yard_invalid', 'Name the bean.', 400);
+        }
         if (!is_string($op) || preg_match('/^yd-[0-9a-f]{16}$/', $op) !== 1 || !is_int($owner) || !is_int($visitor) || $owner <= 0 || $visitor <= 0
             || !in_array($kind, self::KINDS, true) || !self::validId($kind, $id) || !is_string($verb) || preg_match('/^[a-z]{2,8}$/', $verb) !== 1) {
             throw new RestError('groddle_yard_invalid', 'Name the act.', 400);
@@ -161,20 +188,22 @@ final readonly class HomeYard
         $db = $this->minn->db;
         $rules = self::rules();
         $ledger = Ledger::fromSeams($this->minn);
-        $out = Ledger::atomically($db, function () use ($db, $ledger, $rules, $op, $owner, $visitor, $kind, $id, $verb): array {
+        $out = Ledger::atomically($db, function () use ($db, $ledger, $rules, $op, $owner, $visitor, $kind, $id, $verb, $what): array {
             $db->value('SELECT version FROM ' . $db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ? FOR UPDATE', [$owner]);
             $day = HomePool::today();
             $opMark = 'op-' . substr($op, 3);
             $had = $db->value('SELECT amount FROM ' . $db->table(HomePool::MARKS) . ' WHERE owner_id = ? AND visitor_id = ? AND mark = ?', [$owner, $visitor, $opMark]);
             if ($had !== null) {
-                return ['status' => 'settled', 'again' => true, 'added' => (int) $had, 'act' => null];
+                // The same act asked again (the server's retry): a planting's spend as recorded.
+                $spent = $db->value('SELECT a_gave FROM ' . $db->table(Ledger::TRADES) . " WHERE trade_id = ? AND a_id = ? AND status = 'settled'", [$op, $visitor]);
+                return ['status' => 'settled', 'again' => true, 'added' => (int) $had, 'act' => null] + ($spent !== null ? ['receipt' => ['op' => $op, 'gave' => json_decode((string) $spent, true)]] : []);
             }
             $state = Neighbours::state($db, $owner);
             if (!Neighbours::hasHome($state)) {
                 return ['status' => 'refused', 'why' => 'no_home', 'text' => HomePool::TEXT_NO_HOME];
             }
             $t = $db->table(self::TABLE);
-            $waiting = self::unapplied($state, $db->rows("SELECT id, kind, target, verb, took, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id", [$owner]));
+            $waiting = self::unapplied($state, $db->rows("SELECT id, kind, target, verb, took, what, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id", [$owner]));
             if (count($waiting) >= self::WAITING_MAX) {
                 return ['status' => 'refused', 'why' => 'busy', 'text' => self::TEXT_BUSY];
             }
@@ -188,13 +217,27 @@ final readonly class HomeYard
             if (isset($judged['why'])) {
                 return ['status' => 'refused', 'why' => $judged['why'], 'text' => $judged['text']];
             }
+            // HOMES2: a bean planted leaves the visitor's ledger as a spend (LedgerSpend's bookkeeping), once.
+            $receipt = null;
+            $planted = null;
+            if ($verb === 'plant') {
+                $bean = (string) $what;
+                $vstate = $ledger->lock($visitor, time());
+                if (($vstate['items'][$bean] ?? 0) < 1) {
+                    return ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_NO_BEAN];
+                }
+                self::spendOne($db, $ledger, $op, $visitor, $vstate, $bean);
+                $receipt = ['op' => $op, 'gave' => ['items' => [['c' => $bean, 'n' => 1]], 'currants' => 0]];
+                $card = self::growCard($rules, self::upgrades($visitorState));
+                $planted = $bean . ($card !== null ? ':' . $card : '');
+            }
             $pool = (int) ($rules['pool'][$judged['pool'] ?? ''] ?? 0);
             $n = ($uses[$verb . ':' . $id] ?? 0) + 1;
             HomePool::mark($db, $owner, $visitor, $day, 'y-' . $verb . '-' . $id . '-' . $n, $pool);
             HomePool::mark($db, $owner, $visitor, $day, $opMark, $pool);
             $took = (int) ($judged['took'] ?? 0);
-            $db->execute("INSERT INTO {$t} (id, owner_id, visitor_id, kind, target, verb, took, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [$op, $owner, $visitor, $kind, $id, $verb, $took, $nowMs, gmdate('Y-m-d H:i:s')]);
+            $db->execute("INSERT INTO {$t} (id, owner_id, visitor_id, kind, target, verb, took, what, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [$op, $owner, $visitor, $kind, $id, $verb, $took, $planted, $nowMs, gmdate('Y-m-d H:i:s')]);
             HomePool::add($db, $owner, $pool, $day);
             // What the visitor's game will show of the act, as a receipt (credits.go's "take"; LedgerCredits).
             $got = $judged['got'] ?? [];
@@ -210,8 +253,8 @@ final readonly class HomeYard
                 'status' => 'settled',
                 'added' => $pool,
                 'today' => $today,
-                'act' => ['id' => $op, 'kind' => $kind, 'target' => $id, 'verb' => $verb, 'took' => $took, 'at' => $nowMs, 'got' => (object) $got] + (isset($judged['left']) ? ['left' => $judged['left']] : []),
-            ];
+                'act' => ['id' => $op, 'kind' => $kind, 'target' => $id, 'verb' => $verb, 'took' => $took, 'at' => $nowMs, 'got' => (object) $got] + (isset($judged['left']) ? ['left' => $judged['left']] : []) + ($planted !== null ? ['what' => $planted] : []),
+            ] + ($receipt !== null ? ['receipt' => $receipt] : []);
         });
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
@@ -232,7 +275,7 @@ final readonly class HomeYard
         if (!Neighbours::hasHome($state)) {
             throw new RestError('groddle_yard_none', HomePool::TEXT_NO_HOME, 404);
         }
-        $waiting = self::unapplied($state, $db->rows('SELECT id, kind, target, verb, took, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id', [$owner]));
+        $waiting = self::unapplied($state, $db->rows('SELECT id, kind, target, verb, took, what, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id', [$owner]));
         $nowMs = (int) floor(microtime(true) * 1000);
         $rules = self::rules();
         // MPVISIT: the rocks and resource nodes as they stand now (worn-out ones are protos: not listed).
@@ -243,9 +286,14 @@ final readonly class HomeYard
             }
         }
         $nodes = [];
-        foreach (self::homeNodes($rules, $state) as $n) {
-            if (!self::worn($rules, $state, $waiting, $n['item'])) {
-                $nodes[] = ['id' => $n['id'], 'classTsid' => $n['classTsid'], 'rx' => $n['rx'], 'dy' => $n['dy'], 'node' => self::nodeNow($rules, $state, $waiting, $n, $nowMs)];
+        foreach (self::homeNodes($rules, $state, $nowMs) as $n) {
+            if (!self::worn($rules, $state, $waiting, $n['item'], $nowMs)) {
+                $node = self::nodeNow($rules, $state, $waiting, $n, $nowMs);
+                // A Firefly caught is away until it comes back (resource-nodes 'respawn' stock).
+                if ($n['cls'] === 'npc_firefly' && $node['units'] < 1) {
+                    $node += ['depleted' => true, 'respawnAt' => $node['regrowAt']];
+                }
+                $nodes[] = ['id' => $n['id'], 'classTsid' => $n['classTsid'], 'rx' => $n['rx'], 'dy' => $n['dy'], 'node' => $node];
             }
         }
         $patches = [];
@@ -290,12 +338,13 @@ final readonly class HomeYard
         if ($applied !== []) {
             $db->execute("DELETE FROM {$t} WHERE owner_id = ? AND id IN (?)", [$me, $applied]);
         }
-        $rows = $db->rows("SELECT id, visitor_id, kind, target, verb, took, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id LIMIT " . self::WAITING_MAX, [$me]);
+        $rows = $db->rows("SELECT id, visitor_id, kind, target, verb, took, what, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id LIMIT " . self::WAITING_MAX, [$me]);
         $names = (new Characters($db))->namesOf(array_map(static fn (array $r): int => (int) $r['visitor_id'], $rows));
         $out = [];
         foreach ($rows as $r) {
             $v = (int) $r['visitor_id'];
-            $out[] = ['id' => (string) $r['id'], 'from' => ['id' => $v, 'name' => $names[$v] ?? 'Someone'], 'kind' => (string) $r['kind'], 'target' => (string) $r['target'], 'verb' => (string) $r['verb'], 'took' => (int) $r['took'], 'at' => (int) $r['at_ms']];
+            $out[] = ['id' => (string) $r['id'], 'from' => ['id' => $v, 'name' => $names[$v] ?? 'Someone'], 'kind' => (string) $r['kind'], 'target' => (string) $r['target'], 'verb' => (string) $r['verb'], 'took' => (int) $r['took'], 'at' => (int) $r['at_ms']]
+                + (is_string($r['what'] ?? null) && $r['what'] !== '' ? ['what' => (string) $r['what']] : []);
         }
         return Response::json(['acts' => $out]);
     }
@@ -362,6 +411,20 @@ final readonly class HomeYard
             if (!in_array($verb, self::PLOT_VERBS, true) || $stage === 'tree' || $stage === 'dead') {
                 return ['why' => 'gone', 'text' => self::TEXT_GONE];
             }
+            if ($verb === 'pet') {
+                if ($stage !== 'seedling') {
+                    return ['why' => 'gone', 'text' => self::TEXT_GONE];
+                }
+                return (int) ($plot->seedling->petted ?? 0) >= (int) $rules['seedling']['pets'] ? ['why' => 'petted', 'text' => self::TEXT_PET_NO_MORE] : ['pool' => 'patch_seedling:pet'];
+            }
+            if ($verb === 'plant') {
+                return match ($stage) {
+                    'seedling' => ['why' => 'stage', 'text' => self::TEXT_PLANTED],
+                    'dirty' => ['why' => 'stage', 'text' => self::TEXT_MESSY],
+                    'dug' => ['why' => 'stage', 'text' => self::TEXT_HOLE],
+                    default => ['pool' => 'patch:plant'],
+                };
+            }
             if ($verb === 'tend') {
                 return $stage === 'dirty' ? ['pool' => 'patch:tend'] : ['why' => 'stage', 'text' => self::TEXT_NO_TEND];
             }
@@ -388,6 +451,18 @@ final readonly class HomeYard
         }
         if ($verb === 'water') {
             return ($s->watered ?? false) === true ? ['why' => 'tended', 'text' => $wood ? self::TEXT_WOOD_WATERED : self::TEXT_WATERED] : ['pool' => $poolKey];
+        }
+        if ($wood) {
+            // wood_tree.js doHarvest: once a game day per player (canHarvest 586-612), Planks by maturity (plankProdMap 880-887).
+            $m = (int) ($s->maturity ?? 0);
+            if ($m < 1) {
+                return ['why' => 'gone', 'text' => self::TEXT_GONE];
+            }
+            if (($uses['harvest:' . $id] ?? 0) >= 1) {
+                return ['why' => 'limit', 'text' => self::TEXT_WOOD_DAILY];
+            }
+            $map = ($s->enchanted ?? false) === true ? $rules['wood']['enchanted'] : $rules['wood']['planks'];
+            return ['pool' => $poolKey, 'got' => ['plank' => (int) $map[min(6, $m) - 1]]];
         }
         $arbor = self::arbor($rules, $skills);
         if ((int) ($s->maturity ?? 0) < 3) {
@@ -432,6 +507,22 @@ final readonly class HomeYard
             self::regrow($plot, $at);
             $verb = (string) $w['verb'];
             if ((string) $w['kind'] === 'plot') {
+                if ($verb === 'pet') {
+                    if (($plot->stage ?? '') === 'seedling' && is_object($plot->seedling ?? null)) {
+                        $plot->seedling->petted = min((int) $rules['seedling']['pets'], (int) ($plot->seedling->petted ?? 0) + 1);
+                    }
+                    continue;
+                }
+                if ($verb === 'plant') {
+                    $bean = explode(':', (string) ($w['what'] ?? ''))[0];
+                    if (($plot->stage ?? '') === 'clean' && isset($rules['beans'][$bean])) {
+                        $plot->stage = 'seedling';
+                        $plot->dueAt = 0;
+                        $plot->since = $at;
+                        $plot->seedling = (object) ['trantClass' => $rules['beans'][$bean], 'beanClass' => $bean, 'plantedAt' => $at, 'petted' => 0];
+                    }
+                    continue;
+                }
                 if ($verb === 'tend' && ($plot->stage ?? '') === 'dirty') {
                     $plot->stage = 'clean';
                     $plot->dueAt = $at + (int) $rules['soil']['cleanRegrowMs'];
@@ -447,6 +538,15 @@ final readonly class HomeYard
             }
             if (($verb === 'pet' || $verb === 'water') && $at >= $dayStart) {
                 $s->{$verb === 'pet' ? 'petted' : 'watered'} = true;
+            } elseif ($verb === 'harvest' && ($plot->tree->classId ?? '') === 'wood_tree') {
+                // wood_tree.js 744-764: a maturity off every second harvest, at once at 2 or less.
+                $m = (int) ($s->maturity ?? 0);
+                if ($m > 0 && ($m <= 2 || (int) ($s->harvestCount ?? 0) !== 0)) {
+                    $s->maturity = $m - 1;
+                    $s->harvestCount = 0;
+                } elseif ($m > 0) {
+                    $s->harvestCount = 1;
+                }
             } elseif ($verb === 'harvest') {
                 $s->fruitCount = max(0, (int) ($s->fruitCount ?? 0) - (int) $w['took']);
             }
@@ -505,7 +605,7 @@ final readonly class HomeYard
             return ['pool' => $cleared ? 'rock:' . $def['type'] : '', 'took' => $took, 'got' => [(string) $def['chunk'] => $took], 'left' => max(0, $rock['chunksRemaining'] - $took)];
         }
         $row = null;
-        foreach (self::homeNodes($rules, $state) as $n) {
+        foreach (self::homeNodes($rules, $state, $nowMs) as $n) {
             if ($n['id'] === $id) {
                 $row = $n;
             }
@@ -514,7 +614,7 @@ final readonly class HomeYard
         if ($row === null || $rule === null || $verb !== $rule['verb']) {
             return ['why' => 'gone', 'text' => self::TEXT_GONE];
         }
-        if (self::worn($rules, $state, $waiting, $row['item'])) {
+        if (self::worn($rules, $state, $waiting, $row['item'], $nowMs)) {
             return ['why' => 'worn', 'text' => self::TEXT_WORN];
         }
         $node = self::nodeNow($rules, $state, $waiting, $row, $nowMs);
@@ -532,8 +632,18 @@ final readonly class HomeYard
                 return ['why' => 'limit', 'text' => self::DAILY_TEXT[$row['cls'] . ($limit > 1 ? ':2' : '')] ?? self::DAILY_TEXT[$row['cls']] ?? 'You have done that enough for today.'];
             }
         }
-        [$c, $n] = $rule['yield'];
         $left = $rule['after'] !== null ? (int) $rule['after'] : max((int) $rule['min'], $node['units'] - max(1, (int) $rule['consume']));
+        if ($row['cls'] === 'npc_firefly') {
+            // Into the visitor's jar (a tool's state): nothing credited; every jarFull-th catch here today pays as a full jar (firefly_jar.js:383).
+            $caught = 1;
+            foreach ($uses as $what => $count) {
+                if (str_starts_with((string) $what, 'open:node:npc_firefly:')) {
+                    $caught += (int) $count;
+                }
+            }
+            return ['pool' => $caught % (int) $rules['jarFull'] === 0 ? 'firefly_jar:full' : '', 'took' => 1, 'got' => [], 'left' => $left];
+        }
+        [$c, $n] = $rule['yield'];
         return ['pool' => 'node:' . $row['cls'], 'took' => 1, 'got' => [(string) $c => (int) $n], 'left' => $left];
     }
 
@@ -553,12 +663,31 @@ final readonly class HomeYard
     }
 
     /** The street's resource nodes a visitor may use (homes-feature nodeKeyMap order), each with its cultivation. */
-    public static function homeNodes(array $rules, ?object $state): array
+    public static function homeNodes(array $rules, ?object $state, ?int $nowMs = null): array
     {
         $out = [];
         $counters = [];
+        $nowMs ??= (int) floor(microtime(true) * 1000);
         foreach (self::cultItems($state) as $item) {
             $cult = $rules['cult'][$item->protoClass ?? ''] ?? null;
+            if ($cult !== null && $cult['kind'] === 'hive' && ($item->depleted ?? false) !== true && isset($rules['nodes']['npc_firefly'])) {
+                // HOMES2: the hive's Fireflies (game home-cultivation hiveFireflySpots), keyed npc_firefly:<n>.
+                [$every, $most, $radius] = array_map('intval', $cult['hive']);
+                $placed = is_numeric($item->placedAt ?? null) ? (int) $item->placedAt : 0;
+                $count = min($most, 1 + intdiv(max(0, $nowMs - $placed), max(1, $every)));
+                for ($i = 0; $i < $count; $i++) {
+                    $n = $counters['npc_firefly'] ?? 0;
+                    $counters['npc_firefly'] = $n + 1;
+                    $a = ($i / max(1, $count)) * M_PI * 2 + 0.6;
+                    $out[] = [
+                        'id' => 'node:npc_firefly:' . $n, 'key' => 'npc_firefly:' . $n, 'cls' => 'npc_firefly', 'classTsid' => 'npc_firefly',
+                        'rx' => (is_numeric($item->rx ?? null) ? (int) $item->rx : 0) + (int) round(cos($a) * $radius * 0.6),
+                        'dy' => -40 - ($i % 3) * 22,
+                        'item' => $item,
+                    ];
+                }
+                continue;
+            }
             if ($cult === null || $cult['kind'] !== 'node' || ($item->depleted ?? false) === true) {
                 continue;
             }
@@ -680,7 +809,7 @@ final readonly class HomeYard
      * stored wear (a node cultivation's harvests the owner's game has not
      * counted in yet too) and the waiting acts on its rocks or nodes.
      */
-    public static function worn(array $rules, ?object $state, array $waiting, object $item): bool
+    public static function worn(array $rules, ?object $state, array $waiting, object $item, ?int $nowMs = null): bool
     {
         $cult = $rules['cult'][$item->protoClass ?? ''] ?? null;
         if ($cult === null) {
@@ -699,7 +828,7 @@ final readonly class HomeYard
             }
         } else {
             $harvests = 0;
-            foreach (self::homeNodes($rules, $state) as $n) {
+            foreach (self::homeNodes($rules, $state, $nowMs ?? (int) floor(microtime(true) * 1000)) as $n) {
                 if ($n['item'] === $item) {
                     $mine[] = $n['id'];
                     $s = $state?->world?->streets?->{self::STREET}?->features?->{'resource-nodes'}?->nodes?->{$n['key']} ?? null;
@@ -728,6 +857,35 @@ final readonly class HomeYard
     {
         $list = $state?->player?->imaginationUpgrades ?? [];
         return array_values(array_filter(is_array($list) ? $list : [], 'is_string'));
+    }
+
+    /** The planter's grow card (patch_seedling.js 218-226: the better one first), or null. */
+    public static function growCard(array $rules, array $upgrades): ?string
+    {
+        foreach (array_keys($rules['seedling']['grow']) as $card) {
+            if (in_array($card, $upgrades, true)) {
+                return (string) $card;
+            }
+        }
+        return null;
+    }
+
+    /** One bean leaves the visitor's ledger: a settled trade with nobody (LedgerSpend's bookkeeping), op the act's id. */
+    private static function spendOne(Db $db, Ledger $ledger, string $op, int $id, array $state, string $class): void
+    {
+        $now = time();
+        $t = $db->table(Ledger::ITEMS);
+        $count = (int) ($state['items'][$class] ?? 0) - 1;
+        if ($count <= 0) {
+            $db->execute("DELETE FROM {$t} WHERE user_id = ? AND class_tsid = ?", [$id, $class]);
+        } else {
+            $db->execute("INSERT INTO {$t} (user_id, class_tsid, count) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE count = VALUES(count)", [$id, $class, $count]);
+        }
+        $db->execute('UPDATE ' . $db->table(Ledger::TABLE) . ' SET updated_at = ? WHERE user_id = ?', [gmdate('Y-m-d H:i:s', $now), $id]);
+        $gave = (string) json_encode(['items' => [['c' => $class, 'n' => 1]], 'currants' => 0], JSON_UNESCAPED_SLASHES);
+        $stamp = gmdate('Y-m-d H:i:s', $now);
+        $db->execute('INSERT INTO ' . $db->table(Ledger::TRADES) . " (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, '{\"items\":[],\"currants\":0}', ?, ?)", [$op, $id, $gave, $stamp, $stamp]);
+        $ledger->log($id, 'spend', ['spend' => $op, 'why' => 'home_plant', 'gave' => ['items' => (object) [$class => 1], 'currants' => 0]], $now);
     }
 
     /** Waiting acts the owner's stored save does not yet list as applied (those are in its things already). */
