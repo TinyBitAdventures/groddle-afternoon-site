@@ -21,7 +21,8 @@ namespace Groddle\Minn;
  * trade hold (systems.features.trade.hold, js/trade.js), home furniture
  * storage, placed furniture and Storage Display Boxes (systems.features.
  * homes decor, towerDecor and the upper floors, floors.upper, js/home-decor.js) and stacks dropped on
- * streets (the droppedItems entry, js/world-items.js). Smaller stashes are
+ * streets (the droppedItems entry, js/world-items.js, a dropped bag with what it
+ * holds). Smaller stashes are
  * not counted: taking from one reads as a gain, which the budget pays for.
  *
  * Slice 2 explains gains so the budget can be small: a write's losses may
@@ -138,6 +139,13 @@ final class LedgerMath
                 foreach ((array) $rows as $row) {
                     if (is_array($row)) {
                         $add($row['classTsid'] ?? null, $row['count'] ?? 0);
+                        // A dropped bag is the bag and what it holds (js/world-items.js contents;
+                        // items/include/takeable.js takeable_drop moves a bag with its contents).
+                        foreach (is_array($row['contents'] ?? null) ? $row['contents'] : [] as $it) {
+                            if (is_array($it)) {
+                                $add($it['classTsid'] ?? null, $it['count'] ?? 0);
+                            }
+                        }
                     }
                 }
             }
@@ -624,12 +632,40 @@ final class LedgerMath
                 }
                 $keep = [];
                 foreach ($rows as $row) {
+                    // What a dropped bag holds first, then the bag (a clamped bag's contents go to the pack).
+                    if (is_array($row->contents ?? null)) {
+                        $inside = [];
+                        foreach ($row->contents as $it) {
+                            $ic = $it->classTsid ?? null;
+                            if ($it instanceof \stdClass && is_string($ic) && ($want[$ic] ?? 0) > 0) {
+                                $n = min(self::count($it->count ?? 0), $want[$ic]);
+                                $want[$ic] -= $n;
+                                $it->count = self::count($it->count ?? 0) - $n;
+                                if ($it->count <= 0) {
+                                    continue;
+                                }
+                            }
+                            $inside[] = $it;
+                        }
+                        $row->contents = $inside;
+                    }
                     $c = $row->classTsid ?? null;
                     if (is_string($c) && ($want[$c] ?? 0) > 0) {
                         $n = min(self::count($row->count ?? 0), $want[$c]);
                         $want[$c] -= $n;
                         $row->count = self::count($row->count ?? 0) - $n;
                         if ($row->count <= 0) {
+                            if ($state instanceof \stdClass && is_array($row->contents ?? null)) {
+                                if (!($state->inventory ?? null) instanceof \stdClass) {
+                                    $state->inventory = new \stdClass();
+                                }
+                                foreach ($row->contents as $it) {
+                                    $ic = $it->classTsid ?? null;
+                                    if (is_string($ic)) {
+                                        $state->inventory->{$ic} = self::count($state->inventory->{$ic} ?? 0) + self::count($it->count ?? 0);
+                                    }
+                                }
+                            }
                             continue;
                         }
                     }
