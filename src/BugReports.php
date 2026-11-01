@@ -34,7 +34,7 @@ final readonly class BugReports
     public const MAX_MESSAGE = 2000;
     public const WINDOW = 600;
     public const PER_WINDOW = 3;
-    public const PER_DAY = 20;
+    public const PER_DAY = 50;
     /** Context keys kept, with the most characters each may carry. */
     public const CONTEXT = ['street' => 32, 'streetName' => 80, 'x' => 12, 'y' => 12, 'build' => 80, 'page' => 200, 'agent' => 300, 'screen' => 20, 'panels' => 300];
     public const MAX_ERRORS = 10;

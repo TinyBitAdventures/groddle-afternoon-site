@@ -59,7 +59,7 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `GET/POST buddies`, `DELETE buddies/{id}` | Your buddies (online through the realtime server), who added you, and adding or removing one (1,000 at most, one Buddies group, as in the original) |
 | `POST buddies/ignores`, `DELETE buddies/ignores/{id}` | Blocking a player and un-blocking them |
 | `GET tickets`, `GET tickets/unread`, `GET tickets/{id}` | Your bug reports (status open, answered or closed, and whether an administrator replied since you looked), the count of unread replies, and one thread (which marks it read). Only ever your own: anyone else's answers 404 |
-| `POST tickets` (also `POST feedback`) | A new bug report: the message (at most 2,000 characters), what the game knew (street, place, build, page, browser, screen, the last errors) and, when the player leaves it ticked, a picture of the game (a base64 JPEG); 3 in 10 minutes and 20 a day |
+| `POST tickets` (also `POST feedback`) | A new bug report: the message (at most 2,000 characters), what the game knew (street, place, build, page, browser, screen, the last errors) and, when the player leaves it ticked, a picture of the game (a base64 JPEG); 3 in 10 minutes and 50 a day |
 | `POST tickets/{id}/messages`, `POST tickets/{id}/close` | A reply (it opens a closed report again) and closing your own report |
 | `GET admin/tickets`, `GET admin/tickets/{id}`, `POST admin/tickets/{id}/reply\|close\|reopen`, `POST admin/tickets/migrate` | The console's Reports tab, `manage_options` only, each action in the console's activity log |
 
