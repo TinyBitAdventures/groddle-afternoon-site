@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.26",
+  "version": "0.5.27",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -182,6 +182,32 @@
       "PRIMARY KEY  (id)",
       "KEY owner_id (owner_id,taken_at)",
       "KEY from_id (from_id)"
+    ],
+    "groddle_player_mail": [
+      "id varchar(16) NOT NULL",
+      "from_id bigint(20) unsigned NOT NULL",
+      "to_id bigint(20) unsigned NOT NULL",
+      "deliver_to bigint(20) unsigned NOT NULL",
+      "text varchar(1200) NOT NULL DEFAULT ''",
+      "class_tsid varchar(64) NOT NULL DEFAULT ''",
+      "count int(10) unsigned NOT NULL DEFAULT 0",
+      "r int(10) unsigned NULL DEFAULT NULL",
+      "currants int(10) unsigned NOT NULL DEFAULT 0",
+      "postage int(10) unsigned NOT NULL DEFAULT 0",
+      "reply_to varchar(16) NULL DEFAULT NULL",
+      "quote varchar(1200) NOT NULL DEFAULT ''",
+      "quote_from bigint(20) unsigned NULL DEFAULT NULL",
+      "status varchar(10) NOT NULL DEFAULT 'sent'",
+      "why varchar(10) NULL DEFAULT NULL",
+      "created_at datetime NOT NULL",
+      "deliver_at datetime NOT NULL",
+      "collected_at datetime NULL DEFAULT NULL",
+      "replied_at datetime NULL DEFAULT NULL",
+      "returned_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY from_id (from_id,created_at)",
+      "KEY to_id (to_id)",
+      "KEY deliver_to (deliver_to,deliver_at)"
     ],
     "groddle_auctions": [
       "id varchar(16) NOT NULL",
