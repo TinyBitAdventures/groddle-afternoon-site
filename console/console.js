@@ -17,8 +17,8 @@
  * - Bans with Unban, and the activity log of every administrator's action.
  * - Reports (the second tab; src/AdminTickets.php): players' bug reports as
  *   threads, unread first, with a status filter; a thread shows what the game
- *   knew, the picture of the game when the report carries one (click opens it
- *   full size; pictureSrc), the messages, a reply box (the player is emailed, or with Don't
+ *   knew, the picture of the game when the report carries one (a click opens it
+ *   full size in a popup, Cmd-click in a tab; pictureSrc), the messages, a reply box (the player is emailed, or with Don't
  *   email ticked it is a note they only see in the game; the box stays
  *   ticked from report to report, for closing many related ones) and Close
  *   or Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
@@ -840,6 +840,7 @@ function boot() {
     const fig = $('[data-console-picture]');
     const img = $('[data-console-picture-img]');
     fig.hidden = !src;
+    fig.removeAttribute('data-failed');
     if (src) {
       $('[data-console-picture-link]').href = src;
       if (img.getAttribute('src') !== src) img.src = src;
@@ -911,6 +912,39 @@ function boot() {
     else if (location.hash === '#chat') showTab('chat');
   }
   addEventListener('hashchange', fromHash);
+
+  // == The picture, full size, in a popup over the console ==
+  // A plain click opens it here; Cmd, Ctrl, Shift or a middle click still open the link in a tab.
+  {
+    const link = $('[data-console-picture-link]');
+    const img = $('[data-console-picture-img]');
+    img.addEventListener('error', () => { if (img.getAttribute('src')) $('[data-console-picture]').setAttribute('data-failed', ''); });
+    img.addEventListener('load', () => $('[data-console-picture]').removeAttribute('data-failed'));
+    link.addEventListener('click', (e) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const src = pictureSrc({ url: link.getAttribute('href') });
+      if (!src) return;
+      e.preventDefault();
+      openPicture(src, img.width, img.height);
+    });
+  }
+  function openPicture(src, width, height) {
+    const big = el('img', { src, alt: 'The game when the player reported it', width: width || null, height: height || null });
+    const close = el('button', { type: 'button', class: 'console-lightbox-close', 'aria-label': 'Close', text: '\u00d7' });
+    const tab = el('a', { href: src, target: '_blank', rel: 'noopener', text: 'Open in a new tab' });
+    const dlg = el('dialog', { class: 'console-lightbox', 'aria-label': 'The picture of the game' },
+      el('figure', {}, big, el('figcaption', {}, tab)), close);
+    document.body.append(dlg);
+    const opener = document.activeElement;
+    let gone = false;
+    const done = () => { if (gone) return; gone = true; if (dlg.open) dlg.close(); dlg.remove(); if (opener?.isConnected) opener.focus(); };
+    close.addEventListener('click', done);
+    dlg.addEventListener('close', done);
+    // A click on the picture or the dark around it closes it; the tab link still works.
+    dlg.addEventListener('click', (e) => { if (e.target !== tab) done(); });
+    dlg.showModal();
+    close.focus();
+  }
 
   // == Start ==
   (async () => {

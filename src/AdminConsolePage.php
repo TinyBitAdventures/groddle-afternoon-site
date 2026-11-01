@@ -43,7 +43,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'chat-log-1';
+    public const ASSET_KEY = 'picture-popup-1';
 
     public function __construct(private Seams $minn)
     {
@@ -197,7 +197,8 @@ HTML
         </details>
         <figure class="console-picture" data-console-picture hidden>
           <a data-console-picture-link target="_blank" rel="noopener" aria-label="Open the picture of the game full size"><img data-console-picture-img alt="The game when the player reported it" /></a>
-          <figcaption class="console-sub">The game's canvas when they reported it. Click it to open it full size.</figcaption>
+          <p class="console-sub console-picture-failed">The picture could not be loaded.</p>
+          <figcaption class="console-sub console-picture-hint">The game when they reported it. Click it to see it full size.</figcaption>
         </figure>
         <ol class="console-list console-messages" data-console-messages aria-label="Messages"></ol>
         <form class="console-reply" data-console-reply>
