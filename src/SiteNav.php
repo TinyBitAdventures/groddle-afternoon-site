@@ -43,6 +43,8 @@ final class SiteNav
      */
     public const SECTIONS = [
         '/project/' => ['/restoration/', '/compare/', '/changelog/', '/code/'],
+        '/items/' => ['/encyclopedia/'],
+        '/encyclopedia/' => ['/items/'],
     ];
 
     public static function register(Seams $minn): void
