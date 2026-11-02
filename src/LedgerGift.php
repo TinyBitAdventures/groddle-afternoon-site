@@ -404,7 +404,7 @@ final readonly class LedgerGift
             $s = str_replace("\n", ' ', $s);
         }
         $s = (string) preg_replace('/[<>\x{0}-\x{8}\x{b}-\x{1f}\x{7f}]/u', '', $s);
-        return trim(mb_substr(trim($s), 0, $max));
+        return WordFilter::text(trim(mb_substr(trim($s), 0, $max))); // the remake's own word filter (a gift note, a letter)
     }
 
     /** gifts.go: gift- and 16 hex. */

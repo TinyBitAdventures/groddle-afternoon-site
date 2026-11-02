@@ -143,7 +143,7 @@ final readonly class HomeStreet
         return $out;
     }
 
-    /** Plain text: no tags or control characters (new lines kept in a body), at most max characters. */
+    /** Plain text: no tags or control characters (new lines kept in a body), at most max characters, bad words a grawlix (WordFilter, the remake's own). */
     public static function text(mixed $s, int $max, bool $lines = false): string
     {
         if (!is_string($s)) {
@@ -154,7 +154,7 @@ final readonly class HomeStreet
         if (!$lines) {
             $s = trim((string) preg_replace('/\s+/u', ' ', $s));
         }
-        return mb_substr($s, 0, $max);
+        return WordFilter::text(mb_substr($s, 0, $max));
     }
 
     /**

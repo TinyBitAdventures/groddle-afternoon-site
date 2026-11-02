@@ -194,7 +194,7 @@ final readonly class Profiles
         return (string) (int) strtotime($at . ' UTC');
     }
 
-    /** The description as kept: text, line breaks as \n, no control characters, trimmed, at most ABOUT_MAX characters. */
+    /** The description as kept: text, line breaks as \n, no control characters, trimmed, at most ABOUT_MAX characters, bad words a grawlix (WordFilter). */
     public static function about(mixed $value): string
     {
         if (!is_string($value) || !mb_check_encoding($value, 'UTF-8')) {
@@ -206,7 +206,7 @@ final readonly class Profiles
         if (mb_strlen($text) > self::ABOUT_MAX) {
             throw new RestError('groddle_profile_about', 'Descriptions are at most ' . self::ABOUT_MAX . ' characters.', 400, ['max' => self::ABOUT_MAX]);
         }
-        return $text;
+        return WordFilter::text($text); // the remake's own word filter: kept as everyone reads it
     }
 
     /** The key the game sends with a picture (what it was made from, so it knows when to make a new one). */

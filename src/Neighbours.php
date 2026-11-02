@@ -490,7 +490,7 @@ final readonly class Neighbours
         if ($b === null || ($b->owned ?? false) !== true) {
             return ['owned' => false];
         }
-        $name = is_string($b->name ?? null) ? mb_substr(trim(strip_tags($b->name)), 0, 19) : '';
+        $name = is_string($b->name ?? null) ? WordFilter::text(mb_substr(trim(strip_tags($b->name)), 0, 19)) : ''; // the remake's own word filter
         $parts = (object) [];
         foreach (is_object($b->parts ?? null) ? get_object_vars($b->parts) : [] as $k => $v) {
             if (is_string($k) && preg_match('/^[a-zA-Z]{1,16}$/', $k) === 1 && is_string($v) && preg_match('/^[a-z0-9_]{1,32}$/', $v) === 1) {
@@ -536,6 +536,19 @@ final readonly class Neighbours
                 if (isset($tower->{$key})) {
                     $look->{$key} = $tower->{$key};
                 }
+            }
+            // The names the owner gave the Tower and its floors, through the remake's own word filter.
+            if (is_string($look->name ?? null)) {
+                $look->name = WordFilter::text($look->name);
+            }
+            if (is_object($look->floorLabels ?? null) || is_array($look->floorLabels ?? null)) {
+                $labels = $look->floorLabels;
+                foreach ($labels as $k => $v) {
+                    if (is_string($v)) {
+                        is_array($labels) ? $labels[$k] = WordFilter::text($v) : $labels->{$k} = WordFilter::text($v);
+                    }
+                }
+                $look->floorLabels = $labels;
             }
             $out->tower = $look;
             if (is_array($homes->towerDecor ?? null)) {

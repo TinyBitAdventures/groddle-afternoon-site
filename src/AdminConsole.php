@@ -256,6 +256,9 @@ final readonly class AdminConsole
                 'player' => ['id' => $id, 'name' => (string) ($names[$id] ?? ($l['name'] ?? "#{$id}"))],
                 'spokeAs' => (string) ($l['name'] ?? ''),
                 'text' => (string) ($l['text'] ?? ''),
+                // The word filter (the remake's own addition, groddle-afternoon-server wordfilter.go): text is what was typed, shown what players saw.
+                'filtered' => ($l['filtered'] ?? false) === true,
+                'shown' => (string) ($l['shown'] ?? ''),
                 'delivered' => ($l['delivered'] ?? false) === true,
                 'why' => (string) ($l['why'] ?? ''),
                 'skipped' => max(0, (int) ($l['skipped'] ?? 0)),

@@ -152,6 +152,8 @@ final readonly class Groups
         $fields = [];
         if (preg_match(self::NAME, $name) !== 1) {
             $fields['name'] = 'Group names are 3 to 32 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
+        } elseif (WordFilter::has($name)) {
+            $fields['name'] = WordFilter::NAME_REFUSED; // the remake's own word filter: a name is refused, like a character's
         }
         if (!in_array($mode, self::MODES, true)) {
             $fields['mode'] = 'A group is public or private.';
@@ -288,11 +290,11 @@ final readonly class Groups
         return $row;
     }
 
-    /** A description: one paragraph of plain text, or null when too long. */
+    /** A description: one paragraph of plain text with bad words a grawlix (WordFilter), or null when too long. */
     private static function description(mixed $value): ?string
     {
         $text = trim(preg_replace('/\s+/u', ' ', preg_replace('/[\p{Cc}\p{Cf}]/u', ' ', (string) (is_scalar($value) ? $value : '')) ?? '') ?? '');
-        return mb_strlen($text) > self::DESCRIPTION_MAX ? null : $text;
+        return mb_strlen($text) > self::DESCRIPTION_MAX ? null : WordFilter::text($text);
     }
 
     private function underLimit(int $me): void

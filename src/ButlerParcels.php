@@ -312,7 +312,7 @@ final readonly class ButlerParcels
             return null;
         }
         $text = trim((string) preg_replace('/\s+/u', ' ', strip_tags($text)));
-        return mb_substr($text, 0, self::MESSAGE_MAX);
+        return WordFilter::text(mb_substr($text, 0, self::MESSAGE_MAX)); // the remake's own word filter (the server's homes_help.go filters it too)
     }
 
     /** homes_butler.go newParcel: butler- and 16 hex. */

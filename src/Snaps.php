@@ -294,7 +294,7 @@ final readonly class Snaps
         if (mb_strlen($text) > self::CAPTION_MAX) {
             throw new RestError('groddle_snap_caption', 'Captions are at most ' . self::CAPTION_MAX . ' characters.', 400, ['max' => self::CAPTION_MAX]);
         }
-        return $text;
+        return WordFilter::text($text); // the remake's own word filter
     }
 
     /** The street a Snap leads to: an ordinary street's tsid, or '' (a private place: kept, never offered to the Camera). */

@@ -79,7 +79,7 @@ final readonly class Characters
             return;
         }
         $name = trim(preg_replace('/\s+/', ' ', $user->displayName) ?? '');
-        if (preg_match(PlayerAccount::NAME, $name) !== 1) {
+        if (preg_match(PlayerAccount::NAME, $name) !== 1 || WordFilter::has($name)) {
             return;
         }
         $users = $this->db->table('users');

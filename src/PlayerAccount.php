@@ -28,8 +28,9 @@ use Minn\Runtime\Refusal;
  * sign-up and kept in the extension's own table (Characters; also the
  * account's display name):
  * 3 to 19 letters, numbers, spaces, - or _, starting and ending with a
- * letter or a number, and no two players share one. Passwords are at least
- * 8 characters.
+ * letter or a number, and no two players share one. A name with a bad word
+ * (WordFilter, the remake's own addition) is refused with "Please pick a
+ * different name.", never filtered. Passwords are at least 8 characters.
  *
  * No account exists until its email is proven (Austin 2026-10-27). A
  * sign-up is checked as before, then held (Signups: the email, the
@@ -129,6 +130,8 @@ final readonly class PlayerAccount
         }
         if (preg_match(self::NAME, $name) !== 1) {
             $fields['name'] = 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
+        } elseif (WordFilter::has($name)) {
+            $fields['name'] = WordFilter::NAME_REFUSED;
         } elseif ((new Characters($this->minn->db))->taken($name)) {
             $fields['name'] = 'Someone already has that name. Try another.';
         }
@@ -203,6 +206,9 @@ final readonly class PlayerAccount
         if (preg_match(self::NAME, $name) !== 1) {
             $words = 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
             return self::refused('groddle_invalid', $words, ['name' => $words], 400);
+        }
+        if (WordFilter::has($name)) {
+            return self::refused('groddle_invalid', WordFilter::NAME_REFUSED, ['name' => WordFilter::NAME_REFUSED], 400);
         }
         if ($characters->taken($name)) {
             $words = "Someone opened their link first and took the name {$name}. Choose another name to finish.";

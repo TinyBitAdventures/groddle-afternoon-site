@@ -286,6 +286,12 @@ export function chatWhy(line) {
   return n > 0 ? `${why} (${n} more refused before it, not written)` : why;
 }
 
+/** The word filter's chip on a line it changed (the remake's own addition): its title is what players saw; null when it did not. */
+export function chatFiltered(line) {
+  if (!line?.filtered) return null;
+  return { text: 'Filtered', title: `Players saw: ${line.shown || ''}` };
+}
+
 /** A chat line's time in the viewer's time zone: "Oct 31, 2:03:05 PM" in their own format. */
 export function chatWhen(iso) {
   const d = new Date(iso);
@@ -675,6 +681,8 @@ function boot() {
     const who = { id: l.player.id, name: l.player.name };
     const name = el('button', { type: 'button', class: 'console-link', 'aria-haspopup': 'menu', title: l.spokeAs && l.spokeAs !== l.player.name ? `Said as ${l.spokeAs}` : null, text: l.player.name, onclick: (e) => openMenu(who, e.currentTarget, null) });
     const said = el('td', { class: 'console-said' }, el('span', { text: l.text }));
+    const filtered = chatFiltered(l);
+    if (filtered) said.append(el('span', { class: 'console-tag console-tag-filtered', ...filtered }));
     const why = chatWhy(l);
     if (why) said.append(el('span', { class: 'console-tag console-tag-bad', text: why }));
     if (l.to?.length) said.append(el('span', { class: 'console-sub', text: ` To ${l.to.map((t) => t.name).join(', ')}` }));

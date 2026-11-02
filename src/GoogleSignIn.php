@@ -64,6 +64,7 @@ final readonly class GoogleSignIn
         'google_used' => 'Your character is already made. Continue with Google to sign in.',
         'name_taken' => 'Someone already has that name. Try another.',
         'name_invalid' => 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.',
+        'name_refused' => WordFilter::NAME_REFUSED,
         'registration_closed' => 'New characters can\'t be made right now.',
     ];
 
@@ -139,6 +140,9 @@ final readonly class GoogleSignIn
         if (preg_match(PlayerAccount::NAME, $name) !== 1) {
             return self::refused('name_invalid', 400, ['name' => self::WORDS['name_invalid']]);
         }
+        if (WordFilter::has($name)) {
+            return self::refused('name_refused', 400, ['name' => WordFilter::NAME_REFUSED]);
+        }
         $characters = new Characters($this->minn->db);
         if ($characters->taken($name)) {
             return Response::json(['code' => 'name_taken', 'message' => self::WORDS['name_taken'], 'fields' => (object) ['name' => self::WORDS['name_taken']], 'name' => $name], 409);
@@ -183,7 +187,7 @@ final readonly class GoogleSignIn
     public static function suggestedName(string $given): string
     {
         $name = trim(preg_replace('/\s+/', ' ', $given) ?? '');
-        return preg_match(PlayerAccount::NAME, $name) === 1 ? $name : '';
+        return preg_match(PlayerAccount::NAME, $name) === 1 && !WordFilter::has($name) ? $name : '';
     }
 
     /** The pending token for the name step: the sub, the email and when it ends, signed with the site's own key. */
