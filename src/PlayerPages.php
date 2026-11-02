@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Groddle\Minn;
 
+use Minn\Auth\Nonce;
 use Minn\Extension\Seams;
 use Minn\Html;
 use Minn\Http\Access;
@@ -14,6 +15,7 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 use Minn\Http\RouteMiss;
 use Minn\Json;
+use Minn\RestError;
 
 /**
  * The Players pages (register G338): /players/, a grid of every multiplayer
@@ -27,7 +29,16 @@ use Minn\Json;
  * Street", and buddy grids of _100 avatars; and /skills/, /achievements/ and
  * /friends/ under it; Wayback captures in research/wayback/raw/profiles/).
  * The data is Profiles', the save's and Buddies'; the pictures are the ones
- * the game uploaded, served here. The save keeps no times for skills or
+ * the game uploaded, served here.
+ *
+ * A signed-in player looking at someone else's page gets "Add to buddy list"
+ * (or "Remove from buddy list"), as glitch.com's profiles had (the archived
+ * profile in research/wayback/raw/profiles/, friendAdd and friendRemove): a
+ * one-way add, as in the game (Buddies), which works whether or not they are
+ * online; the game tells them at their next sign-in. Nothing is offered when
+ * either of them blocks the other. With JavaScript (players/buddy.js) the
+ * button calls groddle/v1/buddies with the page's REST nonce; without, the
+ * form posts here (buddy()) and comes back to the page. The save keeps no times for skills or
  * badges, so "newest" is the order they came in, with no dates.
  *
  * Drawn whole on the server in the site's look (the header menu, the
@@ -62,6 +73,25 @@ final readonly class PlayerPages
 
     /** Buddies the profile shows before "See all". */
     public const BUDDIES_SHOWN = 12;
+
+    /** The buddy button's script (the theme folder is the site repo); the key is bumped when it changes. */
+    public const BUDDY_JS = '/wp-content/themes/groddle/players/buddy.js';
+
+    public const BUDDY_JS_KEY = 'buddy-1';
+
+    /** The buddy button's labels, glitch.com's (the archived profile's buddyadd and buddyremove). */
+    public const BUDDY_LABELS = ['add' => 'Add to buddy list', 'remove' => 'Remove from buddy list'];
+
+    /**
+     * What the page says after the form posted without JavaScript (?buddy=),
+     * in the game's words (js/buddies.js BUDDY_TEXT added, removed, limit, failed).
+     */
+    private const BUDDY_SAID = [
+        'added' => '%s is on your buddy list now.',
+        'removed' => '%s is off your buddy list.',
+        'limit' => 'You currently have the maximum number of friends (' . Buddies::BUDDY_LIMIT . ' or more!)',
+        'failed' => 'That didn\'t work. Try again in a moment.',
+    ];
 
     public function __construct(private Seams $minn, private StaticRoot $root)
     {
@@ -184,6 +214,7 @@ final readonly class PlayerPages
             'skills' => self::skillRows($facts['skills'], $this->skillCatalog(), $this->root->dir),
             'buddyCount' => $this->buddies($id, 0, 0)['total'],
         ];
+        $who['buddy'] = $this->buddyButton($id, $name, $who['base'], $tab, (string) ($request->query('buddy') ?? ''));
         $private = $facts['level'] < Profiles::LISTED_LEVEL
             ? '    <p class="profile-private">Only you can see this page for now. It goes on the Players page when you reach level ' . Profiles::LISTED_LEVEL . ".</p>\n"
             : '';
@@ -198,7 +229,101 @@ final readonly class PlayerPages
             . '<main class="band profile' . ($tab === '' ? '' : " profile-page-{$tab}") . "\">\n  <div class=\"wrap\">\n"
             . $private . $main
             . "  </div>\n</main>";
-        return $this->page($title, $description, $body);
+        return $this->page($title, $description, $body, $who['buddy'] === '' ? '' : '<script src="' . self::BUDDY_JS . '?v=' . self::BUDDY_JS_KEY . "\" defer></script>\n");
+    }
+
+    /**
+     * The form a no-JavaScript buddy button posts (players/buddy.js calls
+     * groddle/v1/buddies instead): add or remove the player whose page it is,
+     * then back to that page with what happened (?buddy=). Signed in, with
+     * the page's REST nonce; the caller is the reader, never the form. Who
+     * added the caller stays marked new for the game (Buddies keepNew).
+     */
+    #[Route(Method::Post, '/players/{slug:[a-z0-9][a-z0-9.-]*}/buddy/', policy: new Policy(Access::Public))]
+    public function buddy(Request $request, string $slug): Response
+    {
+        [$id, $canonical] = $this->find($slug) ?? throw new RouteMiss();
+        $form = $request->json();
+        $tab = is_string($form['tab'] ?? null) && isset(self::TABS[$form['tab']]) ? $form['tab'] : '';
+        $back = "/players/{$canonical}/" . ($tab === '' ? '' : "{$tab}/");
+        $reader = $this->minn->reader;
+        if ($reader->userId <= 0) {
+            return Response::redirect($back, 303);
+        }
+        $nonce = is_string($form['_wpnonce'] ?? null) ? $form['_wpnonce'] : '';
+        $said = 'failed';
+        if ($nonce !== '' && $reader->sessionToken !== '' && Nonce::verify($nonce, $reader->userId, $reader->sessionToken)
+            && $this->isPlayer($reader->userId) && Profiles::fromSave($this->minn->db, $id)['level'] >= Profiles::LISTED_LEVEL) {
+            $remove = ($form['do'] ?? '') === 'remove';
+            $buddies = new Buddies($this->minn);
+            try {
+                $remove ? $buddies->removeBuddy($id, true) : $buddies->addBuddy($id, true);
+                $said = $remove ? 'removed' : 'added';
+            } catch (RestError $e) {
+                $said = match ($e->errorCode) {
+                    'groddle_buddy_exists' => 'added',
+                    'groddle_buddy_missing' => 'removed',
+                    'groddle_buddy_limit' => 'limit',
+                    default => 'failed',
+                };
+            }
+        }
+        return Response::redirect("{$back}?buddy={$said}", 303);
+    }
+
+    /**
+     * The buddy button for the reader on this player's page, or '' (signed
+     * out, not a player, their own page, or either blocks the other).
+     */
+    private function buddyButton(int $id, string $name, string $base, string $tab, string $said): string
+    {
+        $reader = $this->minn->reader;
+        if ($reader->userId <= 0 || $reader->userId === $id || $reader->sessionToken === '' || !$this->isPlayer($reader->userId)) {
+            return '';
+        }
+        $between = (new Buddies($this->minn))->between($id);
+        return self::buddyControl([
+            'viewer' => $reader->userId,
+            'id' => $id,
+            'name' => $name,
+            'base' => $base,
+            'tab' => $tab,
+            'holds' => $between['holds'],
+            'blocked' => $between['blocked'],
+            'nonce' => Nonce::create($reader->userId, $reader->sessionToken),
+            'said' => $said,
+        ]);
+    }
+
+    /** Whether a user has a character (only players have buddies). */
+    private function isPlayer(int $userId): bool
+    {
+        return $this->minn->db->value('SELECT 1 FROM ' . $this->minn->db->table(Characters::TABLE) . ' WHERE user_id = ?', [$userId]) !== null;
+    }
+
+    /**
+     * The buddy button (pure, for tests): a form that posts to buddy() and
+     * that players/buddy.js takes over, with a line for what happened.
+     * '' when there is nothing to offer: no viewer, their own page, blocked
+     * either way, no nonce.
+     *
+     * @param array{viewer: int, id: int, name: string, base: string, tab: string, holds: bool, blocked: bool, nonce: string, said: string} $s
+     */
+    public static function buddyControl(array $s): string
+    {
+        if ($s['viewer'] <= 0 || $s['viewer'] === $s['id'] || $s['blocked'] || $s['nonce'] === '') {
+            return '';
+        }
+        $do = $s['holds'] ? 'remove' : 'add';
+        $said = isset(self::BUDDY_SAID[$s['said']]) ? sprintf(self::BUDDY_SAID[$s['said']], $s['name']) : '';
+        return '      <form class="profile-buddy" method="post" action="' . Html::attr($s['base'] . 'buddy/') . '" data-buddy-form="" data-buddy-id="' . $s['id'] . '" data-buddy-name="' . Html::attr($s['name']) . '"'
+            . ' data-label-add="' . Html::attr(self::BUDDY_LABELS['add']) . '" data-label-remove="' . Html::attr(self::BUDDY_LABELS['remove']) . '">'
+            . '<input type="hidden" name="_wpnonce" value="' . Html::attr($s['nonce']) . '" />'
+            . '<input type="hidden" name="tab" value="' . Html::attr($s['tab']) . '" />'
+            . '<input type="hidden" name="do" value="' . $do . '" />'
+            . '<button type="submit" class="profile-buddy-btn" data-buddy-do="' . $do . '">' . self::BUDDY_LABELS[$do] . '</button>'
+            . '<span class="profile-buddy-note" role="status" aria-live="polite"' . ($s['said'] === 'failed' || $s['said'] === 'limit' ? ' data-tone="bad"' : '') . '>' . Html::esc($said) . '</span>'
+            . "</form>\n";
     }
 
     /**
@@ -229,6 +354,7 @@ final readonly class PlayerPages
                 . "    <div class=\"profile-who\">\n"
                 . '      <p class="kicker"><a href="/players/">Players</a> <a href="' . Html::attr($base) . "\">{$nameHtml}</a></p>\n"
                 . "      <h1>{$nameHtml}: " . self::TABS[$tab] . "</h1>\n"
+                . $who['buddy']
                 . $tabs
                 . "    </div>\n  </div>\n</header>\n";
         }
@@ -252,6 +378,7 @@ final readonly class PlayerPages
             . ($about === ''
                 ? "      <p class=\"profile-bio profile-empty\">{$nameHtml} hasn't written anything about themselves yet.</p>\n"
                 : '      <p class="profile-bio">' . nl2br(Html::esc($about), false) . "</p>\n")
+            . $who['buddy']
             . $tabs
             . "    </div>\n  </div>\n</header>\n";
     }
@@ -567,7 +694,7 @@ final readonly class PlayerPages
     }
 
     /** A whole page in the site's look: the head the themed pages carry, the header menu, the footer. */
-    private function page(string $title, string $description, string $body): Response
+    private function page(string $title, string $description, string $body, string $scripts = ''): Response
     {
         $path = $this->minn->request->path;
         $footer = (string) preg_replace('/<!--.*?-->\s*/s', '', (string) @file_get_contents(dirname(__DIR__) . '/parts/footer.html'));
@@ -579,8 +706,9 @@ final readonly class PlayerPages
             . "</head>\n<body class=\"notes players-page\">\n"
             . SiteNav::nav(SiteNav::links($this->minn, 0), $path) . "\n"
             . $body . "\n"
-            . trim($footer) . "\n</body>\n</html>\n";
+            . trim($footer) . "\n" . $scripts . "</body>\n</html>\n";
         $html = SocialTags::insert($html, (string) ($this->minn->site->option('home') ?? ''), $path);
-        return Response::html($this->minn->frontBar($html))->withHeader('Cache-Control', 'no-cache');
+        // A signed-in reader's page can carry their nonce (the buddy button): theirs alone.
+        return Response::html($this->minn->frontBar($html))->withHeader('Cache-Control', $this->minn->reader->userId > 0 ? 'private, no-cache' : 'no-cache');
     }
 }

@@ -72,12 +72,35 @@ final readonly class Buddies
         return Response::json($this->answer());
     }
 
-    /** Adds a buddy by player id (addToBuddyGroup). */
+    /**
+     * Adds a buddy by player id (addToBuddyGroup). ?keepNew=1 (the website's
+     * button on a player's page, PlayerPages) leaves who added the caller
+     * marked new, so the game still tells them at their next sign-in.
+     */
     #[Route(Method::Post, '/groddle/v1/buddies', policy: new Policy(Access::SignedIn))]
     public function add(Request $request): Response
     {
+        return Response::json($this->addBuddy($request->json()['id'] ?? null, self::keepNew($request)), 201);
+    }
+
+    /** Takes a buddy off the list (removeBuddy); ?keepNew=1 as add. */
+    #[Route(Method::Delete, '/groddle/v1/buddies/{id:\d+}', policy: new Policy(Access::SignedIn))]
+    public function remove(Request $request, string $id): Response
+    {
+        return Response::json($this->removeBuddy((int) $id, self::keepNew($request)));
+    }
+
+    /**
+     * The add itself, for the route and for PlayerPages' form (a page
+     * without JavaScript): the caller is always the signed-in reader. The
+     * answer and, with a realtime secret, the one-use "added you" proof.
+     *
+     * @return array<string, mixed>
+     */
+    public function addBuddy(mixed $id, bool $keepNew = false): array
+    {
         $me = $this->me();
-        $id = $this->target($request->json()['id'] ?? null, 'You can\'t add yourself.');
+        $id = $this->target($id, 'You can\'t add yourself.');
         $db = $this->minn->db;
         $buddies = $db->table(self::TABLE);
         if ($this->ignoring($id, $me)) {
@@ -97,18 +120,38 @@ final readonly class Buddies
         $now = time();
         $told = ['k' => 'buddy_added', 'sub' => $me, 'to' => $id, 'iat' => $now, 'exp' => $now + self::TELL_TTL, 'n' => bin2hex(random_bytes(8))];
         $secret = (new RealtimeTicket($this->minn))->secret();
-        return Response::json($this->answer() + ['added' => $id, 'told' => $secret === null ? null : RealtimeTicket::sign($told, $secret)], 201);
+        return $this->answer(!$keepNew) + ['added' => $id, 'told' => $secret === null ? null : RealtimeTicket::sign($told, $secret)];
     }
 
-    /** Takes a buddy off the list (removeBuddy). */
-    #[Route(Method::Delete, '/groddle/v1/buddies/{id:\d+}', policy: new Policy(Access::SignedIn))]
-    public function remove(Request $request, string $id): Response
+    /**
+     * The remove itself, for the route and for PlayerPages' form.
+     *
+     * @return array<string, mixed>
+     */
+    public function removeBuddy(int $id, bool $keepNew = false): array
     {
         $buddies = $this->minn->db->table(self::TABLE);
-        if ($this->minn->db->execute("DELETE FROM {$buddies} WHERE user_id = ? AND buddy_id = ?", [$this->me(), (int) $id]) === 0) {
+        if ($this->minn->db->execute("DELETE FROM {$buddies} WHERE user_id = ? AND buddy_id = ?", [$this->me(), $id]) === 0) {
             throw new RestError('groddle_buddy_missing', 'They are not on your buddy list.', 404);
         }
-        return Response::json($this->answer() + ['removed' => (int) $id]);
+        return $this->answer(!$keepNew) + ['removed' => $id];
+    }
+
+    /**
+     * How the signed-in reader and another player stand, for a player's page:
+     * whether the reader holds them as a buddy, and whether either blocks the
+     * other (then the page offers nothing, as the game's lists leave them out).
+     *
+     * @return array{holds: bool, blocked: bool}
+     */
+    public function between(int $other): array
+    {
+        $me = $this->me();
+        $buddies = $this->minn->db->table(self::TABLE);
+        return [
+            'holds' => $this->minn->db->value("SELECT 1 FROM {$buddies} WHERE user_id = ? AND buddy_id = ?", [$me, $other]) !== null,
+            'blocked' => $this->ignoring($me, $other) || $this->ignoring($other, $me),
+        ];
     }
 
     /** Ignores (blocks) a player: off your buddies, out of your lists (buddies_add_ignore). */
@@ -139,6 +182,12 @@ final readonly class Buddies
         return $this->minn->reader->userId;
     }
 
+    /** ?keepNew=1: the call is the website's, not the game's (add, remove). */
+    private static function keepNew(Request $request): bool
+    {
+        return $request->query('keepNew') === '1';
+    }
+
     /** A player id from the body: a number, not the caller, an account that exists. */
     private function target(mixed $id, string $self): int
     {
@@ -164,8 +213,12 @@ final readonly class Buddies
         return $this->minn->db->value("SELECT 1 FROM {$ignores} WHERE user_id = ? AND ignored_id = ?", [$ignorer, $other]) !== null;
     }
 
-    /** The caller's lists, newest first, and the watch token over them. */
-    private function answer(): array
+    /**
+     * The caller's lists, newest first, and the watch token over them.
+     * $markSeen false leaves the reverse entries new (a call from the
+     * website: only the game tells a player who added them).
+     */
+    private function answer(bool $markSeen = true): array
     {
         $db = $this->minn->db;
         $me = $this->me();
@@ -205,7 +258,7 @@ final readonly class Buddies
             }
         }
         // Seen now: the next answer no longer calls them new.
-        if (array_filter($out['reverse'], static fn (array $r): bool => $r['new']) !== []) {
+        if ($markSeen && array_filter($out['reverse'], static fn (array $r): bool => $r['new']) !== []) {
             $db->execute("UPDATE {$buddies} SET noticed = 1 WHERE buddy_id = ? AND noticed = 0", [$me]);
         }
         $out['watch'] = $this->watch($out);

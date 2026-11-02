@@ -153,6 +153,17 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
   .profile-badges { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
 }
 .players-page .masthead { padding-bottom: 8px; }
+/* The buddy button on someone else's profile (PlayerPages::buddyControl, players/buddy.js): Add in the Play button's fill (4.5:1 in both themes), Remove as an outline. */
+.profile-buddy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 16px 0 0; }
+.profile-buddy-btn { display: inline-flex; align-items: center; min-height: 38px; padding: 0 16px; border: 1px solid var(--play-bg); border-radius: 999px; background: var(--play-bg); color: var(--play-fg); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.profile-buddy-btn:hover { background: var(--play-hover); border-color: var(--play-hover); }
+.profile-buddy-btn[data-buddy-do="remove"] { background: var(--surface); border-color: var(--border); color: var(--fg); }
+.profile-buddy-btn[data-buddy-do="remove"]:hover { border-color: var(--fg); }
+.profile-buddy-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.profile-buddy-btn:disabled { opacity: 0.6; cursor: progress; }
+.profile-buddy-note { color: var(--muted); font-size: 15px; }
+.profile-buddy-note:empty { display: none; }
+.profile-buddy-note[data-tone="bad"] { color: var(--fg); font-weight: 700; }
 .players-page main.band { padding-top: 32px; }
 /* A profile's pages (Skills, Badges, Buddies): the tabs under the name, a small header on the pages, a heading row with the way to all of them, and the skills grid (Tiny Speck's imagination card art, 230x310, shown at its own shape). */
 .profile-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
