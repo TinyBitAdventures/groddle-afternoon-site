@@ -203,7 +203,7 @@ HTML
         <ol class="console-list console-messages" data-console-messages aria-label="Messages"></ol>
         <form class="console-reply" data-console-reply>
           <label for="console-reply-text">Reply</label>
-          <textarea id="console-reply-text" name="message" rows="4" maxlength="2000" required placeholder="Plain text. The player sees it in the game and gets an email."></textarea>
+          <textarea id="console-reply-text" name="message" rows="4" maxlength="10000" required placeholder="Plain text. The player sees it in the game and gets an email."></textarea>
           <div class="console-reply-foot"><span class="console-sub" data-console-reply-count></span><label class="console-check"><input type="checkbox" name="noemail" data-console-reply-noemail /> Don't email</label><button type="submit" class="console-primary" data-console-reply-send>Send reply</button></div>
         </form>
       </div>

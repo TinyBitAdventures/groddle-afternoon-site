@@ -45,6 +45,8 @@ final readonly class TicketStore
     public const ADMIN = 'admin';
 
     public const MAX_MESSAGE = BugReports::MAX_MESSAGE;
+    /** An administrator's reply: long combined answers to a batch of reports (console/console.js TICKET_MAX). */
+    public const MAX_ADMIN_MESSAGE = 10000;
     /** The subject: the first line, cut to this many characters with an ellipsis. */
     public const SUBJECT_MAX = 60;
     /** Tickets an administrator's list carries at once. */

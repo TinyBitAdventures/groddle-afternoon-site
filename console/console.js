@@ -48,7 +48,8 @@ export const GIVE_STACKS = 10;
 export const GIVE_EACH = 999;
 export const GIVE_CURRANTS = 100000;
 export const TICKETS_POLL_MS = 15000;
-export const TICKET_MAX = 2000;
+/** An administrator's reply (src/TicketStore.php MAX_ADMIN_MESSAGE). */
+export const TICKET_MAX = 10000;
 export const DRAFTS_POLL_MS = 15000;
 
 /** A draft id from a title: lowercase words joined by hyphens, starting with a letter, 3 to 48 long (src/BuilderStore.php ID). */

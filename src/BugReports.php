@@ -11,6 +11,7 @@ use Minn\Http\Policy;
 use Minn\Http\Request;
 use Minn\Http\Response;
 use Minn\Http\Route;
+use Minn\RestError;
 
 /**
  * groddle/v1/feedback: a bug report a signed-in player sends from the game's
@@ -31,7 +32,8 @@ use Minn\Http\Route;
 final readonly class BugReports
 {
     public const TYPE = 'groddle_feedback';
-    public const MAX_MESSAGE = 2000;
+    /** A player's report or reply, in characters (2000 until 2026-11-02, when a long admin reply was cut). */
+    public const MAX_MESSAGE = 4000;
     public const WINDOW = 600;
     public const PER_WINDOW = 3;
     public const PER_DAY = 50;
@@ -72,6 +74,19 @@ final readonly class BugReports
         }
         $out['errors'] = $errors;
         return $out;
+    }
+
+    /**
+     * A message as cleaned (clean() without the cut), refused when it is longer than $max: a cut
+     * mid-sentence reached a player once (ticket 21, 2026-11-01), so nothing is trimmed silently.
+     */
+    public static function message(mixed $raw, int $max, string $code): string
+    {
+        $text = self::clean((string) (is_scalar($raw) ? $raw : ''), PHP_INT_MAX, true);
+        if (mb_strlen($text) > $max) {
+            throw new RestError($code, 'That message is ' . number_format(mb_strlen($text)) . ' characters long; the most is ' . number_format($max) . '. Shorten it, or send it in two parts.', 422);
+        }
+        return $text;
     }
 
     /** Text as UTF-8 without control characters (newlines kept when $lines), trimmed and cut to $max characters. */

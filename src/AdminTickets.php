@@ -80,7 +80,7 @@ final readonly class AdminTickets
         $admin = $this->admin();
         $row = $this->ticket((int) $id);
         $body = $request->json();
-        $message = BugReports::clean((string) (is_scalar($body['message'] ?? null) ? $body['message'] : ''), TicketStore::MAX_MESSAGE, true);
+        $message = BugReports::message($body['message'] ?? null, TicketStore::MAX_ADMIN_MESSAGE, 'groddle_ticket_long');
         if ($message === '') {
             throw new RestError('groddle_ticket_empty', 'Write your reply first.', 400);
         }

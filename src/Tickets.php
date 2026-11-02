@@ -76,7 +76,7 @@ final readonly class Tickets
     {
         $me = $this->me();
         $body = $request->json();
-        $message = BugReports::clean((string) (is_scalar($body['message'] ?? null) ? $body['message'] : ''), BugReports::MAX_MESSAGE, true);
+        $message = BugReports::message($body['message'] ?? null, BugReports::MAX_MESSAGE, 'groddle_feedback_long');
         if ($message === '') {
             throw new RestError('groddle_feedback_empty', 'Please describe the problem you are having.', 400);
         }
@@ -102,7 +102,7 @@ final readonly class Tickets
         $me = $this->me();
         $row = $this->mine($me, (int) $id);
         $body = $request->json();
-        $message = BugReports::clean((string) (is_scalar($body['message'] ?? null) ? $body['message'] : ''), TicketStore::MAX_MESSAGE, true);
+        $message = BugReports::message($body['message'] ?? null, TicketStore::MAX_MESSAGE, 'groddle_ticket_long');
         if ($message === '') {
             throw new RestError('groddle_ticket_empty', 'Write your reply first.', 400);
         }
