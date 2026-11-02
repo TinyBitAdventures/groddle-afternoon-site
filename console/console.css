@@ -141,6 +141,11 @@
 .console-msg-who { margin: 0 0 3px; font-size: 12px; }
 .console-msg-who time { color: var(--muted); }
 .console-msg-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.console-msg-history { margin-top: 6px; font-size: 12px; }
+.console-msg-history summary { cursor: pointer; color: var(--muted); }
+.console-msg-history ol { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.console-msg-history li { border-left: 2px solid var(--border); padding-left: 8px; }
+.console-msg-history .console-msg-body { color: var(--muted); }
 .console-picture { margin: 0 0 10px; display: grid; gap: 4px; justify-items: start; }
 .console-picture a { display: block; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; cursor: zoom-in; }
 .console-picture a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -202,7 +202,7 @@ final readonly class AdminTickets
         $names = (new Characters($this->minn->db))->namesOf([(int) $row['player_user_id']]);
         return Response::json($extra + [
             'ticket' => $this->row($row, $names),
-            'messages' => TicketStore::messagesOut($store->messages($id)),
+            'messages' => TicketStore::messagesOut($store->messages($id), $store->revisions($id)),
             'context' => (object) TicketStore::contextOf($row),
             'picture' => $store->pictureOut($id),
         ])->withHeader('Cache-Control', 'no-store');

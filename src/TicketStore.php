@@ -41,6 +41,8 @@ final readonly class TicketStore
 {
     public const TABLE = 'groddle_tickets';
     public const MESSAGES = 'groddle_ticket_messages';
+    /** Every earlier text of an edited message (Austin 2026-11-02: an edit's whole history, for administrators). */
+    public const REVISIONS = 'groddle_ticket_message_revisions';
     /** A report's picture of the game, one row a ticket (ReportPicture, served by TicketPictures). */
     public const PICTURES = 'groddle_ticket_pictures';
 
@@ -187,6 +189,8 @@ final readonly class TicketStore
                 return false;
             }
             $at = self::stamp($now);
+            // The text it replaces is kept, with when it was written and when it was replaced.
+            $this->db->execute('INSERT INTO ' . $this->db->table(self::REVISIONS) . ' (message_id, ticket_id, player_user_id, body, written_at, replaced_at) VALUES (?, ?, ?, ?, ?, ?)', [(int) $first['id'], $ticket, $player, (string) $first['body'], (string) (($first['edited_at'] ?? null) ?: $first['created_at']), $at]);
             $this->db->execute('UPDATE ' . $this->db->table(self::MESSAGES) . ' SET body = ?, edited_at = ? WHERE id = ? AND ticket_id = ?', [$body, $at, (int) $first['id'], $ticket]);
             $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET subject = ?, updated_at = ? WHERE id = ?', [self::subject($body), $at, $ticket]);
             return true;
@@ -238,6 +242,19 @@ final readonly class TicketStore
     {
         $rows = $this->db->rows('SELECT id, author_user_id, author_role, body, created_at, edited_at FROM ' . $this->db->table(self::MESSAGES) . ' WHERE ticket_id = ? ORDER BY id DESC LIMIT ' . self::THREAD_MAX, [$ticket]);
         return array_reverse($rows);
+    }
+
+    /**
+     * A thread's earlier texts by message id, oldest first (administrators only: the player sees "edited").
+     * @return array<int, list<array<string, mixed>>>
+     */
+    public function revisions(int $ticket): array
+    {
+        $out = [];
+        foreach ($this->db->rows('SELECT message_id, body, written_at, replaced_at FROM ' . $this->db->table(self::REVISIONS) . ' WHERE ticket_id = ? ORDER BY id ASC', [$ticket]) as $r) {
+            $out[(int) $r['message_id']][] = $r;
+        }
+        return $out;
     }
 
     /** A player's tickets, the newest news first. @return list<array<string, mixed>> */
@@ -310,11 +327,11 @@ final readonly class TicketStore
     }
 
     /** A thread's messages as either side reads them: who wrote is a role, never a username. @return list<array<string, mixed>> */
-    public static function messagesOut(array $rows): array
+    public static function messagesOut(array $rows, ?array $revisions = null): array
     {
         $out = [];
         foreach ($rows as $m) {
-            $out[] = [
+            $row = [
                 'id' => (int) $m['id'],
                 'author' => (string) $m['author_role'] === self::ADMIN ? self::ADMIN : self::PLAYER,
                 'body' => (string) $m['body'],
@@ -322,6 +339,15 @@ final readonly class TicketStore
                 // When the player last changed its words (ticket 49), or null.
                 'edited' => ($m['edited_at'] ?? null) ? SaveShape::time((string) $m['edited_at']) : null,
             ];
+            // Administrators: each earlier text, oldest first ($revisions from revisions(); null for the player).
+            if ($revisions !== null) {
+                $row['revisions'] = array_map(static fn (array $r): array => [
+                    'body' => (string) $r['body'],
+                    'at' => SaveShape::time((string) $r['written_at']),
+                    'replaced' => SaveShape::time((string) $r['replaced_at']),
+                ], $revisions[(int) $m['id']] ?? []);
+            }
+            $out[] = $row;
         }
         return $out;
     }

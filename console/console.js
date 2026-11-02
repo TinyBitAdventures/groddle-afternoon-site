@@ -96,6 +96,21 @@ export function pictureSrc(picture) {
 /** A ticket's status in words (src/TicketStore.php STATUSES). */
 export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', working: 'Working on it', closed: 'Closed' });
 
+/**
+ * An edited message's earlier texts (Austin 2026-11-02), oldest first, folded under the message:
+ * each with when it was written and when the next edit replaced it. Null when it was never edited.
+ */
+export function messageHistory(m, when) {
+  const revs = Array.isArray(m?.revisions) ? m.revisions : [];
+  if (!revs.length) return null;
+  const n = revs.length;
+  return el('details', { class: 'console-msg-history' },
+    el('summary', { text: `Edited ${n === 1 ? 'once' : `${n} times`}: earlier ${n === 1 ? 'version' : 'versions'}` }),
+    el('ol', {}, ...revs.map((r, i) => el('li', {},
+      el('p', { class: 'console-msg-who' }, el('time', { datetime: r.at, text: `Version ${i + 1} · written ${when(r.at)}, replaced ${when(r.replaced)}` })),
+      el('p', { class: 'console-msg-body', text: r.body })))));
+}
+
 /** A message's byline time: when it was written, and edited when the player changed it (ticket 49). */
 export function messageWhen(m, when) {
   const at = when(m?.at);
@@ -861,7 +876,8 @@ function boot() {
     } else img.removeAttribute('src');
     $('[data-console-messages]').replaceChildren(...(r.messages || []).map((m) => el('li', { class: `console-msg console-msg-${m.author}` },
       el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${messageWhen(m, when)}`, title: m.edited ? `Edited ${when(m.edited)}` : null })),
-      el('p', { class: 'console-msg-body', text: m.body }))));
+      el('p', { class: 'console-msg-body', text: m.body }),
+      messageHistory(m, when))));
     const msgs = $('[data-console-messages]');
     msgs.scrollTop = msgs.scrollHeight;
     // Read now: its row loses the dot.
