@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.31",
+  "version": "0.5.32",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -512,6 +512,7 @@
       "author_role varchar(8) NOT NULL",
       "body text NOT NULL",
       "created_at datetime NOT NULL",
+      "edited_at datetime NULL DEFAULT NULL",
       "PRIMARY KEY  (id)",
       "KEY ticket_id (ticket_id,id)"
     ],

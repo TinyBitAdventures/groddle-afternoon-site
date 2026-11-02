@@ -18,17 +18,21 @@ use Minn\RestError;
  * The console's Reports tab (AdminConsolePage, console/console.js): every
  * player's bug report tickets (TicketStore), manage_options only like the
  * console's other routes, each action a line in groddle_admin_actions
- * (AdminConsole::recordAction: reply, close, reopen, migrate).
+ * (AdminConsole::recordAction: reply, close, reopen, working, migrate).
  *
- *   GET  admin/tickets?status=open|answered|closed|all   {"tickets":[Row],"counts":{open,answered,closed,unread},"more":bool,"legacy":n}
- *                                  unread first, then open, answered, closed, the newest news first; legacy: old report posts not brought in yet
+ *   GET  admin/tickets?status=open|answered|working|closed|all   {"tickets":[Row],"counts":{open,answered,working,closed,unread},"more":bool,"legacy":n}
+ *                                  unread first, then open, working, answered, closed, the newest news first; legacy: old report posts not brought in yet
  *   GET  admin/tickets/{id}        {"ticket":Row,"messages":[Message],"context":{..},"picture":{"url","width","height"}|null}   and marks it read
  *   POST admin/tickets/{id}/reply  {"message","email"?}  the thread + {"delivery","text"}; emails the player (below)
  *                                  unless "email" is false: a note (delivery note), for closing many related reports
  *   POST admin/tickets/{id}/close  the thread
  *   POST admin/tickets/{id}/reopen the thread (open, or answered when an administrator wrote last)
+ *   POST admin/tickets/{id}/working {"working":bool}  the thread: Working on it (ticket 49, 2026-11-02), or
+ *                                  taken off (open, or answered when an administrator wrote last). Read marks untouched;
+ *                                  no email: a status, like Close, not a reply
  *   POST admin/tickets/migrate     {"made","already","posts","text"}   TicketMigration, once (safe again)
  *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"}}
+ *   Message: Tickets' Message; "edited" is when the player changed the report's words before it was read
  *
  * A reply emails the player (PlayerMail::ticketReply, in the site's look,
  * by their character name, never the username), unless the administrator
@@ -121,6 +125,17 @@ final readonly class AdminTickets
         $this->store()->setStatus((int) $row['id'], TicketStore::statusAfter((string) $row['last_author_role']), time());
         AdminConsole::recordAction($this->minn->db, $admin->id, (int) $row['player_user_id'], 'reopen', ['ticket' => (int) $row['id'], 'subject' => (string) $row['subject']], 'stored');
         return $this->thread((int) $row['id'], ['text' => 'Open again.']);
+    }
+
+    #[Route(Method::Post, '/groddle/v1/admin/tickets/{id:\d+}/working', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function working(Request $request, string $id): Response
+    {
+        $admin = $this->admin();
+        $row = $this->ticket((int) $id);
+        $on = ($request->json()['working'] ?? true) !== false;
+        $this->store()->setStatus((int) $row['id'], TicketStore::workingStatus($on, (string) $row['last_author_role']), time());
+        AdminConsole::recordAction($this->minn->db, $admin->id, (int) $row['player_user_id'], 'working', ['ticket' => (int) $row['id'], 'subject' => (string) $row['subject'], 'on' => $on], 'stored');
+        return $this->thread((int) $row['id'], ['text' => $on ? 'Marked working on it.' : 'No longer marked working on it.']);
     }
 
     #[Route(Method::Post, '/groddle/v1/admin/tickets/migrate', policy: new Policy(Access::Cap, self::ADMIN))]

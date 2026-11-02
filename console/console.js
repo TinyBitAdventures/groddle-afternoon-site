@@ -20,9 +20,11 @@
  *   knew, the picture of the game when the report carries one (a click opens it
  *   full size in a popup, Cmd-click in a tab; pictureSrc), the messages, a reply box (the player is emailed, or with Don't
  *   email ticked it is a note they only see in the game; the box stays
- *   ticked from report to report, for closing many related ones) and Close
- *   or Reopen. Polled every TICKETS_POLL_MS while the tab is visible. #reports
- *   opens the tab, #report=<id> a report.
+ *   ticked from report to report, for closing many related ones), Mark working
+ *   on it (and Not working on it: ticket 49, a status the player sees as its
+ *   own chip; no email) and Close or Reopen. A first message the player
+ *   changed before anyone read it says edited. Polled every TICKETS_POLL_MS
+ *   while the tab is visible. #reports opens the tab, #report=<id> a report.
  * - Chat log (a tab of its own; src/AdminConsole.php chatlog, the realtime server's log): what
  *   players said on streets, in channels and in parties, newest first, refused lines marked
  *   (too fast, or silenced in a channel). Search by player (a name, or #id), words, kind, and
@@ -92,7 +94,13 @@ export function pictureSrc(picture) {
 }
 
 /** A ticket's status in words (src/TicketStore.php STATUSES). */
-export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', closed: 'Closed' });
+export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', working: 'Working on it', closed: 'Closed' });
+
+/** A message's byline time: when it was written, and edited when the player changed it (ticket 49). */
+export function messageWhen(m, when) {
+  const at = when(m?.at);
+  return m?.edited ? `${at} · edited` : at;
+}
 
 /** What the game knew, in the order and words the old Bug report posts used (src/BugReports.php CONTEXT). */
 export const CONTEXT_LABELS = Object.freeze([['streetName', 'Street'], ['street', 'Street id'], ['x', 'x'], ['y', 'y'], ['build', 'Build'], ['page', 'Page'], ['agent', 'Browser'], ['screen', 'Screen'], ['panels', 'Open windows']]);
@@ -204,6 +212,7 @@ export function logWords(line) {
     case 'reply': return `replied to ${who}'s report “${d.subject || ''}”${{ mailed: ' (emailed)', note: ' (a note, not emailed)', unread: ' (not emailed: an earlier reply is still unread)', busy: ' (not emailed: hourly email limit)', failed: ' (the email did not send)' }[line.delivery] ?? ''}`;
     case 'close': return `closed ${who}'s report “${d.subject || ''}”`;
     case 'reopen': return `reopened ${who}'s report “${d.subject || ''}”`;
+    case 'working': return d.on === false ? `stopped marking ${who}'s report “${d.subject || ''}” working on it` : `marked ${who}'s report “${d.subject || ''}” working on it`;
     case 'broadcast': return `messaged everyone online (${d.count ?? 0}): “${d.text || ''}”${d.failed ? ` (${d.failed} did not get it)` : ''}`;
     case 'builder': {
       const title = d.title || d.draft || 'a draft';
@@ -791,7 +800,7 @@ function boot() {
     $('[data-console-tickets-empty]').hidden = tickets.list.length > 0;
     const c = tickets.counts;
     $('[data-console-tickets-count]').textContent = tickets.list.length ? String(tickets.list.length) : '';
-    for (const k of ['open', 'answered', 'closed']) $(`[data-console-status-count="${k}"]`).textContent = c[k] ? String(c[k]) : '';
+    for (const k of ['open', 'working', 'answered', 'closed']) $(`[data-console-status-count="${k}"]`).textContent = c[k] ? String(c[k]) : '';
     $('[data-console-reports-unread]').textContent = c.unread ? String(c.unread) : '';
     $('[data-console-tab="reports"]').setAttribute('aria-label', c.unread ? `Reports, ${c.unread} unread` : 'Reports');
   }
@@ -834,6 +843,8 @@ function boot() {
     st.textContent = TICKET_STATUS[t.status] || t.status;
     $('[data-console-thread-close]').hidden = t.status === 'closed';
     $('[data-console-thread-reopen]').hidden = t.status !== 'closed';
+    $('[data-console-thread-working]').hidden = t.status === 'closed' || t.status === 'working';
+    $('[data-console-thread-unworking]').hidden = t.status !== 'working';
     const rows = contextRows(r.context);
     $('[data-console-context]').hidden = rows.length === 0;
     $('[data-console-context-list]').replaceChildren(...rows.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })]));
@@ -849,7 +860,7 @@ function boot() {
       img.height = Number(r.picture.height) || 0;
     } else img.removeAttribute('src');
     $('[data-console-messages]').replaceChildren(...(r.messages || []).map((m) => el('li', { class: `console-msg console-msg-${m.author}` },
-      el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${when(m.at)}` })),
+      el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${messageWhen(m, when)}`, title: m.edited ? `Edited ${when(m.edited)}` : null })),
       el('p', { class: 'console-msg-body', text: m.body }))));
     const msgs = $('[data-console-messages]');
     msgs.scrollTop = msgs.scrollHeight;
@@ -902,6 +913,20 @@ function boot() {
         loadTickets();
         loadLog();
         $(kind === 'close' ? '[data-console-thread-reopen]' : '[data-console-thread-close]').focus();
+      } catch (err) { failed(err); }
+    });
+  }
+  // Working on it, and off again (ticket 49): a status, no email.
+  for (const [sel, on] of [['[data-console-thread-working]', true], ['[data-console-thread-unworking]', false]]) {
+    $(sel).addEventListener('click', async () => {
+      if (!tickets.open) return;
+      try {
+        const r = await api.call(`admin/tickets/${tickets.open}/working`, { method: 'POST', body: { working: on } });
+        renderThread(r);
+        say(r.text || 'Done.');
+        loadTickets();
+        loadLog();
+        $(on ? '[data-console-thread-unworking]' : '[data-console-thread-working]').focus();
       } catch (err) { failed(err); }
     });
   }

@@ -14,9 +14,12 @@ use Minn\Db;
  * and write through here.
  *
  * Status: open (the player wrote last, waiting for an administrator),
- * answered (an administrator wrote last), closed (either side closed it). A
+ * answered (an administrator wrote last), working (an administrator marked it
+ * Working on it, ticket 49, 2026-11-02), closed (either side closed it). A
  * new message from either side opens a closed ticket again: the player's as
- * open, an administrator's as answered.
+ * open, an administrator's as answered. Working stays working whoever writes
+ * (statusAfter): it is the administrators' mark, taken off with Not working
+ * on it or Close, and the read marks below still say who has news.
  *
  * Unread: a side has unread news when the other side wrote last
  * (last_author_role) after it last read the thread (player_read_at,
@@ -24,6 +27,11 @@ use Minn\Db;
  *
  * A new report may carry a picture of the game (ReportPicture): kept with
  * the ticket in PICTURES, written in the same transaction as the ticket.
+ *
+ * Edit until read (ticket 49): the player may change the words of a report's
+ * first message until an administrator has read the thread (editable: admin_read_at
+ * NULL, or older than the message as it now stands). The edit is stored in
+ * place, the message marked edited_at, the subject taken again from it.
  *
  * Bodies are plain text (BugReports::clean: no control characters, newlines
  * kept, at most MAX_MESSAGE characters). They are stored as text and set as
@@ -39,7 +47,9 @@ final readonly class TicketStore
     public const OPEN = 'open';
     public const ANSWERED = 'answered';
     public const CLOSED = 'closed';
-    public const STATUSES = [self::OPEN, self::ANSWERED, self::CLOSED];
+    /** Working on it: an administrator's mark (ticket 49); fits status varchar(8). */
+    public const WORKING = 'working';
+    public const STATUSES = [self::OPEN, self::ANSWERED, self::WORKING, self::CLOSED];
 
     public const PLAYER = 'player';
     public const ADMIN = 'admin';
@@ -65,10 +75,39 @@ final readonly class TicketStore
         return mb_strlen($line) > self::SUBJECT_MAX ? rtrim(mb_substr($line, 0, self::SUBJECT_MAX - 1)) . '…' : $line;
     }
 
-    /** The status a ticket takes when $role writes in it. */
-    public static function statusAfter(string $role): string
+    /** The status a ticket takes when $role writes in it: a working one stays working. */
+    public static function statusAfter(string $role, string $current = ''): string
     {
+        if ($current === self::WORKING) {
+            return self::WORKING;
+        }
         return $role === self::ADMIN ? self::ANSWERED : self::OPEN;
+    }
+
+    /** The status Working on it sets ($on), or the one taking it off gives back (open or answered, by who wrote last). */
+    public static function workingStatus(bool $on, string $lastAuthor): string
+    {
+        return $on ? self::WORKING : self::statusAfter($lastAuthor);
+    }
+
+    /**
+     * Whether $player may change the words of a ticket's first message
+     * $first (ticket 49): it is their ticket and their message, and no
+     * administrator has read the thread since the message was written or
+     * last edited (admin_read_at NULL, or older). A reply by an administrator
+     * counts as reading, so it ends the edit too.
+     */
+    public static function editable(array $ticket, ?array $first, int $player): bool
+    {
+        if ($first === null || $player <= 0 || (int) ($ticket['player_user_id'] ?? 0) !== $player) {
+            return false;
+        }
+        if ((string) ($first['author_role'] ?? '') !== self::PLAYER || (int) ($first['author_user_id'] ?? 0) !== $player || (int) ($first['ticket_id'] ?? $ticket['id'] ?? 0) !== (int) ($ticket['id'] ?? -1)) {
+            return false;
+        }
+        $read = $ticket['admin_read_at'] ?? null;
+        $at = (string) (($first['edited_at'] ?? null) ?: ($first['created_at'] ?? ''));
+        return $read === null || (string) $read < $at;
     }
 
     /** Whether $role has news in a ticket row it has not read. */
@@ -118,7 +157,8 @@ final readonly class TicketStore
             $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGES) . ' (ticket_id, author_user_id, author_role, body, created_at) VALUES (?, ?, ?, ?, ?)', [$ticket, $author, $role, $body, $at]);
             $id = $this->db->insertId();
             $read = $role === self::ADMIN ? 'admin_read_at' : 'player_read_at';
-            $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET status = ?, updated_at = ?, last_message_at = ?, last_author_role = ?, {$read} = ? WHERE id = ?", [self::statusAfter($role), $at, $at, $role, $at, $ticket]);
+            $current = (string) ($this->db->value('SELECT status FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ? FOR UPDATE', [$ticket]) ?? '');
+            $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET status = ?, updated_at = ?, last_message_at = ?, last_author_role = ?, {$read} = ? WHERE id = ?", [self::statusAfter($role, $current), $at, $at, $role, $at, $ticket]);
             return $id;
         });
     }
@@ -129,6 +169,28 @@ final readonly class TicketStore
             return;
         }
         $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET status = ?, updated_at = ? WHERE id = ?', [$status, self::stamp($now), $ticket]);
+    }
+
+    /**
+     * The player's new words for their report's first message (ticket 49),
+     * in place: true when written, false when it could no longer be edited
+     * (an administrator read it meanwhile). The ticket row is locked, so an
+     * administrator opening the thread (markRead) waits for the edit or
+     * comes first and ends it. The subject follows the new first line.
+     */
+    public function editFirst(int $ticket, int $player, string $body, int $now): bool
+    {
+        return Ledger::atomically($this->db, function () use ($ticket, $player, $body, $now): bool {
+            $row = $this->db->row('SELECT * FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ? AND player_user_id = ? FOR UPDATE', [$ticket, $player]);
+            $first = $row === null ? null : $this->first($ticket);
+            if ($row === null || !self::editable($row, $first, $player)) {
+                return false;
+            }
+            $at = self::stamp($now);
+            $this->db->execute('UPDATE ' . $this->db->table(self::MESSAGES) . ' SET body = ?, edited_at = ? WHERE id = ? AND ticket_id = ?', [$body, $at, (int) $first['id'], $ticket]);
+            $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET subject = ?, updated_at = ? WHERE id = ?', [self::subject($body), $at, $ticket]);
+            return true;
+        });
     }
 
     /** $role has read the ticket now. */
@@ -165,10 +227,16 @@ final readonly class TicketStore
         return $row === null ? null : ['url' => TicketPictures::url($ticket), 'width' => (int) $row['width'], 'height' => (int) $row['height']];
     }
 
+    /** A ticket's first message (the report itself), or null. */
+    public function first(int $ticket): ?array
+    {
+        return $ticket > 0 ? $this->db->row('SELECT id, ticket_id, author_user_id, author_role, body, created_at, edited_at FROM ' . $this->db->table(self::MESSAGES) . ' WHERE ticket_id = ? ORDER BY id ASC LIMIT 1', [$ticket]) : null;
+    }
+
     /** A thread's messages, oldest first (the newest THREAD_MAX). @return list<array<string, mixed>> */
     public function messages(int $ticket): array
     {
-        $rows = $this->db->rows('SELECT id, author_user_id, author_role, body, created_at FROM ' . $this->db->table(self::MESSAGES) . ' WHERE ticket_id = ? ORDER BY id DESC LIMIT ' . self::THREAD_MAX, [$ticket]);
+        $rows = $this->db->rows('SELECT id, author_user_id, author_role, body, created_at, edited_at FROM ' . $this->db->table(self::MESSAGES) . ' WHERE ticket_id = ? ORDER BY id DESC LIMIT ' . self::THREAD_MAX, [$ticket]);
         return array_reverse($rows);
     }
 
@@ -185,8 +253,8 @@ final readonly class TicketStore
     }
 
     /**
-     * Every ticket for the administrators: unread first, then open, answered,
-     * closed, the newest news first in each. $status narrows it to one.
+     * Every ticket for the administrators: unread first, then open, working,
+     * answered, closed, the newest news first in each. $status narrows it to one.
      *
      * @return array{rows: list<array<string, mixed>>, more: bool}
      */
@@ -194,14 +262,14 @@ final readonly class TicketStore
     {
         $where = $status !== null && in_array($status, self::STATUSES, true) ? 'WHERE status = ?' : '';
         $unread = "(last_author_role = 'player' AND (admin_read_at IS NULL OR admin_read_at < last_message_at))";
-        $rows = $this->db->rows('SELECT *, ' . $unread . ' AS admin_unread FROM ' . $this->db->table(self::TABLE) . " {$where} ORDER BY admin_unread DESC, FIELD(status, 'open', 'answered', 'closed'), last_message_at DESC, id DESC LIMIT " . (self::LIST_MAX + 1), $where === '' ? [] : [$status]);
+        $rows = $this->db->rows('SELECT *, ' . $unread . ' AS admin_unread FROM ' . $this->db->table(self::TABLE) . " {$where} ORDER BY admin_unread DESC, FIELD(status, 'open', 'working', 'answered', 'closed'), last_message_at DESC, id DESC LIMIT " . (self::LIST_MAX + 1), $where === '' ? [] : [$status]);
         return ['rows' => array_slice($rows, 0, self::LIST_MAX), 'more' => count($rows) > self::LIST_MAX];
     }
 
     /** Tickets by status, and how many hold a player's message no administrator has read. @return array<string, int> */
     public function counts(): array
     {
-        $out = [self::OPEN => 0, self::ANSWERED => 0, self::CLOSED => 0, 'unread' => 0];
+        $out = [self::OPEN => 0, self::ANSWERED => 0, self::WORKING => 0, self::CLOSED => 0, 'unread' => 0];
         $t = $this->db->table(self::TABLE);
         foreach ($this->db->rows("SELECT status, COUNT(*) AS n FROM {$t} GROUP BY status") as $r) {
             if (isset($out[(string) $r['status']])) {
@@ -251,6 +319,8 @@ final readonly class TicketStore
                 'author' => (string) $m['author_role'] === self::ADMIN ? self::ADMIN : self::PLAYER,
                 'body' => (string) $m['body'],
                 'at' => SaveShape::time((string) $m['created_at']),
+                // When the player last changed its words (ticket 49), or null.
+                'edited' => ($m['edited_at'] ?? null) ? SaveShape::time((string) $m['edited_at']) : null,
             ];
         }
         return $out;

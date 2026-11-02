@@ -19,7 +19,7 @@ use Minn\Http\Route;
  * a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
- * reply or add a note without an email, close, reopen; AdminTickets). #reports
+ * reply or add a note without an email, mark working on it, close, reopen; AdminTickets). #reports
  * opens the Reports tab, #report=<id> one report. Chat log: what players said on streets, in
  * channels and in parties, from the realtime server's log (AdminConsole::chatlog), searched by
  * player, words, kind and days; a player's menu has Chat history, which opens it filtered to them.
@@ -43,7 +43,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'picture-popup-1';
+    public const ASSET_KEY = 'working-edit-1';
 
     public function __construct(private Seams $minn)
     {
@@ -169,6 +169,7 @@ HTML
         <div class="console-filter" role="group" aria-label="Show" data-console-ticket-filter>
           <button type="button" aria-pressed="true" data-status="all">All</button>
           <button type="button" aria-pressed="false" data-status="open">Open <span class="console-sub" data-console-status-count="open"></span></button>
+          <button type="button" aria-pressed="false" data-status="working">Working on it <span class="console-sub" data-console-status-count="working"></span></button>
           <button type="button" aria-pressed="false" data-status="answered">Answered <span class="console-sub" data-console-status-count="answered"></span></button>
           <button type="button" aria-pressed="false" data-status="closed">Closed <span class="console-sub" data-console-status-count="closed"></span></button>
         </div>
@@ -187,6 +188,8 @@ HTML
           </div>
           <div class="console-thread-acts">
             <span class="console-chip" data-console-thread-status></span>
+            <button type="button" class="console-small" data-console-thread-working>Mark working on it</button>
+            <button type="button" class="console-small" data-console-thread-unworking hidden>Not working on it</button>
             <button type="button" class="console-small" data-console-thread-close>Close</button>
             <button type="button" class="console-small" data-console-thread-reopen hidden>Reopen</button>
           </div>

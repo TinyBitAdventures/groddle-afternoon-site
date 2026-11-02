@@ -123,6 +123,7 @@
 .console-chip { flex: none; padding: 0 7px; border-radius: 4px; background: var(--track); color: var(--fg); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
 .console-chip-open { background: #2d6a8f; color: #fff; }
 .console-chip-answered { background: #477d38; color: #fff; }
+.console-chip-working { background: #8a5a00; color: #fff; }
 .console-chip:empty { display: none; }
 .console-thread-head { align-items: flex-start; }
 .console-thread-head h2 { overflow-wrap: anywhere; }

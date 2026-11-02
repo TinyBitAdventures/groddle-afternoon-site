@@ -23,19 +23,23 @@ use Minn\RestError;
  *
  *   GET  tickets                 {"tickets":[Summary],"unread":n}      yours, the newest news first
  *   GET  tickets/unread          {"unread":n}                          the bug icon's badge (polled)
- *   GET  tickets/{id}            {"ticket":Summary,"messages":[Message],"picture":{"url","width","height"}|null}  and marks it read
+ *   GET  tickets/{id}            {"ticket":Summary,"messages":[Message],"picture":{"url","width","height"}|null,"editable":bool}  and marks it read
  *   POST tickets                 {"message","context","picture"?} 201 {"status":"sent","id","ticket"}   a new report;
  *                                picture: a base64 JPEG of the game (ReportPicture), refused with a groddle_report_picture* code
  *   POST tickets/{id}/messages   {"message"}  {"ticket","messages"}    a reply; opens a closed ticket again
  *   POST tickets/{id}/close      {"ticket","messages"}
- *   Summary: {"id","status":"open"|"answered"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
- *   Message: {"id","author":"player"|"admin","body","at"}   who wrote is a role, never a name
+ *   POST tickets/{id}/edit       {"message"}  {"ticket","messages"}    new words for the report's first message, until an
+ *                                administrator has read it (TicketStore::editable); after that 409 groddle_ticket_read
+ *   Summary: {"id","status":"open"|"answered"|"working"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
+ *   Message: {"id","author":"player"|"admin","body","at","edited":time|null}   who wrote is a role, never a name
+ *   editable: whether the first message can still be edited (every thread answer carries it)
  *
  * A new report keeps the old one's rules (BugReports: the message required
  * and at most MAX_MESSAGE characters, the context's known keys cut short,
  * PER_WINDOW in WINDOW seconds and PER_DAY a day; a picture comes only with
  * a new report, so those are its limits too). Replies: REPLY_PER_WINDOW
- * in WINDOW seconds and REPLY_PER_DAY a day, the same length.
+ * in WINDOW seconds and REPLY_PER_DAY a day, the same length. An edit has
+ * the length limit and cleaning of a new message (ticket 49, 2026-11-02).
  */
 final readonly class Tickets
 {
@@ -68,7 +72,7 @@ final readonly class Tickets
         $me = $this->me();
         $row = $this->mine($me, (int) $id);
         $this->store()->markRead((int) $row['id'], TicketStore::PLAYER, time());
-        return $this->thread((int) $row['id']);
+        return $this->thread((int) $row['id'], $me->id);
     }
 
     #[Route(Method::Post, '/groddle/v1/tickets', policy: new Policy(Access::SignedIn))]
@@ -112,7 +116,7 @@ final readonly class Tickets
             throw new RestError('groddle_ticket_slow', 'You have sent a lot of replies just now. Try again in a little while.', 429);
         }
         $store->add((int) $row['id'], $me->id, TicketStore::PLAYER, $message, $now);
-        return $this->thread((int) $row['id']);
+        return $this->thread((int) $row['id'], $me->id);
     }
 
     #[Route(Method::Post, '/groddle/v1/tickets/{id:\d+}/close', policy: new Policy(Access::SignedIn))]
@@ -123,14 +127,36 @@ final readonly class Tickets
         $store = $this->store();
         $store->setStatus((int) $row['id'], TicketStore::CLOSED, time());
         $store->markRead((int) $row['id'], TicketStore::PLAYER, time());
-        return $this->thread((int) $row['id']);
+        return $this->thread((int) $row['id'], $me->id);
     }
 
-    private function thread(int $id): Response
+    /** New words for the report's first message, until an administrator has read it (ticket 49). */
+    #[Route(Method::Post, '/groddle/v1/tickets/{id:\d+}/edit', policy: new Policy(Access::SignedIn))]
+    public function edit(Request $request, string $id): Response
+    {
+        $me = $this->me();
+        $row = $this->mine($me, (int) $id);
+        $body = $request->json();
+        $message = BugReports::message($body['message'] ?? null, BugReports::MAX_MESSAGE, 'groddle_ticket_long');
+        if ($message === '') {
+            throw new RestError('groddle_ticket_empty', 'Write your report first.', 400);
+        }
+        if (!$this->store()->editFirst((int) $row['id'], $me->id, $message, time())) {
+            throw new RestError('groddle_ticket_read', 'An administrator has read this report, so it can no longer be changed. Write a reply to add to it.', 409);
+        }
+        return $this->thread((int) $row['id'], $me->id);
+    }
+
+    private function thread(int $id, int $player): Response
     {
         $store = $this->store();
         $row = (array) $store->find($id);
-        return Response::json(['ticket' => TicketStore::summary($row, TicketStore::PLAYER), 'messages' => TicketStore::messagesOut($store->messages($id)), 'picture' => $store->pictureOut($id)])->withHeader('Cache-Control', 'no-store');
+        return Response::json([
+            'ticket' => TicketStore::summary($row, TicketStore::PLAYER),
+            'messages' => TicketStore::messagesOut($store->messages($id)),
+            'picture' => $store->pictureOut($id),
+            'editable' => TicketStore::editable($row, $store->first($id), $player),
+        ])->withHeader('Cache-Control', 'no-store');
     }
 
     /** One of the caller's tickets; anyone else's is missing to them. */
