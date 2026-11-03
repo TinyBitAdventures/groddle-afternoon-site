@@ -194,6 +194,8 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
 .profile-buddy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 16px 0 0; }
 .profile-buddy-btn { display: inline-flex; align-items: center; min-height: 38px; padding: 0 16px; border: 1px solid var(--play-bg); border-radius: 999px; background: var(--play-bg); color: var(--play-fg); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
 .profile-buddy-btn:hover { background: var(--play-hover); border-color: var(--play-hover); }
+.profile-im-btn { display: inline-flex; align-items: center; min-height: 38px; padding: 0 16px; border: 1px solid var(--play-bg); border-radius: 999px; color: var(--play-bg); font-size: 15px; font-weight: 700; text-decoration: none; }
+.profile-im-btn:hover { border-color: var(--play-hover); color: var(--play-hover); }
 .profile-buddy-btn[data-buddy-do="remove"] { background: var(--surface); border-color: var(--border); color: var(--fg); }
 .profile-buddy-btn[data-buddy-do="remove"]:hover { border-color: var(--fg); }
 .profile-buddy-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }

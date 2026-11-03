@@ -40,6 +40,8 @@ use Minn\RestError;
  * button calls groddle/v1/buddies with the page's REST nonce; without, the
  * form posts here (buddy()) and comes back to the page. The save keeps no times for skills or
  * badges, so "newest" is the order they came in, with no dates.
+ * Beside it, "Send them an IM" opens the game on an IM to them
+ * (/play/online/#im=<id>&name=<name>; the realtime server's im.go decides).
  *
  * Drawn whole on the server in the site's look (the header menu, the
  * restoration report's tokens, light and dark) so they read without
@@ -81,6 +83,15 @@ final readonly class PlayerPages
 
     /** The buddy button's labels, glitch.com's (the archived profile's buddyadd and buddyremove). */
     public const BUDDY_LABELS = ['add' => 'Add to buddy list', 'remove' => 'Remove from buddy list'];
+
+    /** The client's player info had "Send them an IM" (PlayerInfoDialog.as 172-175): it opens the game on that IM. */
+    public const IM_LABEL = 'Send them an IM';
+
+    /** The game opens the IM from the link's fragment (its js/player-im.js imLinkFrom); the fragment never reaches a server log. */
+    public static function imLink(int $id, string $name): string
+    {
+        return '/play/online/#im=' . $id . '&name=' . rawurlencode($name);
+    }
 
     /**
      * What the page says after the form posted without JavaScript (?buddy=),
@@ -324,6 +335,7 @@ final readonly class PlayerPages
             . '<input type="hidden" name="tab" value="' . Html::attr($s['tab']) . '" />'
             . '<input type="hidden" name="do" value="' . $do . '" />'
             . '<button type="submit" class="profile-buddy-btn" data-buddy-do="' . $do . '">' . self::BUDDY_LABELS[$do] . '</button>'
+            . '<a class="profile-im-btn" href="' . Html::attr(self::imLink($s['id'], $s['name'])) . '" data-im-link="' . $s['id'] . '">' . self::IM_LABEL . '</a>'
             . '<span class="profile-buddy-note" role="status" aria-live="polite"' . ($s['said'] === 'failed' || $s['said'] === 'limit' ? ' data-tone="bad"' : '') . '>' . Html::esc($said) . '</span>'
             . "</form>\n";
     }
