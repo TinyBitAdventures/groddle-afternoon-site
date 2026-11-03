@@ -513,6 +513,8 @@ final readonly class Ledger
         return match (true) {
             LedgerGift::isGift($p['trade']) => LedgerGift::catchUp($this->db, $entries, $user, $p),
             LedgerFurniture::isSale($p['trade']) => LedgerFurniture::catchUp($this->db, $entries, $user, $p),
+            // Ticket 51: a purchase from a box, or a key-holder's take or put, comes out of (or goes into) that very box or cabinet.
+            LedgerBoxes::isOwnerSide($p['trade']) => LedgerBoxes::catchUp($this->db, $entries, $user, $p),
             // A tool picked up keeps its wear (the stack's points), as a live pickup does.
             LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
             // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.

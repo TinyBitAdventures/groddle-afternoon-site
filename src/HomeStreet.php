@@ -23,6 +23,7 @@ use Minn\RestError;
  *   GET groddle/v1/homes/{id}/street
  *       200 {"owner":{"id","name"},"signpost":[{"position","id","name"}],
  *            "poles":[Pole],"sales":[{"op","uid","class","price"}],
+ *            "boxes":[{"uid","class","price","stock"}],"key":true,
  *            "restores":[{"job","proto","yard","item","cycle","mult","token"}]}
  *
  * - signpost: the arms of the owner's post (HomeSignpost).
@@ -33,6 +34,9 @@ use Minn\RestError;
  *   features/home-street-mp-feature.js slice; tags stripped here.
  * - sales: furniture the owner has put up for sale, at the site's price
  *   (LedgerFurniture).
+ * - boxes: what the owner's Storage Display Boxes sell, at the site's
+ *   price, and how many are left (LedgerBoxes); key: whether the caller may
+ *   open the owner's cabinets (the owner, or a key-holder).
  * - restores: each worn-out cultivation's restoration project, with a
  *   token signed with the realtime secret ({k: home_restore, sub: the
  *   caller, o: owner, job, proto, yard, mult}) the game hands the realtime
@@ -98,6 +102,9 @@ final readonly class HomeStreet
             'signpost' => HomeSignpost::neighbors($db, $owner),
             'poles' => self::poles($theirs),
             'sales' => LedgerFurniture::listed($db, $owner),
+            // Ticket 51: what the owner's Storage Display Boxes sell (LedgerBoxes), and whether the caller holds a key.
+            'boxes' => LedgerBoxes::shown($db, $owner, $theirs),
+            'key' => $owner === $me || LedgerBoxes::hasKey($db, $owner, $me),
             'restores' => $this->restores($theirs, $me, $owner),
         ]);
     }

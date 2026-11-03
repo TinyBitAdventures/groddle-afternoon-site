@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.34",
+  "version": "0.5.35",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -302,6 +302,31 @@
       "PRIMARY KEY  (id)",
       "KEY owner_id (owner_id,status)",
       "KEY buyer_id (buyer_id)"
+    ],
+    "groddle_home_boxes": [
+      "owner_id bigint(20) unsigned NOT NULL",
+      "uid int(10) unsigned NOT NULL",
+      "class_tsid varchar(64) NOT NULL",
+      "price int(10) unsigned NOT NULL DEFAULT 0",
+      "selling tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "income bigint(20) unsigned NOT NULL DEFAULT 0",
+      "updated_at datetime NOT NULL",
+      "PRIMARY KEY  (owner_id,uid)"
+    ],
+    "groddle_home_box_ops": [
+      "op varchar(40) NOT NULL",
+      "owner_id bigint(20) unsigned NOT NULL",
+      "actor_id bigint(20) unsigned NOT NULL",
+      "uid int(10) unsigned NOT NULL",
+      "kind varchar(8) NOT NULL",
+      "class_tsid varchar(64) NOT NULL",
+      "n int(10) unsigned NOT NULL DEFAULT 0",
+      "price int(10) unsigned NOT NULL DEFAULT 0",
+      "slot smallint(6) NOT NULL DEFAULT -1",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (op)",
+      "KEY owner_uid (owner_id,uid)",
+      "KEY actor_id (actor_id)"
     ],
     "groddle_home_tending": [
       "id varchar(40) NOT NULL",

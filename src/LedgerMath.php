@@ -19,8 +19,9 @@ namespace Groddle\Minn;
  * Where a save keeps things (all counted, so moving between them is never a
  * gain): the pack and purse (playerState inventory, player.currants), the
  * trade hold (systems.features.trade.hold, js/trade.js), home furniture
- * storage, placed furniture and Storage Display Boxes (systems.features.
- * homes decor, towerDecor and the upper floors, floors.upper, js/home-decor.js) and stacks dropped on
+ * storage, placed furniture, Storage Display Boxes and what cabinets hold (systems.features.
+ * homes decor, towerDecor and the upper floors, floors.upper, js/home-decor.js; a
+ * cabinet's slots are its row's contents, js/home-storage.js) and stacks dropped on
  * streets (the droppedItems entry, js/world-items.js, a dropped bag with what it
  * holds). Smaller stashes are
  * not counted: taking from one reads as a gain, which the budget pays for.
@@ -128,6 +129,12 @@ final class LedgerMath
                         $add($row['classTsid'] ?? null, 1);
                         if (is_array($row['display'] ?? null)) {
                             $add($row['display']['classTsid'] ?? null, $row['display']['count'] ?? 0);
+                        }
+                        // Ticket 51: a cabinet's slots (js/home-storage.js normalizeContents).
+                        foreach (is_array($row['contents'] ?? null) ? $row['contents'] : [] as $slot) {
+                            if (is_array($slot)) {
+                                $add($slot['classTsid'] ?? null, $slot['count'] ?? 0);
+                            }
                         }
                     }
                 }
@@ -553,8 +560,9 @@ final class LedgerMath
 
     /**
      * Takes clamped goods out of a save: the pack and purse first, then the
-     * trade hold, home furniture storage, dropped stacks, display boxes and
-     * placed furniture. Returns the edited entries.
+     * trade hold, home furniture storage, dropped stacks, display boxes,
+     * cabinets and placed furniture. A cabinet taken away leaves what is left
+     * in it in the pack (ticket 51). Returns the edited entries.
      */
     public static function remove(array $entries, array $goods): array
     {
@@ -681,6 +689,26 @@ final class LedgerMath
                 }
                 $keep = [];
                 foreach ($d->placed as $row) {
+                    $slots = is_array($row->contents ?? null) ? $row->contents : null;
+                    if ($slots !== null) {
+                        for ($i = count($slots) - 1; $i >= 0; $i--) {
+                            $slot = $slots[$i];
+                            $sc = $slot instanceof \stdClass ? ($slot->classTsid ?? null) : null;
+                            if (!is_string($sc) || ($want[$sc] ?? 0) <= 0) {
+                                continue;
+                            }
+                            $n = min(self::count($slot->count ?? 0), $want[$sc]);
+                            $want[$sc] -= $n;
+                            $slot->count = self::count($slot->count ?? 0) - $n;
+                            if (is_array($slot->points ?? null)) {
+                                $slot->points = array_slice($slot->points, 0, $slot->count);
+                            }
+                            if ($slot->count <= 0) {
+                                $slots[$i] = null;
+                            }
+                        }
+                        $row->contents = $slots;
+                    }
                     $disp = $row->display ?? null;
                     if ($disp instanceof \stdClass && is_string($disp->classTsid ?? null) && ($want[$disp->classTsid] ?? 0) > 0) {
                         $n = min(self::count($disp->count ?? 0), $want[$disp->classTsid]);
@@ -693,6 +721,15 @@ final class LedgerMath
                     $c = $row->classTsid ?? null;
                     if (is_string($c) && ($want[$c] ?? 0) > 0) {
                         $want[$c] -= 1;
+                        foreach ($slots ?? [] as $slot) {
+                            $sc = $slot instanceof \stdClass ? ($slot->classTsid ?? null) : null;
+                            if (is_string($sc) && self::count($slot->count ?? 0) > 0) {
+                                if (!($state->inventory ?? null) instanceof \stdClass) {
+                                    $state->inventory = new \stdClass();
+                                }
+                                $state->inventory->{$sc} = self::count($state->inventory->{$sc} ?? 0) + self::count($slot->count ?? 0);
+                            }
+                        }
                         continue;
                     }
                     $keep[] = $row;

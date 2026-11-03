@@ -127,7 +127,8 @@ final readonly class LedgerFurniture
         if (in_array($class, self::UNSELLABLE, true) || !Economy::shared()->tradeable($class)) {
             throw new RestError('groddle_sale_cant', self::TEXT_CANT_SELL, 400);
         }
-        if (is_object($row->display ?? null) && (int) ($row->display->count ?? 0) > 0) {
+        // canSell: a box or a cabinet with things in it (bag_furniture_sdb.js 876-879, furniture_base 145).
+        if (LedgerBoxes::holdsSomething($row)) {
             throw new RestError('groddle_sale_empty', self::TEXT_EMPTY, 400);
         }
         Ledger::atomically($db, function () use ($db, $me, $uid, $class, $price): void {

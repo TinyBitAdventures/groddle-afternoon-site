@@ -511,6 +511,24 @@ final readonly class Neighbours
      * the owner has not blocked may enter and ride to every floor
      * (locations/tower.js:2-22, 584-620; inc_pols.js:452-458).
      */
+    /** A copy of a floor's decor with no cabinet's slots in it (the rows' `contents`). */
+    public static function withoutCabinets(object $decor): object
+    {
+        if (!is_array($decor->placed ?? null)) {
+            return $decor;
+        }
+        $copy = clone $decor;
+        $copy->placed = array_map(static function (mixed $row): mixed {
+            if (!is_object($row) || !property_exists($row, 'contents')) {
+                return $row;
+            }
+            $r = clone $row;
+            unset($r->contents);
+            return $r;
+        }, $decor->placed);
+        return $copy;
+    }
+
     public static function homesSlice(?object $state): ?object
     {
         $homes = self::feature($state, 'homes');
@@ -522,6 +540,10 @@ final readonly class Neighbours
             if (is_object($homes->{$key} ?? null)) {
                 $out->{$key} = $homes->{$key};
             }
+        }
+        // Ticket 51: what a cabinet holds is for its owner and their key-holders (LedgerBoxes, the cabinets route).
+        if (is_object($out->decor ?? null)) {
+            $out->decor = self::withoutCabinets($out->decor);
         }
         foreach (['streetStyle', 'yardStyle'] as $key) {
             $value = $homes->{$key} ?? null;
@@ -552,7 +574,7 @@ final readonly class Neighbours
             }
             $out->tower = $look;
             if (is_array($homes->towerDecor ?? null)) {
-                $out->towerDecor = $homes->towerDecor;
+                $out->towerDecor = array_map(static fn (mixed $d): mixed => is_object($d) ? self::withoutCabinets($d) : $d, $homes->towerDecor);
             }
         }
         $json = json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
