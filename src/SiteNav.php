@@ -30,7 +30,7 @@ final class SiteNav
     public const FALLBACK = [
         ['Restoration', '/restoration/', ''],
         ['Compare', '/compare/', ''],
-        ['Items', '/items/', ''],
+        ['Items', '/encyclopedia/items/', ''],
         ['Notes', '/changelog/', ''],
         ['Play', '/play/', 'site-nav-play'],
     ];
@@ -43,8 +43,8 @@ final class SiteNav
      */
     public const SECTIONS = [
         '/project/' => ['/restoration/', '/compare/', '/changelog/', '/code/'],
+        '/encyclopedia/items/' => ['/encyclopedia/'],
         '/items/' => ['/encyclopedia/'],
-        '/encyclopedia/' => ['/items/'],
     ];
 
     public static function register(Seams $minn): void

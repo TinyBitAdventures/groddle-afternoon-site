@@ -15,7 +15,8 @@ use Minn\Extension\Seams;
  * the note blocks (Blocks), the restoration report's data sections
  * (Restoration) and its section menu (ReportMenu), the Musicblocks and Street music pages' players
  * (Musicblocks, StreetMusic), the header's menu (SiteNav), and the built game
- * and generated pages served beside the content. For players: the
+ * and generated pages served beside the content, with the old addresses of the
+ * ones that moved (MovedPages). For players: the
  * groddle/v1 REST routes: the game's own sign-up and sign-in by email
  * (PlayerAccount) and with Google (GoogleSignIn), who is signed in (Player), the saves over the tables
  * minn.json declares (MultiplayerSave, SoloBackups), the realtime
@@ -46,6 +47,8 @@ final class Extension implements MinnExtension
         // The Notes list under month headings (the query loop draws one list).
         $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
         $root = StaticRoot::fromSite($minn);
+        // Old addresses of built pages that moved (/items/ is /encyclopedia/items/ now), before the built folders.
+        $minn->routes(new MovedPages());
         $minn->routes(new StaticPages($minn, $root));
         // The Players pages and the pictures on them (G338), after the built folders.
         $minn->routes(new PlayerPages($minn, $root));
