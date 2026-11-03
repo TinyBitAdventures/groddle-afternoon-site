@@ -195,7 +195,7 @@ final readonly class PlayerPages
         }
         $db = $this->minn->db;
         $character = $db->row('SELECT name, created_at FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]);
-        $profile = $db->row('SELECT about, avatar_at, home_at, home_w, home_h, home_small IS NOT NULL AS home_has_small FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
+        $profile = $db->row('SELECT about, avatar_at, home_at, home_w, home_h, home_small IS NOT NULL AS home_has_small, home_layout FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
         $facts = Profiles::fromSave($db, $id);
         // Below the listed level the page is the owner's alone.
         $own = $this->minn->reader->userId === $id;
@@ -213,6 +213,8 @@ final readonly class PlayerPages
             'badges' => $this->badges($facts['badges']),
             'skills' => self::skillRows($facts['skills'], $this->skillCatalog(), $this->root->dir),
             'buddyCount' => $this->buddies($id, 0, 0)['total'],
+            // ?home=picture shows the uploaded picture even when there is a layout (comparing the two).
+            'homePicture' => $request->query('home') === 'picture',
         ];
         $who['buddy'] = $this->buddyButton($id, $name, $who['base'], $tab, (string) ($request->query('buddy') ?? ''));
         $private = $facts['level'] < Profiles::LISTED_LEVEL
@@ -404,16 +406,42 @@ final readonly class PlayerPages
         return '<img' . $attrs . ' alt="' . Html::attr("{$name}'s home street") . '" loading="lazy" decoding="async" />';
     }
 
+    /**
+     * The home street as a diorama (HomeLayout) when the game has sent its
+     * layout, else the picture it uploaded (players whose game has not sent a
+     * layout yet), else a note. null when there is no usable layout.
+     */
+    private function homeDiorama(array $who): ?string
+    {
+        $stored = $who['profile']['home_layout'] ?? null;
+        if (!is_string($stored) || $stored === '' || $who['homePicture']) {
+            return null;
+        }
+        $layout = Json::decode($stored, or: null);
+        if (!is_array($layout) || ($layout['v'] ?? null) !== HomeLayout::VERSION || !isset($layout['w'], $layout['h'], $layout['art'], $layout['draw'], $layout['spots'])) {
+            return null;
+        }
+        $avatarAt = $who['profile']['avatar_at'] ?? null;
+        return HomeLayout::render($layout, [
+            'owner' => $who['name'],
+            'root' => $this->root->dir,
+            'avatar' => is_string($avatarAt) && $avatarAt !== '' ? Profiles::imageUrl($who['id'], 'avatar', $avatarAt) : null,
+        ]);
+    }
+
     /** The profile: the home street, then the newest badges and skills and some buddies, each with a way to the rest. */
     private function overview(array $who): string
     {
         ['id' => $id, 'name' => $name, 'profile' => $profile] = $who;
         $nameHtml = Html::esc($name);
         $homeAt = is_string($profile['home_at'] ?? null) && $profile['home_at'] !== '' ? $profile['home_at'] : null;
+        $diorama = $this->homeDiorama($who);
         return "    <section class=\"profile-section\" aria-labelledby=\"profile-home\">\n      <h2 id=\"profile-home\">{$nameHtml}'s home street</h2>\n"
-            . ($homeAt === null
+            . ($diorama !== null
+                ? "    {$diorama}\n"
+                : ($homeAt === null
                 ? "      <p class=\"profile-empty\">No picture of {$nameHtml}'s home yet. It appears after they visit their home street in multiplayer.</p>\n"
-                : '      <figure class="profile-home">' . self::homeImg($id, $name, $homeAt, $profile) . "</figure>\n")
+                : '      <figure class="profile-home">' . self::homeImg($id, $name, $homeAt, $profile) . "</figure>\n"))
             . "    </section>\n"
             . self::badgesSection($who, self::LATEST)
             . self::skillsSection($who, self::LATEST)

@@ -144,6 +144,43 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
 .profile-section h2 { margin: 0 0 14px; overflow-wrap: anywhere; }
 .profile-home { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
 .profile-home img { display: block; width: 100%; height: auto; }
+/* The home street as a diorama (src/HomeLayout.php): every box is in % of the stage, so the
+   whole street scales with the column; z-index carries the game's paint order. */
+.home-diorama .hd-stage { position: relative; width: 100%; overflow: hidden; container-type: inline-size; background: #8ec8e8; }
+.home-diorama .hd-stage > *, .home-diorama .hd-spot > * { position: absolute; display: block; }
+.home-diorama .hd-stage img { max-width: none; width: auto; height: auto; filter: var(--hd-tint, none); }
+.home-diorama .hd-stage .hd-crop { overflow: hidden; filter: var(--hd-tint, none); }
+.home-diorama .hd-stage .hd-crop img { position: absolute; filter: none; }
+.home-diorama .hd-stage > .hd-art, .home-diorama .hd-stage > .hd-crop, .home-diorama .hd-fill, .home-diorama .hd-sign { pointer-events: none; }
+.home-diorama .hd-filters { position: absolute; width: 0; height: 0; }
+.home-diorama .hd-sign { display: flex; align-items: center; justify-content: center; white-space: nowrap; line-height: 1; font-family: var(--font-body); font-weight: 700; color: #f7ecd6; }
+.home-diorama .hd-spot { cursor: pointer; color: inherit; text-decoration: none; border-radius: 10px; outline: none; }
+.home-diorama .hd-spot > img, .home-diorama .hd-spot > .hd-crop { transition: filter 0.15s; }
+.home-diorama .hd-spot:hover > img, .home-diorama .hd-spot:focus-visible > img,
+.home-diorama .hd-spot:hover > .hd-crop, .home-diorama .hd-spot:focus-visible > .hd-crop {
+  filter: var(--hd-tint,) brightness(1.08) drop-shadow(0 0 4px #fff7b0) drop-shadow(0 0 1px #ffffff);
+}
+/* The focus ring and the name sit over every picture on the stage. */
+.home-diorama .hd-spot::before { content: ''; position: absolute; inset: -3px; border-radius: 10px; z-index: 1999; pointer-events: none; }
+.home-diorama .hd-spot:focus-visible::before { outline: 3px solid var(--accent); outline-offset: 0; }
+.home-diorama .hd-spot:not(:has(> *)):hover::before { background: rgba(255, 247, 176, 0.18); box-shadow: inset 0 0 0 2px rgba(255, 247, 176, 0.7); }
+.home-diorama .hd-spot::after {
+  content: attr(data-label);
+  position: absolute; left: 50%; bottom: calc(100% + 6px); z-index: 2000;
+  transform: translate(-50%, 4px);
+  white-space: nowrap; font-size: 13px; font-weight: 700; line-height: 1.3;
+  color: var(--fg); background: var(--surface); border: 1px solid var(--border);
+  padding: 4px 10px; border-radius: 999px; box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.5);
+  opacity: 0; pointer-events: none; transition: opacity 0.15s, transform 0.15s;
+}
+.home-diorama .hd-spot.hd-tip-below::after { bottom: auto; top: calc(100% + 6px); }
+.home-diorama .hd-spot.hd-tip-start::after { left: var(--hd-tip-in, 0); transform: translate(0, 4px); }
+.home-diorama .hd-spot.hd-tip-end::after { left: auto; right: var(--hd-tip-in, 0); transform: translate(0, 4px); }
+.home-diorama .hd-spot:hover::after, .home-diorama .hd-spot:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+.home-diorama .hd-spot.hd-tip-start:hover::after, .home-diorama .hd-spot.hd-tip-start:focus-visible::after,
+.home-diorama .hd-spot.hd-tip-end:hover::after, .home-diorama .hd-spot.hd-tip-end:focus-visible::after { transform: translate(0, 0); }
+.home-diorama .hd-caption { margin: 0; padding: 10px 14px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); }
+@media (prefers-reduced-motion: reduce) { .home-diorama .hd-spot > *, .home-diorama .hd-spot::after { transition: none; } }
 .profile-badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
 .profile-badges li { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); text-align: center; font-size: 14px; font-weight: 600; }
 .profile-badges img { width: 72px; height: 72px; }

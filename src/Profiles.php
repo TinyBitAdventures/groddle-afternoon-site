@@ -28,7 +28,9 @@ use Minn\RestError;
  * and the home street and uploads them (ProfilePng checks every byte), and
  * the player writes the description (the website's profile-bio) in the game.
  * The home street is HomePicture's: WebP, JPEG or PNG, kept as GD writes it
- * with its type, size and a phone-sized copy.
+ * with its type, size and a phone-sized copy; and, beside it, its layout
+ * (HomeLayout: what is on the street and where, read off the game's stage),
+ * which the profile draws as a diorama from the game's own art.
  * Level and badges are read from the character's own save; the email and
  * the account's made-up username are never shown or sent.
  *
@@ -120,6 +122,27 @@ final readonly class Profiles
     }
 
     /**
+     * The home street as a layout (HomeLayout), with its key: checked,
+     * normalized and kept as JSON. The answer, like every other here, carries
+     * homeLayout (null until one is sent), which is how the game knows this
+     * site takes layouts.
+     */
+    #[Route(Method::Put, '/groddle/v1/profile/home-layout', policy: new Policy(Access::SignedIn))]
+    public function homeLayout(Request $request): Response
+    {
+        $character = $this->character();
+        $body = $request->json();
+        $key = self::key($body['key'] ?? null);
+        $this->throttle($character['id'], 'home_layout_at');
+        $layout = HomeLayout::accept($body['layout'] ?? null, StaticRoot::fromSite($this->minn)->dir);
+        $this->ensureRow($character['id']);
+        $db = $this->minn->db;
+        $now = gmdate('Y-m-d H:i:s');
+        $db->execute('UPDATE ' . $db->table(self::TABLE) . ' SET home_layout = ?, home_layout_key = ?, home_layout_at = ?, updated_at = ? WHERE user_id = ?', [Json::encode($layout), $key, $now, $now, $character['id']]);
+        return Response::json($this->answer($character));
+    }
+
+    /**
      * The caller's character: id and name. An account with no character
      * (the site's own people) has no profile.
      *
@@ -161,7 +184,7 @@ final readonly class Profiles
     private function answer(array $character): array
     {
         $db = $this->minn->db;
-        $row = $db->row('SELECT about, avatar_key, avatar_at, home_key, home_at FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ?', [$character['id']]);
+        $row = $db->row('SELECT about, avatar_key, avatar_at, home_key, home_at, home_layout_key, home_layout_at FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ?', [$character['id']]);
         $slug = self::slugs($db)[$character['id']] ?? self::slug($character['name']);
         return [
             'id' => $character['id'],
@@ -171,6 +194,9 @@ final readonly class Profiles
             'aboutMax' => self::ABOUT_MAX,
             'avatar' => self::picture($character['id'], 'avatar', $row['avatar_key'] ?? null, $row['avatar_at'] ?? null),
             'home' => self::picture($character['id'], 'home', $row['home_key'] ?? null, $row['home_at'] ?? null),
+            'homeLayout' => is_string($row['home_layout_at'] ?? null) && $row['home_layout_at'] !== ''
+                ? ['key' => (string) ($row['home_layout_key'] ?? ''), 'at' => SaveShape::time($row['home_layout_at'])]
+                : null,
         ];
     }
 
