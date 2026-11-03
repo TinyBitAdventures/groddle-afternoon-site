@@ -526,7 +526,7 @@ final class HomeLayout
             . ' style="aspect-ratio:' . $W . ' / ' . $H . ';--w:' . $W . ';--cam:' . $CX . '">'
             . self::filtersSvg($filters) . $body
             . "\n      </div>"
-            . "\n      <figcaption class=\"hd-caption\"><span class=\"hd-hint\" id=\"hd-hint\" hidden>Use the arrow keys or drag to look around. </span>{$owner}'s home street, drawn from the game's own art. Point at anything to see what it is.{$things}</figcaption>"
+            . "\n      <figcaption class=\"hd-caption\"><span class=\"hd-hint\" id=\"hd-hint\" hidden>Use the arrows, your arrow keys or drag to look around. </span>{$owner}'s home street, drawn from the game's own art. Point at anything to see what it is.{$things}</figcaption>"
             . "\n    </figure>";
     }
 

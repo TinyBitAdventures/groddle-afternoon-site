@@ -82,7 +82,7 @@ final readonly class PlayerPages
     /** The home street's camera (players/home-pan.js, a module); the key is bumped when it changes. */
     public const HOME_PAN_JS = '/wp-content/themes/groddle/players/home-pan.js';
 
-    public const HOME_PAN_JS_KEY = 'pan-1';
+    public const HOME_PAN_JS_KEY = 'pan-2';
 
     public const BUDDY_JS_KEY = 'buddy-1';
 

@@ -194,6 +194,26 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
 .home-diorama.hd-dragging .hd-stage { cursor: grabbing; user-select: none; }
 .home-diorama.hd-dragging .hd-spot::after { opacity: 0; }
 .home-diorama .hd-hint { font-weight: 700; color: var(--fg); }
+/* The arrow buttons players/home-pan.js adds (none without JavaScript): over the edges, shown
+   while the camera can move that way, on a soft backdrop so they read on any art. */
+.home-diorama .hd-stage > .hd-arrow {
+  position: absolute; top: 50%; z-index: 200; width: 44px; height: 44px; margin-top: -22px; padding: 0;
+  display: grid; place-items: center; border-radius: 50%; cursor: pointer;
+  color: var(--fg); background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  box-shadow: 0 6px 18px -8px rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  opacity: 1; visibility: visible; transition: opacity 0.2s, visibility 0s, background-color 0.15s, transform 0.15s;
+}
+.home-diorama .hd-stage > .hd-arrow-left { left: 10px; }
+.home-diorama .hd-stage > .hd-arrow-right { right: 10px; }
+.home-diorama .hd-stage > .hd-arrow:hover, .home-diorama .hd-stage > .hd-arrow[data-held="1"] { background: var(--surface); }
+.home-diorama .hd-stage > .hd-arrow:active { transform: scale(0.94); }
+.home-diorama .hd-stage > .hd-arrow:focus { outline: none; }
+.home-diorama .hd-stage > .hd-arrow:focus-visible { box-shadow: 0 0 0 3px var(--accent), 0 6px 18px -8px rgba(0, 0, 0, 0.55); }
+/* Gone when the camera cannot move that way: faded, then out of reach (visibility leaves the Tab order). */
+.home-diorama .hd-stage > .hd-arrow[data-off] { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.2s, visibility 0s 0.2s; }
+@media (prefers-reduced-motion: reduce) { .home-diorama .hd-stage > .hd-arrow, .home-diorama .hd-stage > .hd-arrow[data-off] { transition: none; } }
 .home-diorama .hd-caption { margin: 0; padding: 10px 14px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); }
 @media (prefers-reduced-motion: reduce) { .home-diorama .hd-spot > *, .home-diorama .hd-spot::after { transition: none; } }
 .profile-badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }

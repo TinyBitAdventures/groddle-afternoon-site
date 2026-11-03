@@ -6,8 +6,13 @@
  * parallax layer moves f px for each px the camera moves, homes-feature
  * drawLandscape), held inside the street's ends.
  *
- * - Arrow keys while the street (or a thing on it) has focus; Home and End
- *   jump to the ends. Tab to a thing on the street pans to it.
+ * - Round arrow buttons over the left and right edges (Austin 2026-11-03: "the arrow keys are
+ *   easy to miss ... visual arrows on the left and right, like a slider"), each shown only
+ *   while the camera can move that way: a click looks about 60% of a view along, holding
+ *   keeps panning at Camera Mode's pace. Real buttons: Tab, Enter and Space reach them.
+ * - Arrow keys while the street (or a thing on it) has focus, and anywhere on the page once
+ *   the visitor has used the street (an arrow, a drag, a focus inside it), unless they are
+ *   typing; Home and End jump to the ends. Tab to a thing on the street pans to it.
  * - Drag or swipe (touch-action pan-y keeps the page scrolling up and down);
  *   a horizontal wheel or trackpad swipe.
  * - prefers-reduced-motion: the camera goes straight to where it is sent.
@@ -28,6 +33,33 @@ export const SETTLE = 0.05;
 export const DRAG_SLOP = 5;
 /** How far a Tab-reached thing may sit from the edge before the camera moves to it (view px). */
 export const EDGE = 24;
+/** An arrow button's click looks this share of a view along. */
+export const STEP_SHARE = 0.6;
+/** Holding an arrow button this long (ms) turns the click into a pan for as long as it is held. */
+export const HOLD_MS = 250;
+/** Within this of an end (view px) the camera is at it, and that way's arrow goes. */
+export const END_SLACK = 0.5;
+
+/** Which arrow buttons show at this camera: left while it can move left, right while it can move right; none on a street no wider than the view. */
+export function arrowsShown(cam, sw, w) {
+  const end = Math.max(0, sw - w);
+  if (end <= 0) return { left: false, right: false };
+  return { left: cam > END_SLACK, right: cam < end - END_SLACK };
+}
+
+/** Where one click of an arrow sends the camera (dir -1 or 1). */
+export function arrowStep(target, dir, sw, w) {
+  return clampCam(target + Math.sign(dir) * STEP_SHARE * w, sw, w);
+}
+
+/** A key press that is someone typing (a field, a text box, an editable area): the street leaves it alone. */
+export function typingTarget(el) {
+  if (!el || typeof el !== 'object') return false;
+  const tag = String(el.tagName || '').toLowerCase();
+  if (tag === 'textarea' || tag === 'select' || el.isContentEditable) return true;
+  if (tag !== 'input') return false;
+  return !['button', 'checkbox', 'radio', 'range', 'submit', 'reset', 'image', 'color', 'file'].includes(String(el.type || 'text').toLowerCase());
+}
 
 /** The camera's x held inside the street: 0 to street width less the view. */
 export function clampCam(x, sw, w) {
@@ -87,6 +119,25 @@ function start(figure) {
   figure.classList.add('hd-live');
   const hint = figure.querySelector('.hd-hint');
   if (hint) hint.hidden = false;
+  // Once the visitor has used the street, the arrow keys work anywhere on the page.
+  let engaged = false;
+  const engage = () => {
+    engaged = true;
+    figure.dataset.engaged = '1';
+  };
+
+  // The arrow buttons, over the stage's edges (our own chevrons).
+  const arrows = {};
+  for (const [side, label, path] of [['left', 'Look left', 'M15 5l-7 7 7 7'], ['right', 'Look right', 'M9 5l7 7-7 7']]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `hd-arrow hd-arrow-${side}`;
+    b.setAttribute('aria-label', label);
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="${path}" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    arrows[side] = b;
+  }
+  // First in the street, so Tab meets them before the things on it.
+  stage.prepend(arrows.left, arrows.right);
 
   const spots = [...stage.querySelectorAll('.hd-spot')];
   const boxOf = (el) => String(el.dataset.b || '').split(',').map(Number);
@@ -98,9 +149,20 @@ function start(figure) {
       el.style.removeProperty('--hd-tip-in');
     }
   };
+  const showArrows = () => {
+    const on = arrowsShown(target, SW, W);
+    for (const side of ['left', 'right']) {
+      const b = arrows[side];
+      if (on[side] === !b.hasAttribute('data-off')) continue;
+      b.toggleAttribute('data-off', !on[side]);
+      // A button that goes while it has focus hands focus to the street, so the keys keep working.
+      if (!on[side] && document.activeElement === b) stage.focus({ preventScroll: true });
+    }
+  };
   const show = () => {
     stage.style.setProperty('--cam', cam.toFixed(2));
     figure.dataset.cam = cam.toFixed(1);
+    showArrows();
   };
 
   // Art waiting in data-src loads when it comes within half a view of the stage.
@@ -150,27 +212,40 @@ function start(figure) {
     run();
   };
 
-  stage.addEventListener('keydown', (e) => {
+  const keyDown = (e, inside) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       held[e.key === 'ArrowLeft' ? 'left' : 'right'] = true;
       e.preventDefault();
       run();
-    } else if (e.key === 'Home' || e.key === 'End') {
+    } else if (inside && (e.key === 'Home' || e.key === 'End')) {
       go(e.key === 'Home' ? 0 : SW - W);
       e.preventDefault();
     }
+  };
+  stage.addEventListener('keydown', (e) => {
+    engage();
+    keyDown(e, true);
   });
   const release = (e) => {
     if (!e || e.key === 'ArrowLeft') held.left = false;
     if (!e || e.key === 'ArrowRight') held.right = false;
   };
   stage.addEventListener('keyup', release);
-  stage.addEventListener('focusout', (e) => {
-    if (!stage.contains(e.relatedTarget)) release();
+  // Used once: the left and right arrow keys anywhere on the page (Home and End stay the page's
+  // unless the street has focus), but never while someone types or another control has them.
+  document.addEventListener('keydown', (e) => {
+    if (!engaged || e.defaultPrevented || stage.contains(e.target) || typingTarget(e.target)) return;
+    if (e.target?.closest?.('[role="slider"], [role="listbox"], [role="menu"], [role="tablist"], [role="radiogroup"]')) return;
+    keyDown(e, false);
   });
+  document.addEventListener('keyup', (e) => {
+    if (!stage.contains(e.target)) release(e);
+  });
+  globalThis.addEventListener?.('blur', () => release());
   // Tab to a thing on the street: the camera brings it into view.
   stage.addEventListener('focusin', (e) => {
+    engage();
     const spot = e.target.closest?.('.hd-spot');
     if (spot) go(camForBox(boxOf(spot), target, SW, W));
   });
@@ -183,7 +258,8 @@ function start(figure) {
   let press = null;
   let swallowClick = false;
   stage.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || e.target.closest?.('.hd-arrow')) return;
+    engage();
     press = { id: e.pointerId, x: e.clientX, from: target, dragging: false };
   });
   stage.addEventListener('pointermove', (e) => {
@@ -228,6 +304,50 @@ function start(figure) {
     cam = reduced() ? target : cam;
     run();
   }, { passive: false });
+
+  // The arrow buttons: a click looks 60% of a view along; held, they pan like the arrow keys.
+  for (const [side, dir] of [['left', -1], ['right', 1]]) {
+    const b = arrows[side];
+    let timer = 0;
+    let holding = false;
+    const stop = () => {
+      clearTimeout(timer);
+      timer = 0;
+      if (holding) {
+        held[side] = false;
+        holding = false;
+        b.dataset.held = '';
+      }
+    };
+    b.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      delete b.dataset.skipClick;
+      engage();
+      b.setPointerCapture?.(e.pointerId);
+      timer = setTimeout(() => {
+        holding = true;
+        b.dataset.held = '1';
+        held[side] = true;
+        run();
+      }, HOLD_MS);
+    });
+    b.addEventListener('pointerup', () => {
+      // A hold already panned: its click does not jump as well.
+      if (holding) b.dataset.skipClick = '1';
+      stop();
+    });
+    b.addEventListener('pointercancel', stop);
+    b.addEventListener('lostpointercapture', stop);
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      engage();
+      if (b.dataset.skipClick) {
+        delete b.dataset.skipClick;
+        return;
+      }
+      go(arrowStep(target, dir, SW, W));
+    });
+  }
 
   // QA and the page's own tests: where the camera is and a way to move it.
   figure.homePan = {
