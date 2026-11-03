@@ -37,6 +37,8 @@
     "groddle/musicblocks-rules",
     "groddle/street-music",
     "groddle/codebase",
+    "groddle/contribute-shrine",
+    "groddle/contribute-ledger",
     "groddle/site-nav"
   ],
   "types": [

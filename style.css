@@ -558,3 +558,123 @@ a.cb-bar-label { color: var(--fg); }
   .brand-rules, .brand-face { grid-template-columns: 1fr; row-gap: 10px; }
   .brand-face .brand-specimen { grid-row: auto; }
 }
+/* The Contribute page (groddle-afternoon tools/contribute/to-minn.mjs; its blocks are src/Contribute.php). The street is
+   Tiny Speck's own art (CC0) laid out on a 960 x 500 stage in design pixels (--x, --b, --w on each picture) and scaled
+   with the frame's width through --u, so it fits without a script; below 442 px wide it stops shrinking and crops its
+   sides, keeping the shrine in the middle. The shrine is a link to GitHub Sponsors until contribute.js makes it open
+   the game's verb menu (.ct-menu: title, what the Giant is, 1 Donate, the footer line). Colours outside the art are the
+   site's tokens (restoration.css), so it reads in both themes. */
+.ct-street { position: relative; container-type: inline-size; margin: 0 0 18px; }
+.ct-street > * { --u: max(calc(100cqw / 960), 0.46px); }
+.ct-frame { position: relative; overflow: hidden; height: calc(500 * var(--u)); border: 1px solid var(--border); border-radius: var(--radius-lg); background: #9fd0d8; box-shadow: 0 18px 40px -24px rgba(30, 50, 20, 0.6); }
+.ct-stage { position: absolute; top: 0; left: 50%; width: calc(960 * var(--u)); height: 100%; transform: translateX(-50%); }
+.ct-sky { position: absolute; inset: 0; background: linear-gradient(#d4f2fb 0%, #b9f1ee 58%, #a9eadf 100%); }
+.ct-art { position: absolute; left: calc(var(--x) * var(--u)); bottom: calc(var(--b) * var(--u)); width: calc(var(--w) * var(--u)); height: auto; max-width: none; pointer-events: none; user-select: none; }
+.ct-flip { transform: scaleX(-1); }
+.ct-forest { opacity: 0.42; filter: brightness(1.3) saturate(0.6); }
+.ct-pine { opacity: 0.92; filter: brightness(0.82) saturate(0.85); }
+.ct-front { z-index: 2; }
+.ct-ground {
+  position: absolute; left: 0; right: 0; bottom: 0; height: calc(100 * var(--u));
+  background:
+    linear-gradient(#7fb94c 0 calc(12 * var(--u)), #6ba53e calc(12 * var(--u)) calc(18 * var(--u)), transparent calc(18 * var(--u))),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.04) 0 2px, transparent 2px calc(34 * var(--u))),
+    linear-gradient(#6b4a2c, #4f351f);
+}
+.ct-butterfly {
+  position: absolute; left: calc(250 * var(--u)); bottom: calc(318 * var(--u)); width: calc(70 * var(--u)); height: calc(65 * var(--u)); pointer-events: none;
+  background: url("/assets/sprites/npc_butterfly__x1_fly-side_png_1354829525@3x.webp") no-repeat 0 0 / calc(980 * var(--u)) calc(390 * var(--u));
+  animation: ct-flap 0.7s steps(14) infinite, ct-flutter 7s ease-in-out infinite;
+}
+@keyframes ct-flap { to { background-position-x: calc(-980 * var(--u)); } }
+@keyframes ct-flutter { 25% { translate: calc(40 * var(--u)) calc(-24 * var(--u)); } 50% { translate: calc(84 * var(--u)) calc(8 * var(--u)); } 75% { translate: calc(30 * var(--u)) calc(22 * var(--u)); } }
+.ct-hint { position: absolute; z-index: 3; right: 12px; top: 12px; margin: 0; padding: 4px 11px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #2f4a2c; background: rgba(251, 250, 242, 0.88); }
+/* The shrine: Pot's sheet from the game (6 x 4 cells of 151 x 188, drawn 1.2 times), frame 0 at rest; open plays the bowl tipping forward (cells 0-11). */
+.ct-shrine {
+  --fw: calc(181.2 * var(--u)); --fh: calc(225.6 * var(--u));
+  position: absolute; z-index: 1; left: calc(480 * var(--u)); bottom: calc(90 * var(--u)); transform: translateX(-50%);
+  display: block; border-radius: 14px; color: inherit; text-decoration: none; cursor: pointer; transition: filter 0.15s;
+}
+.ct-shrine-art { display: block; width: var(--fw); height: var(--fh); background: var(--sheet) no-repeat 0 0 / calc(var(--fw) * 6) calc(var(--fh) * 4); }
+.ct-shrine:hover, .ct-shrine:focus-visible, .ct-street.is-open .ct-shrine { filter: drop-shadow(0 0 6px #fff7b0) drop-shadow(0 0 2px #fff); }
+.ct-shrine:focus { outline: none; }
+.ct-shrine:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.ct-nameplate {
+  position: absolute; left: 50%; bottom: calc(100% - var(--fh) * 0.2 + 8px); transform: translateX(-50%) translateY(4px);
+  white-space: nowrap; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; color: #fff; background: rgba(36, 50, 32, 0.92);
+  box-shadow: 0 0 10px rgba(255, 247, 176, 0.55); opacity: 0; pointer-events: none; transition: opacity 0.15s, transform 0.15s;
+}
+.ct-shrine:hover .ct-nameplate, .ct-shrine:focus-visible .ct-nameplate { opacity: 1; transform: translateX(-50%) translateY(0); }
+.ct-street.is-open .ct-nameplate { opacity: 0; }
+.ct-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.ct-street.is-open .ct-shrine-art { animation: ct-shrine-open 0.5s steps(1, end) forwards; }
+.ct-street.is-shut .ct-shrine-art { animation: ct-shrine-shut 0.35s steps(1, end) reverse; }
+@keyframes ct-shrine-open {
+  0% { background-position: 0 0; }
+  9.09% { background-position: calc(var(--fw) * -1) 0; }
+  18.18% { background-position: calc(var(--fw) * -2) 0; }
+  27.27% { background-position: calc(var(--fw) * -3) 0; }
+  36.36% { background-position: calc(var(--fw) * -4) 0; }
+  45.45% { background-position: calc(var(--fw) * -5) 0; }
+  54.55% { background-position: 0 calc(var(--fh) * -1); }
+  63.64% { background-position: calc(var(--fw) * -1) calc(var(--fh) * -1); }
+  72.73% { background-position: calc(var(--fw) * -2) calc(var(--fh) * -1); }
+  81.82% { background-position: calc(var(--fw) * -3) calc(var(--fh) * -1); }
+  90.91% { background-position: calc(var(--fw) * -4) calc(var(--fh) * -1); }
+  100% { background-position: calc(var(--fw) * -5) calc(var(--fh) * -1); }
+}
+@keyframes ct-shrine-shut {
+  0% { background-position: 0 0; }
+  20% { background-position: calc(var(--fw) * -2) 0; }
+  40% { background-position: calc(var(--fw) * -4) 0; }
+  60% { background-position: 0 calc(var(--fh) * -1); }
+  80% { background-position: calc(var(--fw) * -2) calc(var(--fh) * -1); }
+  100% { background-position: calc(var(--fw) * -5) calc(var(--fh) * -1); }
+}
+/* The game's verb menu over the shrine (the game's style.css VERBS card): its tail points at the bowl. */
+.ct-menu {
+  position: absolute; z-index: 5; left: 50%; top: calc(192 * var(--u)); transform: translate(-50%, calc(-100% - 12px)); transform-origin: 50% 100%;
+  box-sizing: border-box; width: 264px; max-width: calc(100% - 16px); padding: 12px; text-align: left;
+  font-family: var(--font-body); color: var(--fg); background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 18px 40px -18px rgba(20, 35, 15, 0.55), 0 2px 6px rgba(20, 35, 15, 0.16);
+  animation: ct-menu-in 140ms ease-out;
+}
+.ct-menu[hidden] { display: none; }
+.ct-menu::after { content: ""; position: absolute; left: 50%; bottom: -8px; width: 14px; height: 14px; background: var(--surface); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); transform: translateX(-50%) rotate(45deg); }
+@keyframes ct-menu-in { from { opacity: 0; scale: 0.94; } }
+.ct-menu-head { padding: 2px 6px 10px; }
+.ct-menu .ct-menu-title { margin: 0; font-size: 15px; font-weight: 800; line-height: 1.25; }
+.ct-menu .ct-menu-sub { margin: 2px 0 0; font-size: 13px; line-height: 1.3; color: var(--muted); }
+.ct-menu-row { position: relative; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 8px; border-radius: 8px; font-size: 15px; font-weight: 700; color: var(--fg); text-decoration: none; }
+.ct-menu-row:hover, .ct-menu-row:focus { outline: none; background: color-mix(in srgb, var(--accent) 20%, var(--surface)); }
+.ct-menu-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ct-key { flex: none; display: inline-grid; place-items: center; box-sizing: border-box; min-width: 16px; height: 16px; padding: 0 3px; font-size: 11px; font-weight: 800; line-height: 1; color: var(--muted); background: var(--track); border: 1px solid var(--border); border-radius: 4px; }
+.ct-label { flex: 1; }
+.ct-ext { color: var(--muted); font-size: 13px; }
+.ct-menu .ct-menu-foot { margin: 8px 2px 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.35; color: var(--muted); background: color-mix(in srgb, var(--fg) 6%, var(--surface)); }
+@media (prefers-reduced-motion: reduce) {
+  .ct-butterfly, .ct-menu { animation: none; }
+  .ct-street.is-open .ct-shrine-art { animation: none; background-position: calc(var(--fw) * -5) calc(var(--fh) * -1); }
+  .ct-street.is-shut .ct-shrine-art { animation: none; }
+}
+/* The open ledger: the totals as the report's tiles, then the costs and the money in as tables. */
+.ct-tiles { margin-bottom: 8px; }
+.ct-ledger .tile-label { margin: 0 0 6px; }
+.ct-ledger .tile-note { margin: 6px 0 0; }
+.ct-ledger h3.ct-sub-h { margin: 26px 0 10px; font-size: 20px; }
+.ct-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.ct-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.ct-table th, .ct-table td { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--row-line); vertical-align: top; }
+.ct-table thead th { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.ct-table tfoot th, .ct-table tfoot td { border-bottom: 0; font-weight: 700; background: color-mix(in srgb, var(--fg) 4%, var(--surface)); }
+.ct-table .ct-num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ct-ledger .ct-none { margin: 0; color: var(--muted); }
+.ct-ledger .ct-ledger-note { margin: 18px 0 0; font-size: 14px; color: var(--muted); }
+.ct-table .ct-every { display: none; }
+/* On a phone the times and charged columns give way (when it is charged moves under the name), so the all-time figure stays in view. */
+@media (max-width: 560px) {
+  .ct-table th, .ct-table td { padding: 8px 10px; }
+  .ct-table { font-size: 14px; }
+  .ct-table .ct-times, .ct-table .ct-when { display: none; }
+  .ct-table .ct-every { display: block; margin-top: 2px; font-size: 13px; font-weight: 400; color: var(--muted); }
+}

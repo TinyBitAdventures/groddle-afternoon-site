@@ -1,0 +1,24 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/contribute-ledger",
+	"title": "Contribute ledger",
+	"category": "widgets",
+	"description": "The open ledger: money in and out since it started, worked out on the day the page is read.",
+	"attributes": {
+		"note": {
+			"type": "string",
+			"default": "Updated automatically each month. Money in is added by hand when it arrives."
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"contribute",
+		"support"
+	]
+}

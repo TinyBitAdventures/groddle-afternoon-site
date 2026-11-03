@@ -1,0 +1,28 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/contribute-shrine",
+	"title": "Contribute shrine",
+	"category": "widgets",
+	"description": "A little street with a Giant's shrine: click it for the game's menu, whose Donate opens GitHub Sponsors.",
+	"attributes": {
+		"hint": {
+			"type": "string",
+			"default": "Click the shrine"
+		},
+		"footer": {
+			"type": "string",
+			"default": "Opens GitHub Sponsors in a new tab, to help with what the game costs to run."
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"contribute",
+		"support"
+	]
+}

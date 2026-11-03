@@ -14,7 +14,8 @@ use Minn\Extension\Seams;
  * the site's look; this adds what templates cannot: the site's stylesheets,
  * the note blocks (Blocks), the restoration report's data sections
  * (Restoration) and its section menu (ReportMenu), the Musicblocks and Street music pages' players
- * (Musicblocks, StreetMusic), the header's menu (SiteNav), and the built game
+ * (Musicblocks, StreetMusic), the Contribute page's shrine and open ledger
+ * (Contribute), the header's menu (SiteNav), and the built game
  * and generated pages served beside the content, with the old addresses of the
  * ones that moved (MovedPages). For players: the
  * groddle/v1 REST routes: the game's own sign-up and sign-in by email
@@ -70,6 +71,7 @@ final class Extension implements MinnExtension
         Musicblocks::register($minn, $root);
         StreetMusic::register($minn, $root);
         Codebase::register($minn, $root);
+        Contribute::register($minn, $root);
         SiteNav::register($minn);
     }
 
