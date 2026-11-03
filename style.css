@@ -179,6 +179,21 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
 .home-diorama .hd-spot:hover::after, .home-diorama .hd-spot:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
 .home-diorama .hd-spot.hd-tip-start:hover::after, .home-diorama .hd-spot.hd-tip-start:focus-visible::after,
 .home-diorama .hd-spot.hd-tip-end:hover::after, .home-diorama .hd-spot.hd-tip-end:focus-visible::after { transform: translate(0, 0); }
+/* A whole street to pan along (HomeLayout version 2, players/home-pan.js): each layer is a stage-wide
+   box moved by the camera (--cam, view px) times its parallax factor (--f), as the game scrolls them. */
+.home-diorama.hd-pan .hd-stage { overflow: hidden; overflow: clip; touch-action: pan-y; }
+.home-diorama .hd-layer { position: absolute; inset: 0; transform: translateX(calc(var(--cam, 0) * var(--f, 1) * -100% / var(--w, 1000))); }
+.home-diorama .hd-layer > * { position: absolute; display: block; }
+.home-diorama .hd-layer > .hd-art, .home-diorama .hd-layer > .hd-crop { pointer-events: none; }
+.home-diorama.hd-pan .hd-stage img { -webkit-user-drag: none; user-select: none; }
+.home-diorama.hd-pan .hd-stage:focus { outline: none; }
+/* The focus ring over every layer (inside the frame, so the figure's rounded edge never clips it). */
+.home-diorama.hd-pan .hd-stage::after { content: ''; position: absolute; inset: 0; z-index: 100; pointer-events: none; }
+.home-diorama.hd-pan .hd-stage:focus-visible::after { box-shadow: inset 0 0 0 3px var(--accent); }
+.home-diorama.hd-live .hd-stage { cursor: grab; }
+.home-diorama.hd-dragging .hd-stage { cursor: grabbing; user-select: none; }
+.home-diorama.hd-dragging .hd-spot::after { opacity: 0; }
+.home-diorama .hd-hint { font-weight: 700; color: var(--fg); }
 .home-diorama .hd-caption { margin: 0; padding: 10px 14px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); }
 @media (prefers-reduced-motion: reduce) { .home-diorama .hd-spot > *, .home-diorama .hd-spot::after { transition: none; } }
 .profile-badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }

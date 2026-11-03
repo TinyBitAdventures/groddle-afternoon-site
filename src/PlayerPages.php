@@ -79,6 +79,11 @@ final readonly class PlayerPages
     /** The buddy button's script (the theme folder is the site repo); the key is bumped when it changes. */
     public const BUDDY_JS = '/wp-content/themes/groddle/players/buddy.js';
 
+    /** The home street's camera (players/home-pan.js, a module); the key is bumped when it changes. */
+    public const HOME_PAN_JS = '/wp-content/themes/groddle/players/home-pan.js';
+
+    public const HOME_PAN_JS_KEY = 'pan-1';
+
     public const BUDDY_JS_KEY = 'buddy-1';
 
     /** The buddy button's labels, glitch.com's (the archived profile's buddyadd and buddyremove). */
@@ -242,7 +247,12 @@ final readonly class PlayerPages
             . '<main class="band profile' . ($tab === '' ? '' : " profile-page-{$tab}") . "\">\n  <div class=\"wrap\">\n"
             . $private . $main
             . "  </div>\n</main>";
-        return $this->page($title, $description, $body, $who['buddy'] === '' ? '' : '<script src="' . self::BUDDY_JS . '?v=' . self::BUDDY_JS_KEY . "\" defer></script>\n");
+        $scripts = $who['buddy'] === '' ? '' : '<script src="' . self::BUDDY_JS . '?v=' . self::BUDDY_JS_KEY . "\" defer></script>\n";
+        // A home street to pan along (HomeLayout version 2): its camera.
+        if (str_contains($main, 'hd-pan')) {
+            $scripts .= '<script type="module" src="' . self::HOME_PAN_JS . '?v=' . self::HOME_PAN_JS_KEY . "\"></script>\n";
+        }
+        return $this->page($title, $description, $body, $scripts);
     }
 
     /**
@@ -430,7 +440,9 @@ final readonly class PlayerPages
             return null;
         }
         $layout = Json::decode($stored, or: null);
-        if (!is_array($layout) || ($layout['v'] ?? null) !== HomeLayout::VERSION || !isset($layout['w'], $layout['h'], $layout['art'], $layout['draw'], $layout['spots'])) {
+        $v = is_array($layout) ? ($layout['v'] ?? null) : null;
+        $whole = $v === HomeLayout::VERSION ? isset($layout['draw']) : ($v === HomeLayout::STREET_VERSION && isset($layout['layers'], $layout['sw'], $layout['cx']));
+        if (!$whole || !isset($layout['w'], $layout['h'], $layout['art'], $layout['spots'])) {
             return null;
         }
         $avatarAt = $who['profile']['avatar_at'] ?? null;

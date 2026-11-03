@@ -197,6 +197,8 @@ final readonly class Profiles
             'homeLayout' => is_string($row['home_layout_at'] ?? null) && $row['home_layout_at'] !== ''
                 ? ['key' => (string) ($row['home_layout_key'] ?? ''), 'at' => SaveShape::time($row['home_layout_at'])]
                 : null,
+            // The layout versions this site takes (HomeLayout::accept): the game sends the newest it knows.
+            'homeLayoutVersions' => HomeLayout::VERSIONS,
         ];
     }
 
