@@ -214,6 +214,13 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
 /* Gone when the camera cannot move that way: faded, then out of reach (visibility leaves the Tab order). */
 .home-diorama .hd-stage > .hd-arrow[data-off] { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.2s, visibility 0s 0.2s; }
 @media (prefers-reduced-motion: reduce) { .home-diorama .hd-stage > .hd-arrow, .home-diorama .hd-stage > .hd-arrow[data-off] { transition: none; } }
+/* A split 3x sheet's frame (HomeLayout::hiresFrame): the 1x crop below 1.5 device px, the 3x part's
+   above, in the same box (the game's own threshold); the hidden one's lazy image is never fetched. */
+.home-diorama .hd-stage .hd-hi { display: none; }
+@media (min-resolution: 1.5dppx), (-webkit-min-device-pixel-ratio: 1.5) {
+  .home-diorama .hd-stage .hd-lo { display: none; }
+  .home-diorama .hd-stage .hd-hi { display: block; }
+}
 .home-diorama .hd-caption { margin: 0; padding: 10px 14px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--border); }
 @media (prefers-reduced-motion: reduce) { .home-diorama .hd-spot > *, .home-diorama .hd-spot::after { transition: none; } }
 .profile-badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
