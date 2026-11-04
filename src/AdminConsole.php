@@ -33,6 +33,7 @@ use Minn\RestError;
  *                               the realtime server's chat log, newest first (chatQuery, below)
  *   GET  admin/catalog          {"items":[{"c","name","plural"}]}   what a give may carry (the ledger's tradeable classes)
  *   GET  admin/streets          {"streets":[{"tsid","label","hub"}]}  the game's street index, for teleport
+ *   GET  admin/rooks            {"server":"up"|"down","attacks":[Rook]}   every Rook over a street now (the server's rooks)
  *   POST admin/message {"player":id,"text":"…"}               delivery live | queued (offline: at their next connect) | down
  *   POST admin/broadcast {"text":"…"}                         {"sent":n,"live":n,"failed":n,"text"}  everyone online now (below)
  *   POST admin/boot    {"player":id,"reason":"…"}             delivery live | offline | down
@@ -40,7 +41,10 @@ use Minn\RestError;
  *   POST admin/unban   {"player":id}
  *   POST admin/give    {"player":id,"items":[{"c","n"}],"currants":n}   through the ledger; delivery live | saved
  *   POST admin/refill  {"player":id}                          mood and energy to full; delivery live | offline | down
+ *   POST admin/rook_end {"street":tsid}                       the Rook flies off, nothing paid; delivery live | ending | none | down
  *   Row: {"id","name","level","street":{tsid,label}|null,"savedAt","banned":bool,"admin":bool}
+ *   Rook: {"street":{tsid,label},"phase","angry","health","maxHealth","stun","maxStun","wingBeats","clock",
+ *          "orbs","primed","scheduled","players":[{id,name}]}
  *   Chat: {"at","kind":"local"|"channel"|"party","where":{"id","label"},"player":{id,name},"text",
  *          "delivered":bool,"why":""|"slow_down"|"silenced","skipped":n,"to":[{id,name}]}
  *
@@ -67,6 +71,14 @@ use Minn\RestError;
  * save (MultiplayerSave), is told so by groddle/v1/me (Player: suspended),
  * and the realtime server refuses it at auth and signs it out if connected.
  * An administrator (manage_options) is never banned, nor is the caller.
+ *
+ * Ending a Rook attack (Austin 2026-11-03, after three players on Groddle
+ * Forest Junction could not fight one: with others on the street a Focusing
+ * Orb needs Martial Imagination) is the server's rook_end
+ * (groddle-afternoon-server rook_admin.go): the Rook flies off the way an
+ * abandoned fight ends after its third wing beat, not as a defeat, so nobody
+ * gets iMG or a badge; what it rooked stays rooked. One log line (kind
+ * rook_end, player 0, the street and what the server said).
  *
  * A give is a settled trade from nobody (groddle_trades admin-give-<16 hex>:
  * a_id the player, a_gave nothing, b_id 0, b_gave the goods, b's side applied),
@@ -106,6 +118,12 @@ final readonly class AdminConsole
     public const SEARCH_MAX = 25;
 
     public const SUSPENDED = 'This account is suspended.';
+
+    /** A street id as the realtime server takes one (hub.go streetRe). */
+    public const STREET = '/^[A-Za-z0-9_-]{1,32}$/';
+
+    /** The phases of a Rook attack (groddle-afternoon-server rook.go). */
+    public const ROOK_PHASES = ['herald', 'build_up', 'angry', 'stunned', 'dead', 'departed'];
 
     private const ADMIN = 'manage_options';
 
@@ -366,6 +384,59 @@ final readonly class AdminConsole
         return Response::json(['streets' => $out])->withHeader('Cache-Control', 'private, max-age=300');
     }
 
+    #[Route(Method::Get, '/groddle/v1/admin/rooks', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function rooks(Request $request): Response
+    {
+        $answer = (new RealtimeCall($this->minn))->post('rooks', []);
+        if (($answer['status'] ?? null) !== 'ok' || !is_array($answer['attacks'] ?? null)) {
+            return Response::json(['server' => 'down', 'attacks' => []]);
+        }
+        return Response::json(['server' => 'up', 'attacks' => self::rookRows($answer['attacks'], $this->streetIndex())]);
+    }
+
+    /**
+     * The server's attacks as the console lists them: the street named from the street index,
+     * numbers as numbers, players as {id, name}; anything that is not an attack is left out.
+     *
+     * @param array<mixed> $attacks the server's rooks answer
+     * @param array<string, array<string, mixed>> $streets the street index
+     * @return list<array<string, mixed>>
+     */
+    public static function rookRows(array $attacks, array $streets): array
+    {
+        $out = [];
+        $int = static fn (mixed $v): int => is_int($v) || is_float($v) ? max(0, (int) $v) : 0;
+        foreach ($attacks as $a) {
+            $tsid = is_array($a) ? ($a['street'] ?? null) : null;
+            if (!is_string($tsid) || preg_match(self::STREET, $tsid) !== 1) {
+                continue;
+            }
+            $players = [];
+            foreach (is_array($a['players'] ?? null) ? $a['players'] : [] as $p) {
+                if (is_array($p) && is_int($p['id'] ?? null) && $p['id'] > 0) {
+                    $players[] = ['id' => $p['id'], 'name' => is_string($p['name'] ?? null) ? $p['name'] : "#{$p['id']}"];
+                }
+            }
+            $out[] = [
+                'street' => ['tsid' => $tsid, 'label' => (string) ($streets[$tsid]['label'] ?? $tsid)],
+                'phase' => in_array($a['phase'] ?? null, self::ROOK_PHASES, true) ? $a['phase'] : 'build_up',
+                'angry' => is_string($a['angry'] ?? null) ? $a['angry'] : '',
+                'health' => $int($a['health'] ?? 0),
+                'maxHealth' => $int($a['maxHealth'] ?? 0),
+                'stun' => $int($a['stun'] ?? 0),
+                'maxStun' => $int($a['maxStun'] ?? 0),
+                'wingBeats' => $int($a['wingBeats'] ?? 0),
+                'clock' => $int($a['clock'] ?? 0),
+                'orbs' => $int($a['orbs'] ?? 0),
+                'primed' => ($a['primed'] ?? false) === true,
+                'scheduled' => ($a['scheduled'] ?? false) === true,
+                'players' => $players,
+            ];
+        }
+        usort($out, static fn (array $x, array $y): int => strcasecmp($x['street']['label'], $y['street']['label']) ?: strcmp($x['street']['tsid'], $y['street']['tsid']));
+        return $out;
+    }
+
     // —— Acting ——
 
     #[Route(Method::Post, '/groddle/v1/admin/message', policy: new Policy(Access::Cap, self::ADMIN))]
@@ -537,6 +608,50 @@ final readonly class AdminConsole
             'offline' => "{$player['name']} is not online. Refill works on a connected game.",
             default => 'The realtime server is not answering.',
         });
+    }
+
+    #[Route(Method::Post, '/groddle/v1/admin/rook_end', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function rookEnd(Request $request): Response
+    {
+        $admin = $this->minn->user();
+        if ($admin === null) {
+            throw new RestError('rest_not_logged_in', 'You are not currently logged in.', 401);
+        }
+        $tsid = $request->json()['street'] ?? null;
+        if (!is_string($tsid) || preg_match(self::STREET, $tsid) !== 1) {
+            throw new RestError('groddle_admin_no_street', 'Choose a street first.', 400);
+        }
+        $label = (string) ($this->streetIndex()[$tsid]['label'] ?? $tsid);
+        $answer = (new RealtimeCall($this->minn))->post('rook_end', ['street' => $tsid]);
+        $delivery = match ($answer['status'] ?? null) {
+            'ended' => 'live',
+            'ending' => 'ending',
+            'none' => 'none',
+            default => 'down',
+        };
+        $detail = ['street' => ['tsid' => $tsid, 'label' => $label]];
+        if ($delivery === 'live') {
+            $detail['phase'] = is_string($answer['phase'] ?? null) ? $answer['phase'] : '';
+            $detail['players'] = max(0, (int) ($answer['players'] ?? 0));
+        }
+        $this->record($admin, 0, 'rook_end', $detail, $delivery);
+        return Response::json(['street' => $detail['street'], 'delivery' => $delivery, 'text' => self::rookEndText($label, $delivery, (int) ($detail['players'] ?? 0))]);
+    }
+
+    /** What the console says after an end. */
+    public static function rookEndText(string $label, string $delivery, int $players): string
+    {
+        $who = match ($players) {
+            0 => 'nobody was there to see it',
+            1 => '1 player there saw it go',
+            default => "{$players} players there saw it go",
+        };
+        return match ($delivery) {
+            'live' => "The Rook is flying off {$label}; {$who}. Nobody gets iMG for it, and what it rooked stays rooked.",
+            'ending' => "The Rook over {$label} is already leaving.",
+            'none' => "There is no Rook over {$label} now.",
+            default => 'The realtime server is not answering, so the Rook is still there.',
+        };
     }
 
     // —— Shared ——

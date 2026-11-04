@@ -16,7 +16,7 @@ use Minn\Http\Route;
 
 /**
  * /console/, the administrators' console. Three tabs, four with the level builder on: Players (who is online,
- * a message to everyone online, finding a player, and acting on one: message,
+ * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
  * reply or add a note without an email, mark working on it, close, reopen; AdminTickets). #reports
@@ -43,7 +43,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'revisions-1';
+    public const ASSET_KEY = 'rooks-1';
 
     public function __construct(private Seams $minn)
     {
@@ -125,6 +125,17 @@ HTML
         <tbody></tbody>
       </table>
       <p class="console-empty" data-console-online-empty hidden>Nobody is connected right now.</p>
+    </section>
+    <section class="console-panel console-rooks" aria-labelledby="console-rooks-title">
+      <div class="console-panel-head">
+        <h2 id="console-rooks-title">Rook attacks <span class="console-count" data-console-rooks-count></span></h2>
+        <p class="console-hint">End attack sends the Rook off as when it leaves after its third wing beat: no iMG for anyone, and what it rooked stays rooked.</p>
+      </div>
+      <table class="console-table" data-console-rooks hidden>
+        <thead><tr><th scope="col">Street</th><th scope="col">Rook</th><th scope="col">Players there</th><th scope="col"><span class="console-sr">Actions</span></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="console-empty" data-console-rooks-empty>No Rook is over a street right now.</p>
     </section>
     <section class="console-panel console-broadcast" aria-labelledby="console-broadcast-title">
       <div class="console-panel-head"><h2 id="console-broadcast-title">Message everyone</h2></div>

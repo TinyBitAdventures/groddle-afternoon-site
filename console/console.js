@@ -12,6 +12,10 @@
  *   the click that ends selecting text leaves it shut (rowClickOpens). Arrow
  *   keys move in the menu, Enter or Space picks, Escape closes and gives focus
  *   back.
+ * - Rook attacks: every street with a Rook over it now (admin/rooks, the realtime server's own
+ *   list, polled with Online now), with its phase, health and wing beats and who is there, and
+ *   End attack (a confirm step first; admin/rook_end): the Rook flies off as after its third wing
+ *   beat, nobody gets iMG, what it rooked stays rooked (Austin 2026-11-03).
  * - Message everyone: one message to every player online now (admin/broadcast),
  *   with how many will see it and a confirm step; one a minute.
  * - Bans with Unban, and the activity log of every administrator's action.
@@ -138,7 +142,41 @@ export const COPY = Object.freeze({
   self: 'You',
   broadcastCount: (n) => (n === 0 ? 'Nobody is online to see it.' : n === 1 ? '1 player online will see it.' : `${n} players online will see it.`),
   broadcastConfirm: (n) => (n === 1 ? 'Send to 1 player?' : `Send to ${n} players?`),
+  rookEndConfirm: (label) => `End the Rook attack on ${label}?`,
+  rookEndNote: 'The Rook flies off as when it leaves after its third wing beat. Everyone there sees it go. Nobody gets iMG or a badge for it, and what it rooked stays rooked until revived.',
 });
+
+/** A Rook attack's phase in words (groddle-afternoon-server rook.go phases). */
+export const ROOK_PHASE = Object.freeze({
+  herald: 'Coming: the herald is warning the street',
+  build_up: 'Over the street',
+  angry: 'Angry',
+  stunned: 'Stunned',
+  dead: 'Defeated, leaving',
+  departed: 'Flying off',
+});
+
+/** One attack's Rook column: phase, health, stun when it has some, wing beats. */
+export function rookWords(a) {
+  const phase = a?.phase === 'angry' && a?.angry === 'angry3' ? 'Angry: about to strike' : ROOK_PHASE[a?.phase] || String(a?.phase || '');
+  const parts = [phase, `health ${a?.health ?? 0} / ${a?.maxHealth ?? 0}`];
+  if ((a?.stun ?? 0) > 0) parts.push(`stun ${a.stun} / ${a.maxStun ?? 0}`);
+  const n = a?.wingBeats ?? 0;
+  parts.push(n === 1 ? '1 wing beat of 3' : `${n} wing beats of 3`);
+  return parts.join(' · ');
+}
+
+/** Whether End attack is offered: not while it is already leaving. */
+export function rookEndable(a) {
+  return Boolean(a) && a.phase !== 'dead' && a.phase !== 'departed';
+}
+
+/** "Ada, Bo and Cy", or "Nobody". */
+export function rookPlayers(a) {
+  const names = (Array.isArray(a?.players) ? a.players : []).map((p) => p.name);
+  if (!names.length) return 'Nobody';
+  return names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
 
 /** "45 s", "12 min", "3 h 05 min", "2 d 4 h". */
 export function onlineFor(seconds) {
@@ -242,6 +280,13 @@ export function logWords(line) {
       if (String(d.text || '').startsWith('new art ')) return `took in ${d.text.slice(8)} for “${title}”${by}`;
       const revs = d.from && d.from !== d.rev ? `revs ${d.from} to ${d.rev}` : `rev ${d.rev ?? '?'}`;
       return `edited the draft “${title}” (${revs}, ${d.ops ?? 0} ${d.ops === 1 ? 'change' : 'changes'})${by}`;
+    }
+    case 'rook_end': {
+      const street = d.street?.label || d.street?.tsid || 'a street';
+      if (line.delivery === 'none') return `tried to end a Rook attack on ${street}, but there was none`;
+      if (line.delivery === 'ending') return `tried to end the Rook attack on ${street}, but it was already leaving`;
+      if (line.delivery === 'down') return `tried to end the Rook attack on ${street}${how}`;
+      return `ended the Rook attack on ${street}${typeof d.players === 'number' ? ` (${d.players === 1 ? '1 player' : `${d.players} players`} there)` : ''}`;
     }
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
@@ -354,7 +399,7 @@ function boot() {
   const root = document.querySelector('[data-console]');
   if (!root) return;
   const api = createApi();
-  const state = { online: [], onlineIds: new Set(), found: [], bans: [], streets: null, items: null, me: 0, logBefore: 0 };
+  const state = { online: [], onlineIds: new Set(), found: [], bans: [], rooks: [], streets: null, items: null, me: 0, logBefore: 0 };
   const $ = (sel) => root.querySelector(sel);
   const note = $('[data-console-note]');
   const server = $('[data-console-server]');
@@ -418,6 +463,40 @@ function boot() {
       el('td', { class: 'console-num', text: p.savedAt ? new Date(p.savedAt).toLocaleString() : '' }),
     ])));
   }
+  // == Rook attacks ==
+  function renderRooks() {
+    const table = $('[data-console-rooks]');
+    table.hidden = state.rooks.length === 0;
+    table.querySelector('tbody').replaceChildren(...state.rooks.map((a) => el('tr', { 'data-rook-street': a.street.tsid },
+      el('td', { class: 'console-who' }, el('b', { text: a.street.label }), el('span', { class: 'console-sub', text: ` ${a.street.tsid}` })),
+      el('td', { text: rookWords(a) }),
+      el('td', { text: rookPlayers(a) }),
+      el('td', { class: 'console-act' }, rookEndable(a)
+        ? el('button', { type: 'button', class: 'console-small console-danger', text: 'End attack', 'aria-label': `End the Rook attack on ${a.street.label}`, onclick: () => endRook(a) })
+        : el('span', { class: 'console-sub', text: 'Leaving' })))));
+    $('[data-console-rooks-empty]').hidden = state.rooks.length > 0;
+    $('[data-console-rooks-count]').textContent = state.rooks.length ? String(state.rooks.length) : '';
+  }
+  async function pollRooks() {
+    try {
+      const r = await api.call('admin/rooks');
+      state.rooks = r.server === 'up' ? r.attacks || [] : [];
+      $('[data-console-rooks-empty]').textContent = r.server === 'up' ? 'No Rook is over a street right now.' : COPY.serverDown;
+    } catch {
+      state.rooks = [];
+    }
+    renderRooks();
+  }
+  function endRook(a) {
+    // Outward-facing: a confirm step, so nothing goes by accident.
+    dialog(COPY.rookEndConfirm(a.street.label), [el('p', { class: 'console-quote', text: `${rookWords(a)}. There: ${rookPlayers(a)}.` }), el('p', { class: 'console-sub', text: COPY.rookEndNote })], 'End attack', async () => {
+      const r = await api.call('admin/rook_end', { method: 'POST', body: { street: a.street.tsid } });
+      say(r.text || 'Done.', r.delivery === 'live' ? 'ok' : 'bad');
+      pollRooks();
+      loadLog();
+    }, { danger: true });
+  }
+
   async function pollOnline(sync = false) {
     try {
       const r = await api.call(`admin/online${sync ? '?sync=1' : ''}`);
@@ -428,6 +507,7 @@ function boot() {
       renderOnline();
       renderFound();
       renderBroadcast();
+      pollRooks();
     } catch (err) {
       server.textContent = err?.status === 401 ? COPY.signedOut : COPY.serverDown;
       server.dataset.state = 'down';

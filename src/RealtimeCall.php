@@ -31,7 +31,7 @@ final readonly class RealtimeCall
      */
     public function post(string $call, array $body): ?array
     {
-        if (preg_match('/^[a-z]{1,16}$/', $call) !== 1) {
+        if (preg_match('/^[a-z][a-z_]{0,15}$/', $call) !== 1) {
             return null;
         }
         $secret = (new RealtimeTicket($this->minn))->secret();

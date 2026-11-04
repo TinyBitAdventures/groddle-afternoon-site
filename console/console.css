@@ -44,6 +44,7 @@
 .console button:focus-visible, .console-menu button:focus-visible, .console-dialog :is(button, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .console .console-menu-btn { padding: 0 10px; line-height: 24px; font-size: 18px; }
 .console .console-small { padding: 2px 9px; font-size: 12px; }
+.console .console-small.console-danger { background: #b2452f; border-color: #b2452f; color: #fff; white-space: nowrap; }
 .console .console-more { margin: 6px 0; }
 
 .console-search { display: flex; gap: 6px; margin-bottom: 8px; }
