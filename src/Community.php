@@ -364,9 +364,18 @@ final readonly class Community
             $ids[] = (int) $r['last_author_id'];
         }
         $names = (new Characters($db))->namesOf(array_values(array_unique(array_filter($ids))));
+        // The newest post's first words, for the topic's row (/chat/ shows topics as the Chats list does).
+        $lastIds = array_values(array_filter(array_map(static fn (array $r): int => (int) ($r['last_post_id'] ?? 0), $rows)));
+        $snips = [];
+        if ($lastIds !== []) {
+            foreach ($db->rows('SELECT id, body FROM ' . $db->table(self::POSTS) . " WHERE status = 'shown' AND id IN (" . implode(',', $lastIds) . ')') as $p) {
+                $snips[(int) $p['id']] = CommunityText::snippet((string) $p['body'], 90);
+            }
+        }
         foreach ($rows as &$r) {
             $r['author_name'] = $names[(int) $r['author_id']] ?? '';
             $r['last_author_name'] = $names[(int) $r['last_author_id']] ?? '';
+            $r['last_snippet'] = $snips[(int) ($r['last_post_id'] ?? 0)] ?? '';
         }
         unset($r);
         return [$rows, $page, $pages];
@@ -510,7 +519,7 @@ final readonly class Community
      * @param list<int> $ids
      * @return array<int, array{profile: ?string, tile: ?string, staff: bool}>
      */
-    private function authors(array $ids): array
+    public function authors(array $ids): array
     {
         if ($ids === []) {
             return [];
@@ -632,6 +641,7 @@ final readonly class Community
             return [$threadId, $postId];
         });
         $this->refreshThread($threadId);
+        $this->live($board, $threadId, $postId, (int) $viewer['id'], 'thread');
         return [$this->thread($threadId, $viewer) ?? [], $this->post($postId) ?? []];
     }
 
@@ -672,10 +682,21 @@ final readonly class Community
         $postId = $db->insertId();
         $this->refreshThread($threadId);
         $this->notify($viewer['id'], $thread, $postId, $quoted === null ? 0 : (int) $quoted['author_id']);
+        $this->live((string) $thread['board'], $threadId, $postId, (int) $viewer['id'], 'reply');
         $post = $this->post($postId) ?? [];
         $url = CommunityText::threadPath($thread['board'], $threadId, $thread['title']);
         $page = $this->pageOf($threadId, $postId);
         return [$this->thread($threadId, $viewer) ?? $thread, $post, $url . ($page > 1 ? "?page={$page}" : '') . "#post-{$postId}"];
+    }
+
+    /**
+     * Tells the realtime server a post is new (its signed community_note, web.go), so signed-in
+     * readers on /chat/ see it at once; best effort, a short wait: the post stands either way and
+     * the pages still poll when the socket is down.
+     */
+    private function live(string $board, int $thread, int $post, int $author, string $kind): void
+    {
+        (new RealtimeCall($this->minn))->post('community_note', ['board' => $board, 'thread' => $thread, 'post' => $post, 'author' => $author, 'kind' => $kind], 0.8);
     }
 
     /**

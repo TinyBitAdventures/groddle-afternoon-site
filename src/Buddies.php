@@ -65,11 +65,11 @@ final readonly class Buddies
     {
     }
 
-    /** The lists and a watch token. */
+    /** The lists and a watch token. ?seen=0 (the website's /chat/) leaves who added you marked new for the game. */
     #[Route(Method::Get, '/groddle/v1/buddies', policy: new Policy(Access::SignedIn))]
     public function list(Request $request): Response
     {
-        return Response::json($this->answer());
+        return Response::json($this->answer($request->query('seen') !== '0'));
     }
 
     /**

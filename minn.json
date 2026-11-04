@@ -793,8 +793,10 @@
       "web tinyint(1) unsigned NOT NULL DEFAULT 0",
       "reactions text NULL",
       "changed_ms bigint(20) unsigned NOT NULL DEFAULT 0",
+      "parent_lid bigint(20) unsigned NOT NULL DEFAULT 0",
       "PRIMARY KEY  (lid)",
       "KEY room_lid (room,lid)",
+      "KEY room_parent (room,parent_lid,lid)",
       "KEY room_changed (room,changed_ms)",
       "KEY author_id (author_id)"
     ],
@@ -807,8 +809,10 @@
       "text text NOT NULL",
       "at_ms bigint(20) unsigned NOT NULL",
       "reactions text NULL",
+      "parent_id bigint(20) unsigned NOT NULL DEFAULT 0",
       "PRIMARY KEY  (id)",
       "UNIQUE KEY pair_line (a_id,b_id,line_id,at_ms)",
+      "KEY pair_parent (a_id,b_id,parent_id)",
       "KEY pair_at (a_id,b_id,at_ms)",
       "KEY from_id (from_id)"
     ]

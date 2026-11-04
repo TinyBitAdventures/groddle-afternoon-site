@@ -27,12 +27,23 @@ use Minn\RestError;
  *   GET  chat/channels/{key}?before=<lid>&limit=n           {"lines":[Line…] newest first,"more":bool}
  *   GET  chat/channels/{key}?after=<lid>&since=<ms>         {"lines":[Line…] oldest first,"changed":[{"lid","r"}],"now":ms}
  *   POST chat/channels/{key} {"text"}        said from the web: 201 {"line":Line} | 403/429 with the game's words
- *   GET  chat/ims/{with}?before_at=<ms>&limit=n             {"lines":[{"id","from","text","at","r"}…] newest first,"more","blocked"}
+ *   GET  chat/ims/{with}?before_at=<ms>&limit=n             {"lines":[{"id","from","text","at","r","th"?}…] newest first,"more","blocked"}
+ *   GET  chat/channels/{key}/threads/{lid}                  {"parent":Line|null,"lines":[Line…] oldest first,"now"}  a line's thread
+ *   POST chat/channels/{key}/threads/{lid} {"text"}         a reply from the web (web_say with "parent"): 201 {"line":Line}
+ *   GET  chat/ims/{with}/threads/{line}                     {"lines":[…] oldest first,"blocked"}  an IM line's thread, the two players only
  *
  *   key: global, help (Live Help: the newbie room under level 11, as the
  *   game), trade (with the Trade Channelling upgrade), group-<id> (a group's
  *   members; read only here, the game is where group chat is written).
- *   Line: {"lid","id","name","text","at","web","r":[{"e","by":[{id,name}]}]}
+ *   Line: {"lid","id","name","text","at","web","r":[{"e","by":[{id,name}]}],"th"?:{"n","last":{id,name}}}
+ *
+ * Threads (Austin 2026-11-04, groddle-afternoon-server threads.go): a reply
+ * under a line is kept with its parent (parent_lid, an IM's parent_id) and is
+ * never a line of the channel or conversation: the lists above leave replies
+ * out and give each line with replies its "th" (how many, who replied last),
+ * counted as the reader may see them (replies by players they block left
+ * out). A reply changes its parent's changed_ms, so a page polling with
+ * since= sees the count move.
  *
  * Who reads what (Austin 2026-11-04: "keep game communication for logged in
  * users only"): every route but ingest needs a signed-in player (a
@@ -105,9 +116,15 @@ final readonly class ChatHistory
                 if ($lid === 0 || $id === 0 || $room === '' || $text === '') {
                     return 0;
                 }
-                return $db->execute('INSERT IGNORE INTO ' . $db->table(self::LINES) . ' (lid, room, author_id, name, text, at_ms, web, changed_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-                    $lid, $room, $id, mb_substr(is_string($e['name'] ?? null) ? $e['name'] : '', 0, 80), $text, $int($e['at'] ?? null), ($e['web'] ?? false) === true ? 1 : 0, $ms,
+                $parent = $int($e['parent'] ?? null);
+                $n = $db->execute('INSERT IGNORE INTO ' . $db->table(self::LINES) . ' (lid, room, author_id, name, text, at_ms, web, changed_ms, parent_lid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+                    $lid, $room, $id, mb_substr(is_string($e['name'] ?? null) ? $e['name'] : '', 0, 80), $text, $int($e['at'] ?? null), ($e['web'] ?? false) === true ? 1 : 0, $ms, $parent,
                 ]);
+                if ($n > 0 && $parent > 0) {
+                    // The parent's count moved: a reader polling with since= gets it again.
+                    $db->execute('UPDATE ' . $db->table(self::LINES) . ' SET changed_ms = ? WHERE lid = ? AND room = ?', [$ms, $parent, $room]);
+                }
+                return $n;
             case 'react':
                 $lid = $int($e['lid'] ?? null);
                 $r = $react($e['r'] ?? null);
@@ -122,7 +139,7 @@ final readonly class ChatHistory
                 if ($a === 0 || $b <= $a || ($from !== $a && $from !== $b) || $int($e['line'] ?? null) === 0 || $text === '') {
                     return 0;
                 }
-                return $db->execute('INSERT IGNORE INTO ' . $db->table(self::IMS) . ' (a_id, b_id, line_id, from_id, text, at_ms) VALUES (?, ?, ?, ?, ?, ?)', [$a, $b, $e['line'], $from, $text, $int($e['at'] ?? null)]);
+                return $db->execute('INSERT IGNORE INTO ' . $db->table(self::IMS) . ' (a_id, b_id, line_id, from_id, text, at_ms, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)', [$a, $b, $e['line'], $from, $text, $int($e['at'] ?? null), $int($e['parent'] ?? null)]);
             case 'im_react':
                 [$a, $b] = [$int($e['a'] ?? null), $int($e['b'] ?? null)];
                 $r = $react($e['r'] ?? null);
@@ -182,7 +199,7 @@ final readonly class ChatHistory
         $users = $db->table('users');
         $blocks = $this->blocks($me);
         $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
-        $from = "FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ?{$notBlocked}";
+        $from = "FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = 0{$notBlocked}";
         $after = $request->query('after');
         // ?html=1: each line also drawn as the website's /chat/ shows it (CommunityPages::channelLineHtml).
         $hosts = CommunityText::homeHosts($this->minn->request->host);
@@ -194,9 +211,10 @@ final readonly class ChatHistory
             $since = max(0, (int) ($request->query('since') ?? '0'));
             $changed = $since > 0 ? $db->rows("SELECT l.* {$from} AND l.changed_ms > ? AND l.lid <= ? ORDER BY l.lid DESC LIMIT 200", [$room, $since, max(0, (int) $after)]) : [];
             $names = $this->names([...$rows, ...$changed]);
+            $th = $this->threadSums($room, array_map(static fn (array $r): int => (int) $r['lid'], [...$rows, ...$changed]), $blocks);
             return self::private(Response::json([
-                'lines' => array_map(static fn (array $r): array => $draw(self::lineOut($r, $names, $blocks)), $rows),
-                'changed' => array_map(static fn (array $r): array => $draw(self::lineOut($r, $names, $blocks)), $changed),
+                'lines' => array_map(static fn (array $r): array => $draw(self::lineOut($r, $names, $blocks, $th)), $rows),
+                'changed' => array_map(static fn (array $r): array => $draw(self::lineOut($r, $names, $blocks, $th)), $changed),
                 'now' => Community::ms(),
             ]));
         }
@@ -217,14 +235,15 @@ final readonly class ChatHistory
         $db = $this->minn->db;
         $blocks = $this->blocks($me);
         $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
-        $from = 'FROM ' . $db->table(self::LINES) . ' l JOIN ' . $db->table('users') . " u ON u.ID = l.author_id WHERE l.room = ?{$notBlocked}";
+        $from = 'FROM ' . $db->table(self::LINES) . ' l JOIN ' . $db->table('users') . " u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = 0{$notBlocked}";
         $rows = $before !== null
             ? $db->rows("SELECT l.* {$from} AND l.lid < ? ORDER BY l.lid DESC LIMIT " . ($limit + 1), [$room, $before])
             : $db->rows("SELECT l.* {$from} ORDER BY l.lid DESC LIMIT " . ($limit + 1), [$room]);
         $more = count($rows) > $limit;
         $rows = array_slice($rows, 0, $limit);
         $names = $this->names($rows);
-        return [array_map(static fn (array $r): array => self::lineOut($r, $names, $blocks), $rows), $more];
+        $th = $this->threadSums($room, array_map(static fn (array $r): int => (int) $r['lid'], $rows), $blocks);
+        return [array_map(static fn (array $r): array => self::lineOut($r, $names, $blocks, $th), $rows), $more];
     }
 
     /**
@@ -258,7 +277,12 @@ final readonly class ChatHistory
     #[Route(Method::Post, '/groddle/v1/chat/channels/{key:global|help|trade}', policy: new Policy(Access::SignedIn))]
     public function say(Request $request, string $key): Response
     {
-        $me = $this->player();
+        return $this->sayFrom($request, $this->player(), $key, 0);
+    }
+
+    /** A line (or, with a parent, a thread reply) said from the website, through the realtime server. */
+    private function sayFrom(Request $request, int $me, string $key, int $parent): Response
+    {
         $db = $this->minn->db;
         if (AdminConsole::banned($db, $me) !== null) {
             throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403);
@@ -277,13 +301,83 @@ final readonly class ChatHistory
             $rooms[] = 'trade';
         }
         $name = (new Characters($db))->namesOf([$me])[$me] ?? '';
-        $answer = (new RealtimeCall($this->minn))->post('web_say', ['player' => $me, 'name' => $name, 'channel' => $key, 'rooms' => implode(',', $rooms), 'silence' => implode(',', $c['silenced']), 'text' => mb_substr($text, 0, self::TEXT_MAX)]);
+        $call = ['player' => $me, 'name' => $name, 'channel' => $key, 'rooms' => implode(',', $rooms), 'silence' => implode(',', $c['silenced']), 'text' => mb_substr($text, 0, self::TEXT_MAX)];
+        if ($parent > 0) {
+            $call['parent'] = $parent;
+        }
+        $answer = (new RealtimeCall($this->minn))->post('web_say', $call);
         return match ($answer['status'] ?? null) {
-            'sent' => self::private(Response::json(['line' => ($l = self::sentLine(is_array($answer['line'] ?? null) ? $answer['line'] : [])) + ['html' => CommunityPages::channelLineHtml($l, $me, CommunityText::homeHosts($this->minn->request->host))]], 201)),
+            'sent' => self::private(Response::json(['line' => ($l = self::sentLine(is_array($answer['line'] ?? null) ? $answer['line'] : [])) + ['html' => CommunityPages::channelLineHtml($l, $me, CommunityText::homeHosts($this->minn->request->host), $parent === 0)]], 201)),
             'silenced' => throw new RestError('groddle_chat_silenced', is_string($answer['message'] ?? null) ? $answer['message'] : 'Sorry, you\'re currently suspended from this chat.', 403),
             'slow_down' => throw new RestError('groddle_chat_slow', 'Slow down a little.', 429),
             'banned' => throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403),
             'closed' => throw new RestError('groddle_chat_closed', 'That chat is not open to you.', 403),
+            default => throw new RestError('groddle_chat_down', 'The game\'s chat is not answering. Try again in a moment.', 503),
+        };
+    }
+
+    /**
+     * The reader's IM conversations, newest first (the drawer's Chats list on the website): the other
+     * player, whether they are a buddy either way, the last line of the conversation (not a thread
+     * reply) and when. Never one with a player either of them blocks, nor with an account that is gone.
+     */
+    #[Route(Method::Get, '/groddle/v1/chat/ims', policy: new Policy(Access::SignedIn))]
+    public function conversations(Request $request): Response
+    {
+        $me = $this->player();
+        $db = $this->minn->db;
+        $t = $db->table(self::IMS);
+        $ignores = $db->table(Buddies::IGNORES);
+        $blocked = [];
+        foreach ($db->rows("SELECT ignored_id AS id FROM {$ignores} WHERE user_id = ? UNION SELECT user_id AS id FROM {$ignores} WHERE ignored_id = ?", [$me, $me]) as $r) {
+            $blocked[(int) $r['id']] = true;
+        }
+        $rows = $db->rows("SELECT a_id, b_id, MAX(at_ms) AS last_at FROM {$t} WHERE (a_id = ? OR b_id = ?) AND parent_id = 0 GROUP BY a_id, b_id ORDER BY last_at DESC LIMIT 100", [$me, $me]);
+        $others = [];
+        foreach ($rows as $r) {
+            $other = (int) $r['a_id'] === $me ? (int) $r['b_id'] : (int) $r['a_id'];
+            if (!isset($blocked[$other])) {
+                $others[$other] = $r;
+            }
+        }
+        $names = $others === [] ? [] : (new Characters($db))->namesOf(array_keys($others));
+        $buddies = $db->table(Buddies::TABLE);
+        $held = [];
+        foreach ($db->rows("SELECT buddy_id AS id FROM {$buddies} WHERE user_id = ? UNION SELECT user_id AS id FROM {$buddies} WHERE buddy_id = ?", [$me, $me]) as $r) {
+            $held[(int) $r['id']] = true;
+        }
+        $out = [];
+        foreach ($others as $other => $r) {
+            if (!isset($names[$other]) || count($out) >= 50) {
+                continue;
+            }
+            $last = $db->row("SELECT from_id, text, at_ms FROM {$t} WHERE a_id = ? AND b_id = ? AND parent_id = 0 ORDER BY at_ms DESC, id DESC LIMIT 1", [(int) $r['a_id'], (int) $r['b_id']]);
+            $out[] = ['with' => ['id' => $other, 'name' => $names[$other], 'buddy' => isset($held[$other])], 'last' => $last === null ? null : ['from' => (int) $last['from_id'], 'text' => (string) $last['text'], 'at' => (int) $last['at_ms']]];
+        }
+        return self::private(Response::json(['convs' => $out]));
+    }
+
+    /** An IM written on the website (or a reply in a line's thread): the realtime server sends it as the game would (web_im). */
+    #[Route(Method::Post, '/groddle/v1/chat/ims/{with:[1-9][0-9]{0,18}}', policy: new Policy(Access::SignedIn))]
+    public function imSay(Request $request, string $with): Response
+    {
+        $me = $this->player();
+        $db = $this->minn->db;
+        if (AdminConsole::banned($db, $me) !== null) {
+            throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403);
+        }
+        $body = $request->json();
+        $text = is_string($body['text'] ?? null) ? trim((string) preg_replace('/\s+/u', ' ', $body['text'])) : '';
+        if ($text === '') {
+            throw new RestError('groddle_chat_blank', 'Write something first.', 400);
+        }
+        $parent = is_int($body['parent'] ?? null) && $body['parent'] > 0 ? $body['parent'] : 0;
+        $name = (new Characters($db))->namesOf([$me])[$me] ?? '';
+        $answer = (new RealtimeCall($this->minn))->post('web_im', ['player' => $me, 'name' => $name, 'to' => (int) $with, 'text' => mb_substr($text, 0, self::TEXT_MAX), 'parent' => $parent]);
+        return match ($answer['status'] ?? null) {
+            'sent' => self::private(Response::json(['status' => 'sent'], 201)),
+            'no' => throw new RestError('groddle_im_' . preg_replace('/[^a-z]+/', '_', (string) ($answer['reason'] ?? 'no')), is_string($answer['message'] ?? null) ? $answer['message'] : 'That IM did not go.', ($answer['reason'] ?? '') === 'slow_down' ? 429 : 403),
+            'banned' => throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403),
             default => throw new RestError('groddle_chat_down', 'The game\'s chat is not answering. Try again in a moment.', 503),
         };
     }
@@ -307,21 +401,77 @@ final readonly class ChatHistory
         $before = $request->query('before_at');
         $t = $db->table(self::IMS);
         $users = $db->table('users');
-        $where = "FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ?";
+        $where = "FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id = 0";
         $rows = $before !== null
             ? $db->rows("SELECT i.* {$where} AND i.at_ms < ? ORDER BY i.at_ms DESC, i.id DESC LIMIT " . ($limit + 1), [$a, $b, max(0, (int) $before)])
             : $db->rows("SELECT i.* {$where} ORDER BY i.at_ms DESC, i.id DESC LIMIT " . ($limit + 1), [$a, $b]);
         $more = count($rows) > $limit;
         $rows = array_slice($rows, 0, $limit);
         $names = (new Characters($db))->namesOf([$a, $b]);
-        $out = array_map(static fn (array $r): array => [
+        $th = [];
+        $ids = array_map(static fn (array $r): int => (int) $r['line_id'], $rows);
+        if ($ids !== []) {
+            $in = implode(',', array_map('intval', $ids));
+            foreach ($db->rows("SELECT i.parent_id, COUNT(*) AS n, MAX(i.id) AS last_row FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id IN ({$in}) GROUP BY i.parent_id", [$a, $b]) as $g) {
+                $from = (int) $db->value("SELECT from_id FROM {$t} WHERE id = ?", [(int) $g['last_row']]);
+                $th[(int) $g['parent_id']] = ['n' => (int) $g['n'], 'last' => ['id' => $from, 'name' => (string) ($names[$from] ?? '')]];
+            }
+        }
+        $out = array_map(static fn (array $r): array => self::imOut($r, $names) + (isset($th[(int) $r['line_id']]) ? ['th' => $th[(int) $r['line_id']]] : []), $rows);
+        return self::private(Response::json(['lines' => $out, 'more' => $more, 'blocked' => false]));
+    }
+
+    /** An IM line as one of its two players gets it. @param array<string, mixed> $r @param array<int, string> $names */
+    private static function imOut(array $r, array $names): array
+    {
+        return [
             'id' => (int) $r['line_id'],
             'from' => (int) $r['from_id'],
             'text' => (string) $r['text'],
             'at' => (int) $r['at_ms'],
             'r' => self::reactionsOut((string) ($r['reactions'] ?? ''), $names, []),
-        ], $rows);
-        return self::private(Response::json(['lines' => $out, 'more' => $more, 'blocked' => false]));
+        ] + ((int) ($r['parent_id'] ?? 0) > 0 ? ['parent' => (int) $r['parent_id']] : []);
+    }
+
+    // —— Threads ——
+
+    /** A channel line's thread: the line and its replies, oldest first, as the reader may see them. */
+    #[Route(Method::Get, '/groddle/v1/chat/channels/{key:global|help|trade|group-[1-9][0-9]{0,18}}/threads/{lid:[1-9][0-9]{0,18}}', policy: new Policy(Access::SignedIn))]
+    public function thread(Request $request, string $key, string $lid): Response
+    {
+        $me = $this->player();
+        $room = $this->readable($me, $key) ?? throw new RestError('groddle_chat_closed', 'That chat is not open to you.', 403);
+        $db = $this->minn->db;
+        $t = $db->table(self::LINES);
+        $users = $db->table('users');
+        $blocks = $this->blocks($me);
+        $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
+        $parent = $db->row("SELECT l.* FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.lid = ? AND l.parent_lid = 0{$notBlocked}", [$room, (int) $lid]);
+        $rows = $parent === null ? [] : $db->rows("SELECT l.* FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = ?{$notBlocked} ORDER BY l.lid ASC LIMIT 500", [$room, (int) $lid]);
+        $names = $this->names($parent === null ? $rows : [$parent, ...$rows]);
+        $hosts = CommunityText::homeHosts($this->minn->request->host);
+        $draw = $request->query('html') === '1'
+            ? static fn (array $l): array => $l + ['html' => CommunityPages::channelLineHtml($l, $me, $hosts, false)]
+            : static fn (array $l): array => $l;
+        $th = $parent === null ? [] : $this->threadSums($room, [(int) $lid], $blocks);
+        return self::private(Response::json([
+            'parent' => $parent === null ? null : $draw(self::lineOut($parent, $names, $blocks, $th)),
+            'lines' => array_map(static fn (array $r): array => $draw(self::lineOut($r, $names, $blocks)), $rows),
+            'now' => Community::ms(),
+        ]));
+    }
+
+    /** A reply written on the website, under a line of the channel (the server's web_say with "parent"). */
+    #[Route(Method::Post, '/groddle/v1/chat/channels/{key:global|help|trade}/threads/{lid:[1-9][0-9]{0,18}}', policy: new Policy(Access::SignedIn))]
+    public function reply(Request $request, string $key, string $lid): Response
+    {
+        $me = $this->player();
+        $db = $this->minn->db;
+        $room = $this->readable($me, $key) ?? throw new RestError('groddle_chat_closed', 'That chat is not open to you.', 403);
+        if ($db->value('SELECT 1 FROM ' . $db->table(self::LINES) . ' WHERE room = ? AND lid = ? AND parent_lid = 0', [$room, (int) $lid]) === null) {
+            throw new RestError('groddle_chat_no_line', 'That line is not there to reply to.', 404);
+        }
+        return $this->sayFrom($request, $me, $key, (int) $lid);
     }
 
     // —— Shared ——
@@ -397,10 +547,11 @@ final readonly class ChatHistory
     }
 
     /** A kept line as the reader gets it. @param array<string, mixed> $r @param array<int, string> $names @param array<int, true> $blocks */
-    public static function lineOut(array $r, array $names, array $blocks): array
+    public static function lineOut(array $r, array $names, array $blocks, array $threads = []): array
     {
         $id = (int) $r['author_id'];
-        return [
+        $lid = (int) $r['lid'];
+        return (isset($threads[$lid]) ? ['th' => $threads[$lid]] : []) + [
             'lid' => (int) $r['lid'],
             'id' => $id,
             'name' => $names[$id] ?? (string) $r['name'],
@@ -449,7 +600,66 @@ final readonly class ChatHistory
     /** The server's answer to web_say as a line. @param array<string, mixed> $l */
     private static function sentLine(array $l): array
     {
-        return ['lid' => (int) ($l['lid'] ?? 0), 'id' => (int) ($l['id'] ?? 0), 'name' => (string) ($l['name'] ?? ''), 'text' => (string) ($l['text'] ?? ''), 'at' => (int) ($l['at'] ?? 0), 'web' => true, 'r' => []];
+        return ['lid' => (int) ($l['lid'] ?? 0), 'id' => (int) ($l['id'] ?? 0), 'name' => (string) ($l['name'] ?? ''), 'text' => (string) ($l['text'] ?? ''), 'at' => (int) ($l['at'] ?? 0), 'web' => true, 'r' => []]
+            + ((int) ($l['parent'] ?? 0) > 0 ? ['parent' => (int) $l['parent']] : []);
+    }
+
+    /**
+     * The threads under some lines of a room, as a reader may see them: lid => {n, last:{id,name}}
+     * (replies by players they block, and by accounts that are gone, not counted).
+     *
+     * @param list<int> $lids
+     * @param array<int, true> $blocks
+     * @return array<int, array{n: int, last: array{id: int, name: string}}>
+     */
+    public function threadSums(string $room, array $lids, array $blocks): array
+    {
+        $lids = array_values(array_unique(array_filter($lids, static fn (int $l): bool => $l > 0)));
+        if ($lids === []) {
+            return [];
+        }
+        $db = $this->minn->db;
+        $t = $db->table(self::LINES);
+        $users = $db->table('users');
+        $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
+        $in = implode(',', array_map('intval', $lids));
+        $groups = $db->rows("SELECT l.parent_lid, COUNT(*) AS n, MAX(l.lid) AS last_lid FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid IN ({$in}){$notBlocked} GROUP BY l.parent_lid", [$room]);
+        if ($groups === []) {
+            return [];
+        }
+        $last = [];
+        foreach ($db->rows("SELECT lid, author_id FROM {$t} WHERE lid IN (" . implode(',', array_map(static fn (array $g): int => (int) $g['last_lid'], $groups)) . ')') as $r) {
+            $last[(int) $r['lid']] = (int) $r['author_id'];
+        }
+        $names = (new Characters($db))->namesOf(array_values(array_unique($last)));
+        $out = [];
+        foreach ($groups as $g) {
+            $who = $last[(int) $g['last_lid']] ?? 0;
+            $out[(int) $g['parent_lid']] = ['n' => (int) $g['n'], 'last' => ['id' => $who, 'name' => (string) ($names[$who] ?? '')]];
+        }
+        return $out;
+    }
+
+    /** An IM line's thread, oldest first: only for one of its two players. */
+    #[Route(Method::Get, '/groddle/v1/chat/ims/{with:[1-9][0-9]{0,18}}/threads/{line:[1-9][0-9]{0,18}}', policy: new Policy(Access::SignedIn))]
+    public function imThread(Request $request, string $with, string $line): Response
+    {
+        $me = $this->player();
+        $other = (int) $with;
+        if ($other === $me) {
+            throw new RestError('groddle_chat_self', 'You can\'t IM yourself.', 400);
+        }
+        $db = $this->minn->db;
+        $ignores = $db->table(Buddies::IGNORES);
+        if ($db->value("SELECT 1 FROM {$ignores} WHERE (user_id = ? AND ignored_id = ?) OR (user_id = ? AND ignored_id = ?) LIMIT 1", [$me, $other, $other, $me]) !== null) {
+            return self::private(Response::json(['lines' => [], 'blocked' => true]));
+        }
+        [$a, $b] = $me < $other ? [$me, $other] : [$other, $me];
+        $t = $db->table(self::IMS);
+        $users = $db->table('users');
+        $rows = $db->rows("SELECT i.* FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id = ? ORDER BY i.at_ms ASC, i.id ASC LIMIT 500", [$a, $b, (int) $line]);
+        $names = (new Characters($db))->namesOf([$a, $b]);
+        return self::private(Response::json(['lines' => array_map(static fn (array $r): array => self::imOut($r, $names), $rows), 'blocked' => false]));
     }
 
     private static function private(Response $r): Response

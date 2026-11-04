@@ -31,6 +31,11 @@ use Minn\RestError;
  * url carries it; path stays /ws for pages that only know path.
  *
  * Ticket: base64url(JSON payload) "." base64url(HMAC-SHA256(secret, payload part)).
+ *
+ * Every ticket carries "off", the account's "Appear offline" (PresenceSetting).
+ * A body {"via":"web"} asks for the website's ticket (the /chat/ page,
+ * Austin 2026-11-04): "via":"web" opens a light socket beside the game's
+ * (groddle-afternoon-server web.go), never replacing it.
  */
 final readonly class RealtimeTicket
 {
@@ -67,6 +72,13 @@ final readonly class RealtimeTicket
             'exp' => $now + self::TTL,
             'jti' => bin2hex(random_bytes(8)),
         ];
+        $body = $request->body === '' ? [] : $request->json();
+        if (is_array($body) && ($body['via'] ?? null) === 'web') {
+            $payload['via'] = 'web';
+        }
+        if (PresenceSetting::off($this->minn->db, $user->id)) {
+            $payload['off'] = true;
+        }
         $answer = ['ticket' => self::sign($payload, $secret), 'expiresIn' => self::TTL, 'path' => '/ws'];
         $url = self::socketUrl();
         if ($url !== null) {

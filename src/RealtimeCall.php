@@ -29,7 +29,7 @@ final readonly class RealtimeCall
      *
      * @return array<string, mixed>|null
      */
-    public function post(string $call, array $body): ?array
+    public function post(string $call, array $body, float $timeout = self::TIMEOUT): ?array
     {
         if (preg_match('/^[a-z][a-z_]{0,15}$/', $call) !== 1) {
             return null;
@@ -46,7 +46,7 @@ final readonly class RealtimeCall
             $reply = $this->minn->http->post($url, body: $json, query: ['call' => $call], headers: [
                 'Content-Type' => 'application/json',
                 'X-Groddle-Service' => ServiceCall::sign('POST', '/realtime/v1/' . $call, time(), bin2hex(random_bytes(8)), $json, $secret),
-            ], timeout: self::TIMEOUT, redirects: 0, private: $loopback === null ? [] : [$loopback], maxBytes: 262144);
+            ], timeout: $timeout, redirects: 0, private: $loopback === null ? [] : [$loopback], maxBytes: 262144);
         } catch (\Throwable) {
             return null;
         }
