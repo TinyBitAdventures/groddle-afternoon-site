@@ -45,13 +45,17 @@ final readonly class CommunityPages
 {
     public const ASSETS = '/wp-content/themes/groddle/community/';
 
+    /** Channel lines the page draws before the script brings more. */
+    public const CHANNEL_LINES = 40;
+
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-1';
+    public const ASSET_KEY = 'community-2';
 
     /** The words the pages share. */
     public const COPY = [
         'lead' => 'Talk with other players outside the game: questions, ideas, trades and stories. Anyone can read the boards; players sign in to post.',
         'channelsSignedOut' => 'Sign in to see what players are saying in the game.',
+        'channelsHint' => 'Lines you send here go to everyone in the channel in the game, marked web. Local chat and IMs stay in the game.',
         'signIn' => 'Sign in to post. Reading is open to everyone; posting needs your Groddle Afternoon player account.',
         'notPlayer' => 'Only players can post. Make a character in the game first.',
         'noImages' => 'Words and links only: no pictures yet.',
@@ -91,7 +95,7 @@ final readonly class CommunityPages
                 . '</p></li>';
         }
         $channels = $viewer['id'] > 0
-            ? ''
+            ? $this->channelsPanel($viewer)
             : "    <aside class=\"cchannels cchannels-out\" aria-labelledby=\"cchannels-title\">\n      <h2 id=\"cchannels-title\">In the game now</h2>\n      <p>" . Html::esc(self::COPY['channelsSignedOut']) . "</p>\n      " . self::signInLinks() . "\n    </aside>\n";
         $body = self::masthead('Community', 'Community', self::COPY['lead'], [])
             . '<main class="band community" ' . self::data($viewer, []) . ">\n  <div class=\"wrap community-wrap\">\n"
@@ -311,6 +315,68 @@ final readonly class CommunityPages
             . '      <div class="cform-row"><p class="chint" data-reply-hint>' . Html::esc(self::COPY['noImages']) . '</p><button class="cbutton" type="submit">Post reply</button></div>' . "\n"
             . '      <p class="csaid" role="status" aria-live="polite"' . ($said === '' ? '' : ' data-tone="bad"') . '>' . Html::esc($said) . "</p>\n"
             . "    </form>\n";
+    }
+
+    /**
+     * The game's channels for a signed-in player (ChatHistory): a tab each for Global Chat, Live
+     * Help and the Trade Channel as the game allows them, the newest lines of the first (drawn
+     * here, so they read without JavaScript), and a line to say something. community.js keeps it
+     * live, switches tabs and brings earlier lines. Never drawn for a visitor (index()).
+     *
+     * @param array<string, mixed> $viewer
+     */
+    private function channelsPanel(array $viewer): string
+    {
+        $history = new ChatHistory($this->minn);
+        $open = $history->open((int) $viewer['id']);
+        if ($open === []) {
+            return "    <aside class=\"cchannels cchannels-out\" aria-labelledby=\"cchannels-title\">\n      <h2 id=\"cchannels-title\">In the game now</h2>\n      <p>" . Html::esc(self::COPY['notPlayer']) . "</p>\n    </aside>\n";
+        }
+        $first = array_key_first($open);
+        [$lines, $more] = $history->latest((int) $viewer['id'], $open[$first][1], null, self::CHANNEL_LINES);
+        $tabs = '';
+        foreach ($open as $key => [$label]) {
+            $tabs .= '<button type="button" role="tab" class="cchan-tab" id="cchan-tab-' . $key . '" aria-controls="cchan-log" aria-selected="' . ($key === $first ? 'true' : 'false') . '"' . ($key === $first ? '' : ' tabindex="-1"') . ' data-chan="' . $key . '">' . Html::esc($label) . '</button>';
+        }
+        $items = '';
+        foreach (array_reverse($lines) as $l) {
+            $items .= self::channelLineHtml($l, (int) $viewer['id'], $viewer['homeHosts'] ?? CommunityText::HOME_HOSTS);
+        }
+        $last = $lines === [] ? 0 : $lines[0]['lid'];
+        $oldest = $lines === [] ? 0 : $lines[count($lines) - 1]['lid'];
+        return "    <section class=\"cchannels\" aria-labelledby=\"cchannels-title\" data-chat-live data-chan=\"{$first}\" data-after=\"{$last}\" data-before=\"{$oldest}\" data-since=\"" . Community::ms() . "\" data-me=\"" . (int) $viewer['id'] . "\">\n"
+            . "      <div class=\"cchan-head\"><h2 id=\"cchannels-title\">In the game now</h2><div class=\"cchan-tabs\" role=\"tablist\" aria-label=\"Channels\">{$tabs}</div></div>\n"
+            . '      <div class="cchan-log" id="cchan-log" role="tabpanel" aria-labelledby="cchan-tab-' . $first . "\">\n"
+            . '        <button type="button" class="cact cchan-more" data-chan-more' . ($more ? '' : ' hidden') . ">Earlier messages</button>\n"
+            . '        <ol class="cchan-lines" data-chan-lines role="log" aria-live="polite">' . $items . "</ol>\n"
+            . '        <p class="cchan-empty cmuted" data-chan-empty' . ($lines === [] ? '' : ' hidden') . ">Nobody has said anything here yet.</p>\n"
+            . "      </div>\n"
+            . '      <form class="cchan-say" data-chan-say><label class="visually-hidden" for="cchan-text">Say something</label><input class="cinput" id="cchan-text" name="text" type="text" maxlength="' . ChatHistory::TEXT_MAX . '" autocomplete="off" placeholder="Say something in ' . Html::attr($open[$first][0]) . '" /><button class="cbutton" type="submit">Send</button></form>' . "\n"
+            . '      <p class="chint">' . Html::esc(self::COPY['channelsHint']) . "</p>\n"
+            . "      <p class=\"csaid\" role=\"status\" aria-live=\"polite\" data-chan-said></p>\n"
+            . "    </section>\n";
+    }
+
+    /**
+     * One channel line (ChatHistory::lineOut): the name (with "web" when it was said here), the
+     * words with links by the chat's rule, the time, the reactions as marks.
+     *
+     * @param array<string, mixed> $l
+     * @param list<string> $hosts
+     */
+    public static function channelLineHtml(array $l, int $me, array $hosts): string
+    {
+        $chips = '';
+        foreach ($l['r'] ?? [] as $r) {
+            $label = CommunityText::reactionLabel((string) $r['e'], array_map(static fn (array $b): string => (string) $b['name'], $r['by']));
+            $chips .= '<span class="cchip cchip-small" title="' . Html::attr($label) . '" role="img" aria-label="' . Html::attr($label) . '">' . self::glyph((string) $r['e']) . '<span aria-hidden="true">' . count($r['by']) . '</span></span>';
+        }
+        $at = intdiv((int) $l['at'], 1000);
+        return '<li class="cchan-line' . ((int) $l['id'] === $me ? ' is-mine' : '') . '" data-lid="' . (int) $l['lid'] . '">'
+            . '<time datetime="' . gmdate('Y-m-d\TH:i:s\Z', $at) . '" title="' . Html::attr(gmdate('M j, Y H:i', $at) . ' UTC') . '">' . gmdate('H:i', $at) . '</time> '
+            . '<b class="cchan-name">' . Html::esc((string) $l['name']) . '</b>' . ($l['web'] ? '<span class="cchan-web" title="Said on the website">web</span>' : '') . ' '
+            . '<span class="cchan-text">' . CommunityText::lineHtml((string) $l['text'], $hosts) . '</span>'
+            . ($chips === '' ? '' : '<span class="cchan-chips">' . $chips . '</span>') . '</li>';
     }
 
     // —— One post ——

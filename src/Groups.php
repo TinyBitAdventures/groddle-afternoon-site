@@ -384,9 +384,11 @@ final readonly class Groups
      * Help is the newbie channel under level 11 (main.js:579-585), the Trade
      * Channel needs the upgrade (player.js:3404).
      *
+     * Also the website's channels (ChatHistory): who may read and post where.
+     *
      * @return array{global: bool, help: string, trade: bool, silenced: list<string>}
      */
-    private function channels(int $me): array
+    public function channels(int $me): array
     {
         $level = Profiles::fromSave($this->minn->db, $me)['level'];
         $silence = [];

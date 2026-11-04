@@ -48,6 +48,31 @@
 .cchannels p { margin: 0 0 10px; color: var(--lead); }
 .csignin { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
 
+/* The live channels for signed-in players */
+.cchan-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 8px; }
+.cchan-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cchan-tab { min-height: 32px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.cchan-tab[aria-selected="true"] { background: var(--play-bg); border-color: var(--play-bg); color: var(--play-fg); }
+.cchan-tab:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.cchan-log { border: 1px solid var(--row-line); border-radius: var(--radius); background: var(--bg); }
+.cchan-more { display: block; margin: 4px auto 0; }
+.cchan-more[hidden] { display: none; }
+.cchan-lines { list-style: none; margin: 0; padding: 8px 12px; height: 18em; overflow-y: auto; font-size: 15px; line-height: 1.45; }
+.cchan-line { padding: 2px 0; overflow-wrap: anywhere; }
+.cchan-line time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cchan-name { color: var(--fg); }
+.cchan-line.is-mine .cchan-name { color: var(--moss); }
+.cchan-web { margin-left: 5px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.cchan-text a { color: var(--fg); text-decoration-color: var(--accent); }
+.cchan-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: 1px; }
+.cchip-small { min-height: 22px; padding: 0 7px; font-size: 12px; }
+.cchip-small .cchip-glyph { font-size: 13px; }
+.cchan-empty { margin: 0; padding: 0 12px 10px; }
+.cchan-empty[hidden] { display: none; }
+.cchan-say { display: flex; gap: 8px; margin-top: 10px; }
+.cchan-say .cinput { flex: 1; min-width: 0; }
+.cchannels .chint { margin-top: 6px; }
+
 /* A board's threads */
 .cbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
 .cbar > p { margin: 0; }

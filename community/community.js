@@ -456,3 +456,130 @@ if (list && threadId) {
   setInterval(poll, POLL_MS);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
 }
+
+// —— The game's channels (signed-in players only; the page draws none for a visitor) ——
+
+const live = document.querySelector('[data-chat-live]');
+if (live) {
+  const CHAN_POLL_MS = 3000;
+  const lines = live.querySelector('[data-chan-lines]');
+  const more = live.querySelector('[data-chan-more]');
+  const empty = live.querySelector('[data-chan-empty]');
+  const said = live.querySelector('[data-chan-said]');
+  const form = live.querySelector('[data-chan-say]');
+  const field = form?.querySelector('input');
+  const tabs = [...live.querySelectorAll('[data-chan]')].filter((b) => b.matches('button'));
+  const state = { chan: live.dataset.chan, after: Number(live.dataset.after) || 0, before: Number(live.dataset.before) || 0, since: Number(live.dataset.since) || 0, busy: false };
+  const atEnd = () => lines.scrollHeight - lines.scrollTop - lines.clientHeight < 24;
+  const toEnd = () => { lines.scrollTop = lines.scrollHeight; };
+  toEnd();
+
+  function place(l, { top = false } = {}) {
+    const li = fromHtml(l.html);
+    if (!li) return;
+    const old = lines.querySelector(`[data-lid="${l.lid}"]`);
+    if (old) old.replaceWith(li);
+    else if (top) lines.prepend(li);
+    else {
+      // In the server's order: a line said just before yours can arrive after it.
+      const later = [...lines.children].find((n) => Number(n.dataset.lid) > l.lid);
+      lines.insertBefore(li, later || null);
+    }
+    empty.hidden = true;
+  }
+
+  async function poll() {
+    if (state.busy || document.hidden) return;
+    state.busy = true;
+    const chan = state.chan;
+    const r = await call(`chat/channels/${chan}?after=${state.after}&since=${state.since}&html=1`);
+    state.busy = false;
+    if (!r.ok || chan !== state.chan) return;
+    const end = atEnd();
+    for (const l of r.data.changed || []) place(l);
+    for (const l of r.data.lines || []) {
+      place(l);
+      state.after = Math.max(state.after, l.lid);
+    }
+    state.since = Number(r.data.now) || state.since;
+    if (end) toEnd();
+  }
+
+  async function show(chan) {
+    state.chan = chan;
+    for (const b of tabs) {
+      const on = b.dataset.chan === chan;
+      b.setAttribute('aria-selected', String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+    live.querySelector('.cchan-log')?.setAttribute('aria-labelledby', `cchan-tab-${chan}`);
+    if (field) field.placeholder = `Say something in ${tabs.find((b) => b.dataset.chan === chan)?.textContent || 'the channel'}`;
+    lines.replaceChildren();
+    say(said, '');
+    const r = await call(`chat/channels/${chan}?limit=40&html=1`);
+    if (!r.ok || chan !== state.chan) {
+      say(said, r.data?.message || SAID.failed, true);
+      return;
+    }
+    const list = r.data.lines || [];
+    for (const l of [...list].reverse()) place(l);
+    empty.hidden = list.length > 0;
+    more.hidden = !r.data.more;
+    state.after = list.length ? list[0].lid : 0;
+    state.before = list.length ? list[list.length - 1].lid : 0;
+    state.since = Number(r.data.now) || Date.now();
+    toEnd();
+  }
+
+  for (const b of tabs) b.addEventListener('click', () => show(b.dataset.chan));
+  live.querySelector('[role="tablist"]')?.addEventListener('keydown', (e) => {
+    const at = tabs.indexOf(document.activeElement);
+    if (at < 0 || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return;
+    e.preventDefault();
+    const next = tabs[(at + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    next.focus();
+    show(next.dataset.chan);
+  });
+
+  more?.addEventListener('click', async () => {
+    if (!state.before) return;
+    more.disabled = true;
+    const chan = state.chan;
+    const r = await call(`chat/channels/${chan}?before=${state.before}&limit=50&html=1`);
+    more.disabled = false;
+    if (!r.ok || chan !== state.chan) return;
+    const height = lines.scrollHeight;
+    for (const l of r.data.lines || []) {
+      place(l, { top: true });
+      state.before = Math.min(state.before, l.lid);
+    }
+    more.hidden = !r.data.more;
+    // Keep the lines that were showing where they were.
+    lines.scrollTop += lines.scrollHeight - height;
+  });
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = field.value.trim();
+    if (!text) return;
+    const button = form.querySelector('button');
+    button.disabled = true;
+    const r = await call(`chat/channels/${state.chan}`, { method: 'POST', body: { text } });
+    button.disabled = false;
+    if (!r.ok) {
+      say(said, r.data?.message || SAID.failed, true);
+      return;
+    }
+    field.value = '';
+    say(said, '');
+    // Shown at once; the poll brings it again (the same lid) with anything said around it.
+    if (r.data?.line?.html) {
+      place(r.data.line);
+      toEnd();
+    }
+    field.focus();
+  });
+
+  setInterval(poll, CHAN_POLL_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+}
