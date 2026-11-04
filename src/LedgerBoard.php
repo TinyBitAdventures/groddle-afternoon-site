@@ -396,10 +396,10 @@ final readonly class LedgerBoard
         return Response::json(['status' => 'reported', 'ticket' => $ticket], 201);
     }
 
-    /** A report's first message: where, which note, its words, and why (the player's own, when given). */
+    /** A report's first message: where (its first line is the ticket's subject), which note, its words, and why (the player's own, when given). */
     public static function reportMessage(string $label, string $id, string $title, string $body, string $by, string $why): string
     {
-        $lines = ["I am reporting a note on the notice board in {$label}.", '', 'Title: ' . ($title === '' ? '(none)' : $title), "Written by: {$by}", '', $body === '' ? '(The note is blank.)' : $body, ''];
+        $lines = ["Reporting a notice board note in {$label}", '', 'Title: ' . ($title === '' ? '(none)' : $title), "Written by: {$by}", '', $body === '' ? '(The note is blank.)' : $body, ''];
         $lines[] = $why === '' ? 'Why: (no reason given)' : "Why: {$why}";
         $lines[] = "Note: {$id}";
         return mb_substr(implode("\n", $lines), 0, BugReports::MAX_MESSAGE);
