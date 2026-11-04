@@ -24,7 +24,7 @@ use Minn\RestError;
  * ledgers, the listing row and data/auctions.json (the game repo's
  * tools/build-auctions.mjs). The realtime server takes no part.
  *
- *   GET  groddle/v1/auctions                 active listings: ?q= (3+ letters: an item's name or a seller's) &cat= &c= &seller=<id> &sort=new|unit|price|ends &page=
+ *   GET  groddle/v1/auctions                 active listings: ?q= (3+ letters: an item's name or a seller's) &cat= &c= &seller=<id> &others=1 (not your own) &sort=new|unit|price|ends &page=
  *        {"auctions":[Listing],"total","page","per","cats":[[key,name]],"rules":{…}}
  *   GET  groddle/v1/auctions/mine            {"active":[Listing],"ended":[Listing],"deliveries":[Delivery],"receipts":[Receipt],"listable":{c:{n,v}},"rules":{…}}
  *   POST groddle/v1/auctions                 {"id":"<16 hex>","c":"cherry","n":3,"cost":45,"r"?:40}
@@ -143,6 +143,11 @@ final readonly class LedgerAuction
         if ($seller > 0) {
             $where[] = 'a.seller_id = ?';
             $params[] = $seller;
+        }
+        // All auctions leaves out your own listings: Your auctions has them.
+        if ((string) $request->query('others', '') === '1') {
+            $where[] = 'a.seller_id <> ?';
+            $params[] = $this->me();
         }
         $q = self::searchText((string) $request->query('q', ''));
         if ($q !== '') {
