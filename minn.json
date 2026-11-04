@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.35",
+  "version": "0.5.36",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -39,6 +39,7 @@
     "groddle/codebase",
     "groddle/contribute-shrine",
     "groddle/contribute-ledger",
+    "groddle/contribute-credits",
     "groddle/site-nav"
   ],
   "types": [
@@ -634,6 +635,18 @@
       "PRIMARY KEY  (key_id,nonce)",
       "KEY key_kind_at (key_id,kind,at)",
       "KEY at (at)"
+    ],
+    "groddle_report_credits": [
+      "ticket_id bigint(20) unsigned NOT NULL",
+      "player_user_id bigint(20) unsigned NOT NULL",
+      "points int(11) NOT NULL DEFAULT 0",
+      "kind varchar(24) NOT NULL",
+      "reason varchar(255) NOT NULL DEFAULT ''",
+      "refs text NOT NULL",
+      "scored_by varchar(8) NOT NULL",
+      "scored_at datetime NOT NULL",
+      "PRIMARY KEY  (ticket_id)",
+      "KEY player_points (player_user_id,points)"
     ]
   }
 }

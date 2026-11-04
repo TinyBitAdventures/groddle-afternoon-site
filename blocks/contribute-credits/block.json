@@ -1,0 +1,29 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/contribute-credits",
+	"title": "Contribute testers board",
+	"category": "widgets",
+	"description": "Thank you, testers: the ten players whose bug reports led to the most changes, by points, read from the report credits each time the page is shown.",
+	"attributes": {
+		"how": {
+			"type": "string",
+			"default": "Points come from reports once they are closed: 5 for a fix that keeps saves or accounts safe, 3 for a bug fixed, 2 for an idea that shipped and 1 for a clue or a partial fix. A report that led to several changes earns 1 more for each, up to 8."
+		},
+		"empty": {
+			"type": "string",
+			"default": "Nobody is on the board yet. The first reports that lead to a change will put their testers here."
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"contribute",
+		"testers",
+		"credits"
+	]
+}

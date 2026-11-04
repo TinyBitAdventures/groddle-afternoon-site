@@ -36,6 +36,11 @@
  *   show in the viewer's time zone. A player's menu has Chat history, which opens the tab
  *   filtered to them; a name in the log opens that player's menu. #chat opens it, #chat=<id>
  *   filtered to one player.
+ * - Credits (src/AdminReportCredits.php): the points each report earned for the Contribute page's
+ *   testers board, the board as it stands and the closed and answered reports not scored yet (a click
+ *   opens the report). A report's thread has a Credit box: its score (kind, points, reason, refs, who
+ *   scored it and when) and a form to set or change it (PUT admin/tickets/<id>/credit; picking a kind
+ *   puts in its points). #credits opens the tab.
  * - Builder (the last tab, only when the site option groddle_builder_enabled is on;
  *   src/AdminBuilder.php): the level builder's drafts with their streets, each opening the
  *   builder page (/console/builder/#draft=<id>), Archive, and a new draft (title, and an id
@@ -98,6 +103,34 @@ export function pictureSrc(picture) {
 }
 
 /** A ticket's status in words (src/TicketStore.php STATUSES). */
+/** The kinds of change a report can lead to, with their points (src/ReportCredits.php KINDS, KIND_WORDS, CAP). */
+export const CREDIT_KINDS = Object.freeze({ safety_fix: 5, bug_fixed: 3, improvement_shipped: 2, partial_or_clue: 1, none: 0 });
+export const CREDIT_WORDS = Object.freeze({ safety_fix: 'Safety fix', bug_fixed: 'Bug fixed', improvement_shipped: 'Improvement shipped', partial_or_clue: 'Partial fix or clue', none: 'No change' });
+export const CREDIT_CAP = 8;
+
+/** Refs typed in one box: split on commas, trimmed, blanks and repeats dropped. */
+export function refsFrom(text) {
+  const out = [];
+  for (const r of String(text || '').split(',')) {
+    const t = r.trim().replace(/\s+/g, ' ');
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/** A credit in one line: "4 points, Bug fixed, by the agent". */
+export function creditWords(c) {
+  if (!c) return 'Not scored yet';
+  const pts = c.points === 1 ? '1 point' : `${c.points ?? 0} points`;
+  return `${pts}, ${CREDIT_WORDS[c.kind] || c.kind}${c.by === 'agent' ? ', by the agent' : ''}`;
+}
+
+/** The PUT body from the Credit box's fields. */
+export function creditBody({ kind = '', points = '', reason = '', refs = '' } = {}) {
+  const n = Number(points);
+  return { kind, points: Number.isInteger(n) && String(points).trim() !== '' ? n : CREDIT_KINDS[kind] ?? 0, reason: String(reason).trim(), refs: refsFrom(refs) };
+}
+
 export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', working: 'Working on it', closed: 'Closed' });
 
 /**
@@ -288,6 +321,7 @@ export function logWords(line) {
       if (line.delivery === 'down') return `tried to end the Rook attack on ${street}${how}`;
       return `ended the Rook attack on ${street}${typeof d.players === 'number' ? ` (${d.players === 1 ? '1 player' : `${d.players} players`} there)` : ''}`;
     }
+    case 'credit': return `scored ${who}'s report “${d.subject || ''}”: ${creditWords({ points: d.points, kind: d.kind, by: d.by })}`;
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
   }
@@ -817,6 +851,8 @@ function boot() {
     for (const p of root.querySelectorAll('[data-console-tabpanel]')) p.hidden = p.dataset.consoleTabpanel !== id;
     if (id === 'reports') loadTickets();
     if (id === 'builder') loadDrafts();
+    if (id === 'credits') loadCredits();
+    if (id === 'credits' && location.hash !== '#credits') history.replaceState(null, '', '#credits');
     if (id === 'chat' && !chat.loaded) loadChat();
     if (id === 'chat' && !/^#chat(=\d+)?$/.test(location.hash)) history.replaceState(null, '', '#chat');
     if (id === 'builder' && location.hash !== '#builder') history.replaceState(null, '', '#builder');
@@ -976,7 +1012,94 @@ function boot() {
     if (focus) $('[data-console-thread-subject]').focus();
   }
   async function openTicket(id, focus = true) {
-    try { renderThread(await api.call(`admin/tickets/${id}`), focus); } catch (err) { failed(err); }
+    try { renderThread(await api.call(`admin/tickets/${id}`), focus); } catch (err) { return failed(err); }
+    loadCredit(id);
+  }
+
+  // == A report's credit (src/AdminReportCredits.php) ==
+  const creditForm = $('[data-console-credit-form]');
+  let creditFor = 0;
+  function renderCredit(r) {
+    const c = r.credit;
+    $('[data-console-credit-summary]').textContent = creditWords(c);
+    const now = $('[data-console-credit-now]');
+    now.hidden = !c;
+    now.textContent = c ? `${c.reason}${c.refs?.length ? ` (${c.refs.join(', ')})` : ''}, ${when(c.at)}` : '';
+    creditForm.kind.value = c?.kind || 'bug_fixed';
+    creditForm.points.value = String(c ? c.points : CREDIT_KINDS[creditForm.kind.value]);
+    creditForm.reason.value = c?.reason || '';
+    creditForm.refs.value = (c?.refs || []).join(', ');
+  }
+  async function loadCredit(id) {
+    creditFor = id;
+    $('[data-console-credit-summary]').textContent = '';
+    try {
+      const r = await api.call(`admin/tickets/${id}/credit`);
+      if (creditFor === id) renderCredit(r);
+    } catch (err) { failed(err); }
+  }
+  // Picking a kind puts in its points; change them for a report with several changes.
+  creditForm.kind.addEventListener('change', () => { creditForm.points.value = String(CREDIT_KINDS[creditForm.kind.value] ?? 0); });
+  creditForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!creditFor) return;
+    const body = creditBody({ kind: creditForm.kind.value, points: creditForm.points.value, reason: creditForm.reason.value, refs: creditForm.refs.value });
+    const save = $('[data-console-credit-save]');
+    save.disabled = true;
+    try {
+      const r = await api.call(`admin/tickets/${creditFor}/credit`, { method: 'PUT', body });
+      renderCredit(r);
+      say(r.text || 'Scored.');
+      loadLog();
+      if (tab === 'credits') loadCredits(); else loadCreditCounts();
+    } catch (err) { failed(err); } finally { save.disabled = false; }
+  });
+
+  // == Credits tab ==
+  const credits = { loaded: false };
+  function creditsUnscored(n) {
+    $('[data-console-credits-unscored]').textContent = n ? String(n) : '';
+    $('[data-console-tab="credits"]').setAttribute('aria-label', n ? `Credits, ${n} not scored yet` : 'Credits');
+  }
+  function openReport(id) {
+    history.replaceState(null, '', `#report=${id}`);
+    showTab('reports');
+    openTicket(id);
+  }
+  async function loadCreditCounts() {
+    try { creditsUnscored((await api.call('admin/credits')).unscored?.length || 0); } catch { /* the tab says what went wrong */ }
+  }
+  async function loadCredits() {
+    let r;
+    try { r = await api.call('admin/credits'); } catch (err) { return failed(err); }
+    credits.loaded = true;
+    const list = r.credits || [];
+    const table = $('[data-console-credits]');
+    table.hidden = list.length === 0;
+    $('[data-console-credits-empty]').hidden = list.length > 0;
+    $('[data-console-credits-count]').textContent = list.length ? String(list.length) : '';
+    table.tBodies[0].replaceChildren(...list.map((c) => {
+      const tr = el('tr', { tabindex: '0', 'data-ticket': c.ticket, onclick: () => openReport(c.ticket), onkeydown: (e) => { if (e.key === 'Enter') openReport(c.ticket); } },
+        el('td', {}, el('b', { text: `#${c.ticket} ` }), document.createTextNode(c.subject || '(no words)')),
+        el('td', { text: c.player?.name || '' }),
+        el('td', { class: 'console-num', text: String(c.points) }),
+        el('td', {}, el('span', { class: 'console-chip', text: CREDIT_WORDS[c.kind] || c.kind }), document.createTextNode(` ${c.reason}`), c.by === 'agent' ? el('span', { class: 'console-sub', text: ' (agent)' }) : null));
+      return tr;
+    }));
+    const board = r.board || [];
+    $('[data-console-board]').replaceChildren(...board.map((b, i) => el('li', { class: 'console-boardrow' },
+      el('span', { class: 'console-num console-sub', text: `${i + 1}.` }),
+      el('b', { text: b.player?.name || '' }),
+      el('span', { class: 'console-sub', text: `${b.points} ${b.points === 1 ? 'point' : 'points'}, ${b.reports} ${b.reports === 1 ? 'report' : 'reports'}` }))));
+    $('[data-console-board-empty]').hidden = board.length > 0;
+    const unscored = r.unscored || [];
+    $('[data-console-unscored]').replaceChildren(...unscored.map((t) => el('li', {},
+      el('button', { type: 'button', class: 'console-ticket', onclick: () => openReport(t.id) },
+        el('span', { class: 'console-ticket-top' }, el('b', { text: `#${t.id} ${t.subject || '(no words)'}` }), el('span', { class: `console-chip console-chip-${t.status}`, text: TICKET_STATUS[t.status] || t.status })),
+        el('span', { class: 'console-sub', text: `${t.player?.name || ''} · ${when(t.createdAt)}` })))));
+    $('[data-console-unscored-empty]').hidden = unscored.length > 0;
+    $('[data-console-unscored-count]').textContent = unscored.length ? String(unscored.length) : '';
+    creditsUnscored(unscored.length);
   }
   const reply = $('[data-console-reply]');
   const replyCount = $('[data-console-reply-count]');
@@ -1040,6 +1163,7 @@ function boot() {
     else if (location.hash === '#builder' && $('[data-console-tab="builder"]')) showTab('builder');
     else if (/^#chat=\d+$/.test(location.hash)) openChat({ id: Number(location.hash.slice(6)) });
     else if (location.hash === '#chat') showTab('chat');
+    else if (location.hash === '#credits') showTab('credits');
   }
   addEventListener('hashchange', fromHash);
 
@@ -1087,6 +1211,7 @@ function boot() {
     loadBans();
     loadLog();
     if (tab !== 'reports') loadTickets();
+    if (tab !== 'credits') loadCreditCounts();
     let timer = setInterval(() => pollOnline(), POLL_MS);
     let logTimer = setInterval(() => loadLog(), LOG_POLL_MS);
     let ticketTimer = setInterval(() => loadTickets(), TICKETS_POLL_MS);

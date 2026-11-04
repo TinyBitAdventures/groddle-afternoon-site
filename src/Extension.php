@@ -15,14 +15,14 @@ use Minn\Extension\Seams;
  * the note blocks (Blocks), the restoration report's data sections
  * (Restoration) and its section menu (ReportMenu), the Musicblocks and Street music pages' players
  * (Musicblocks, StreetMusic), the Contribute page's shrine and open ledger
- * (Contribute), the header's menu (SiteNav), and the built game
+ * (Contribute) and its board of testers whose reports led to a change (ContributeCredits), the header's menu (SiteNav), and the built game
  * and generated pages served beside the content, with the old addresses of the
  * ones that moved (MovedPages). For players: the
  * groddle/v1 REST routes: the game's own sign-up and sign-in by email
  * (PlayerAccount) and with Google (GoogleSignIn), who is signed in (Player), the saves over the tables
  * minn.json declares (MultiplayerSave, SoloBackups), the realtime
  * server's ticket (RealtimeTicket), buddy lists (Buddies) and which buddies are online for the phone companion (BuddiesOnline), groups and their chat (Groups), profiles
- * (Profiles) and visiting each other's homes with house keys (Neighbours), the owner's Butler taking visitors' parcels (ButlerParcels) and key-holders tending their gardens (HomeTending), the Magic Rock's daily iMG from visitors (HomePool) and what they pet, dig and water on a home street (HomeYard), the machines an owner sets down there for everyone to use (HomeMachines), selling from a Storage Display Box and a key-holder's cabinet moves (LedgerBoxes), the Auction House (LedgerAuction), mail between players (LedgerMail), bug reports as threads with the administrators (Tickets), signed-in players only, nonce-checked; an administrator's teleport for a stuck player (AdminTeleport, manage_options only) and the administrators' console (AdminConsole, its Reports tab AdminTickets, AdminConsolePage at /console/, manage_options only), and the level builder's drafts, page and new art (AdminBuilder, AdminBuilderPage at /console/builder/, AdminBuilderAssets and BuilderArt, and for agents builder keys (AdminBuilderKeys, BuilderKeys, BuilderAuth) and the builder worker's validate, render, guide, catalog and style (AdminBuilderAgent, BuilderWorker), behind the option groddle_builder_enabled); and the public
+ * (Profiles) and visiting each other's homes with house keys (Neighbours), the owner's Butler taking visitors' parcels (ButlerParcels) and key-holders tending their gardens (HomeTending), the Magic Rock's daily iMG from visitors (HomePool) and what they pet, dig and water on a home street (HomeYard), the machines an owner sets down there for everyone to use (HomeMachines), selling from a Storage Display Box and a key-holder's cabinet moves (LedgerBoxes), the Auction House (LedgerAuction), mail between players (LedgerMail), bug reports as threads with the administrators (Tickets), signed-in players only, nonce-checked; an administrator's teleport for a stuck player (AdminTeleport, manage_options only) and the administrators' console (AdminConsole, its Reports tab AdminTickets, the credit a report earned AdminReportCredits, AdminConsolePage at /console/, manage_options only), and the level builder's drafts, page and new art (AdminBuilder, AdminBuilderPage at /console/builder/, AdminBuilderAssets and BuilderArt, and for agents builder keys (AdminBuilderKeys, BuilderKeys, BuilderAuth) and the builder worker's validate, render, guide, catalog and style (AdminBuilderAgent, BuilderWorker), behind the option groddle_builder_enabled); and the public
  * Players pages (PlayerPages).
  */
 final class Extension implements MinnExtension
@@ -63,7 +63,7 @@ final class Extension implements MinnExtension
         $minn->routes(new TicketPictures($minn));
         // /privacy goes to the privacy policy page.
         $minn->routes(new PrivacyLinks($minn));
-        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new BuddiesOnline($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new HomeMachines($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerMail($minn), new LedgerCrowns($minn), new LedgerMayhem($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new Tickets($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new LedgerBoxes($minn), new Snaps($minn), new AdminTeleport($minn), new AdminConsole($minn), new AdminTickets($minn), new AdminBuilder($minn), new AdminBuilderAssets($minn), new AdminBuilderKeys($minn), new AdminBuilderAgent($minn), new GoogleSignIn($minn));
+        $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new BuddiesOnline($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new HomeTending($minn), new HomePool($minn), new HomeYard($minn), new HomeMachines($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerMail($minn), new LedgerCrowns($minn), new LedgerMayhem($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new BugReports($minn), new Tickets($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new LedgerBoxes($minn), new Snaps($minn), new AdminTeleport($minn), new AdminConsole($minn), new AdminTickets($minn), new AdminReportCredits($minn), new AdminBuilder($minn), new AdminBuilderAssets($minn), new AdminBuilderKeys($minn), new AdminBuilderAgent($minn), new GoogleSignIn($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
         // The report's section menu, drawn over its rendered content (nothing is written to the page).
@@ -72,6 +72,7 @@ final class Extension implements MinnExtension
         StreetMusic::register($minn, $root);
         Codebase::register($minn, $root);
         Contribute::register($minn, $root);
+        ContributeCredits::register($minn);
         SiteNav::register($minn);
     }
 

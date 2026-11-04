@@ -236,3 +236,24 @@
   .console-chatsearch input[type="search"] { width: 100%; }
   .console-chatsearch label { flex: 1 1 100%; }
 }
+
+/* A report's Credit box (src/AdminReportCredits.php): its score for the Contribute page's testers board, and the form to set it. */
+.console-credit { margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--row-line); border-radius: 8px; }
+.console-credit summary { cursor: pointer; font-weight: 700; color: var(--lead); }
+.console-credit summary .console-sub { margin-left: 4px; }
+.console-credit-now { margin: 6px 0 0; overflow-wrap: anywhere; }
+.console-credit-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 6px 10px; margin: 8px 0 4px; }
+.console-credit-form label { display: grid; gap: 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.console-credit-form .console-credit-wide { grid-column: 1 / -1; }
+.console-credit-form select { font: inherit; font-size: 14px; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; }
+.console-credit-form input { font-size: 14px; font-weight: 400; }
+.console-credit-form :is(select, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Credits tab: the scored reports on the left; the board and the reports not scored yet on the right. */
+.console-credits { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .console-credits { grid-template-columns: minmax(0, 1fr); } }
+.console-credittable td:first-child { width: 38%; }
+.console-credittable .console-chip { margin-right: 4px; }
+.console-boardrow { display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--row-line); }
+.console-unscoredlist { max-height: 420px; overflow: auto; }
+.console-unscoredlist li { border-bottom: 1px solid var(--row-line); }

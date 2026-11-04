@@ -15,7 +15,7 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Three tabs, four with the level builder on: Players (who is online,
+ * /console/, the administrators' console. Four tabs, five with the level builder on: Players (who is online,
  * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
@@ -23,7 +23,9 @@ use Minn\Http\Route;
  * opens the Reports tab, #report=<id> one report. Chat log: what players said on streets, in
  * channels and in parties, from the realtime server's log (AdminConsole::chatlog), searched by
  * player, words, kind and days; a player's menu has Chat history, which opens it filtered to them.
- * #chat opens it, #chat=<id> filtered to one player. Builder (only when AdminBuilder::enabled, the
+ * #chat opens it, #chat=<id> filtered to one player. Credits: the points each report earned for
+ * the Contribute page's testers board (AdminReportCredits; a report's own Credit box sets its
+ * score), the board as it stands, and the closed and answered reports not scored yet; #credits opens it. Builder (only when AdminBuilder::enabled, the
  * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
  * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
@@ -43,7 +45,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'rooks-1';
+    public const ASSET_KEY = 'credits-1';
 
     public function __construct(private Seams $minn)
     {
@@ -108,6 +110,7 @@ final readonly class AdminConsolePage
     <button type="button" role="tab" id="console-tab-players" aria-controls="console-players" aria-selected="true" data-console-tab="players">Players</button>
     <button type="button" role="tab" id="console-tab-reports" aria-controls="console-reports" aria-selected="false" tabindex="-1" data-console-tab="reports">Reports <span class="console-count console-count-unread" data-console-reports-unread></span></button>
     <button type="button" role="tab" id="console-tab-chat" aria-controls="console-chat" aria-selected="false" tabindex="-1" data-console-tab="chat">Chat log</button>
+    <button type="button" role="tab" id="console-tab-credits" aria-controls="console-credits" aria-selected="false" tabindex="-1" data-console-tab="credits">Credits <span class="console-count" data-console-credits-unscored></span></button>
 HTML
             . ($builder ? "\n    <button type=\"button\" role=\"tab\" id=\"console-tab-builder\" aria-controls=\"console-builder\" aria-selected=\"false\" tabindex=\"-1\" data-console-tab=\"builder\">Builder</button>" : '')
             . <<<'HTML'
@@ -214,6 +217,23 @@ HTML
           <p class="console-sub console-picture-failed">The picture could not be loaded.</p>
           <figcaption class="console-sub console-picture-hint">The game when they reported it. Click it to see it full size.</figcaption>
         </figure>
+        <details class="console-credit" data-console-credit>
+          <summary><span>Credit</span> <span class="console-sub" data-console-credit-summary>Not scored yet</span></summary>
+          <p class="console-sub console-credit-now" data-console-credit-now hidden></p>
+          <form class="console-credit-form" data-console-credit-form>
+            <label>Kind <select name="kind" data-console-credit-kind>
+              <option value="safety_fix">Safety fix (5)</option>
+              <option value="bug_fixed">Bug fixed (3)</option>
+              <option value="improvement_shipped">Improvement shipped (2)</option>
+              <option value="partial_or_clue">Partial fix or clue (1)</option>
+              <option value="none">No change (0)</option>
+            </select></label>
+            <label>Points <input name="points" type="number" min="0" max="8" step="1" required data-console-credit-points /></label>
+            <label class="console-credit-wide">Reason <input name="reason" type="text" maxlength="200" required autocomplete="off" placeholder="One plain line: what it led to" /></label>
+            <label class="console-credit-wide">Refs <input name="refs" type="text" maxlength="800" autocomplete="off" spellcheck="false" placeholder="game abc1234, game v0.12.0" /></label>
+            <div class="console-reply-foot console-credit-wide"><span class="console-sub">A report with several changes: its best kind, plus 1 for each other, up to 8.</span><button type="submit" class="console-small" data-console-credit-save>Save credit</button></div>
+          </form>
+        </details>
         <ol class="console-list console-messages" data-console-messages aria-label="Messages"></ol>
         <form class="console-reply" data-console-reply>
           <label for="console-reply-text">Reply</label>
@@ -246,6 +266,31 @@ HTML
       <p class="console-empty" data-console-chat-empty hidden>Nothing in the log matches.</p>
       <button type="button" class="console-more" data-console-chat-more hidden>Older</button>
     </section>
+  </div>
+  <div class="console-credits" id="console-credits" role="tabpanel" aria-labelledby="console-tab-credits" data-console-tabpanel="credits" hidden>
+    <section class="console-panel console-creditlist" aria-labelledby="console-creditlist-title">
+      <div class="console-panel-head">
+        <h2 id="console-creditlist-title">Scored reports <span class="console-count" data-console-credits-count></span></h2>
+        <p class="console-hint">Points a report earned for the Contribute page's testers board. Open a report to change its score.</p>
+      </div>
+      <table class="console-table console-credittable" data-console-credits hidden>
+        <thead><tr><th scope="col">Report</th><th scope="col">Player</th><th scope="col" class="console-num">Points</th><th scope="col">Why</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="console-empty" data-console-credits-empty hidden>No report has been scored yet.</p>
+    </section>
+    <div class="console-col">
+      <section class="console-panel console-board" aria-labelledby="console-board-title">
+        <div class="console-panel-head"><h2 id="console-board-title">Testers board</h2><a class="console-hint" href="/contribute/#thanks">On the Contribute page</a></div>
+        <ol class="console-list console-boardlist" data-console-board></ol>
+        <p class="console-empty" data-console-board-empty hidden>Nobody has points yet.</p>
+      </section>
+      <section class="console-panel console-unscored" aria-labelledby="console-unscored-title">
+        <div class="console-panel-head"><h2 id="console-unscored-title">Not scored yet <span class="console-count" data-console-unscored-count></span></h2><p class="console-hint">Closed and answered reports.</p></div>
+        <ul class="console-list console-unscoredlist" data-console-unscored></ul>
+        <p class="console-empty" data-console-unscored-empty hidden>Every closed and answered report is scored.</p>
+      </section>
+    </div>
   </div>
 HTML
             . ($builder ? self::builderPanel() : '')
