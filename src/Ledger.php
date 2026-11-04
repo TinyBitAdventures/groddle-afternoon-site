@@ -520,7 +520,7 @@ final readonly class Ledger
             // A note pinned on a board or taken off one keeps its words (LedgerBoard).
             LedgerBoard::isBoard($p['trade']) => LedgerBoard::catchUp($this->db, $entries, $user, $p),
             // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.
-            LedgerUse::isUse($p['trade']) => LedgerUse::catchUp($entries, $p),
+            LedgerUse::isUse($p['trade']) => LedgerUse::catchUp($entries, $p + ['k' => LedgerUse::spentCopies($this->db, $p['trade'])]),
             default => LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']),
         };
     }
