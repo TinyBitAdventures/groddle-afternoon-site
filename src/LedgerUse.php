@@ -104,9 +104,11 @@ final readonly class LedgerUse
      *     (items/sneezing_powder.js:23, sparkle_powder.js:23; powder_base
      *     use(), deleted at 0); powders-feature slice {charges}.
      *   potion_rook_balm (slice 5): points_capacity 5
-     *     (items/potion_rook_balm.js:25; tool_base use(1)); the open one's
-     *     points are js/features/rook-attack-feature.js's slice balmPoints, one
-     *     number for the class (the fourth field), 0 meaning none open.
+     *     (items/potion_rook_balm.js:25; tool_base use(1)); each tube's
+     *     pours are its copy's in the save's tool state, as the powders'
+     *     (2026-11-04); a save from before keeps the open one's points in
+     *     js/features/rook-attack-feature.js's slice balmPoints, one number
+     *     for the class (the fourth field), 0 meaning none open.
      */
     public const CLASSES = [
         'fertilidust' => [5, 'powders', 'charges'],
