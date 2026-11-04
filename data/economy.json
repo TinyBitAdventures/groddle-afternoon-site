@@ -255,7 +255,7 @@
 "fertilidust":{"v":450,"n":"Fertilidust","p":"Fertilidust"},
 "fertilidust_lite":{"v":180,"n":"Fertilidust Lite","p":"Fertilidust Lite"},
 "fiber":{"v":1,"n":"Fiber","p":"Fibers"},
-"firefly_jar":{"v":90,"n":"Firefly Jar","p":"Firefly Jars"},
+"firefly_jar":{"v":90,"n":"Firefly Jar","p":"Firefly Jars","pts":7},
 "flaming_humbaba":{"v":151,"n":"Flaming Humbaba","p":"Flaming Humbabas"},
 "flour":{"v":6,"n":"Flour","p":"Flour"},
 "flummery":{"v":206,"n":"Flummery","p":"Flummerys"},
