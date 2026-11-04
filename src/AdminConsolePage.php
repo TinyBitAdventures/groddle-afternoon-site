@@ -15,7 +15,7 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Four tabs, five with the level builder on: Players (who is online,
+ * /console/, the administrators' console. Five tabs, six with the level builder on: Players (who is online,
  * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
@@ -25,7 +25,9 @@ use Minn\Http\Route;
  * player, words, kind and days; a player's menu has Chat history, which opens it filtered to them.
  * #chat opens it, #chat=<id> filtered to one player. Credits: the points each report earned for
  * the Contribute page's testers board (AdminReportCredits; a report's own Credit box sets its
- * score), the board as it stands, and the closed and answered reports not scored yet; #credits opens it. Builder (only when AdminBuilder::enabled, the
+ * score), the board as it stands, and the closed and answered reports not scored yet; #credits opens it. Boards
+ * (2026-11-04, AdminBoards): the notes players pinned on the shared Notice Boards, reported first,
+ * with Remove; #boards opens it. Builder (only when AdminBuilder::enabled, the
  * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
  * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
@@ -45,7 +47,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'credits-1';
+    public const ASSET_KEY = 'boards-1';
 
     public function __construct(private Seams $minn)
     {
@@ -111,6 +113,7 @@ final readonly class AdminConsolePage
     <button type="button" role="tab" id="console-tab-reports" aria-controls="console-reports" aria-selected="false" tabindex="-1" data-console-tab="reports">Reports <span class="console-count console-count-unread" data-console-reports-unread></span></button>
     <button type="button" role="tab" id="console-tab-chat" aria-controls="console-chat" aria-selected="false" tabindex="-1" data-console-tab="chat">Chat log</button>
     <button type="button" role="tab" id="console-tab-credits" aria-controls="console-credits" aria-selected="false" tabindex="-1" data-console-tab="credits">Credits <span class="console-count" data-console-credits-unscored></span></button>
+    <button type="button" role="tab" id="console-tab-boards" aria-controls="console-boards" aria-selected="false" tabindex="-1" data-console-tab="boards">Boards <span class="console-count console-count-unread" data-console-boards-reported></span></button>
 HTML
             . ($builder ? "\n    <button type=\"button\" role=\"tab\" id=\"console-tab-builder\" aria-controls=\"console-builder\" aria-selected=\"false\" tabindex=\"-1\" data-console-tab=\"builder\">Builder</button>" : '')
             . <<<'HTML'
@@ -291,6 +294,24 @@ HTML
         <p class="console-empty" data-console-unscored-empty hidden>Every closed and answered report is scored.</p>
       </section>
     </div>
+  </div>
+  <div class="console-boards" id="console-boards" role="tabpanel" aria-labelledby="console-tab-boards" data-console-tabpanel="boards" hidden>
+    <section class="console-panel console-boardnotes" aria-labelledby="console-boards-title">
+      <div class="console-panel-head">
+        <h2 id="console-boards-title">Notice board notes <span class="console-count" data-console-boards-count></span></h2>
+        <div class="console-filter" role="group" aria-label="Show" data-console-board-filter>
+          <button type="button" aria-pressed="true" data-show="pinned">On the boards</button>
+          <button type="button" aria-pressed="false" data-show="reported">Reported</button>
+          <button type="button" aria-pressed="false" data-show="all">All</button>
+        </div>
+      </div>
+      <p class="console-hint">What players pinned on the shared Notice Boards, reported ones first. A player's report is also in Reports. Remove takes a note off its board for everyone there; nobody gets it back.</p>
+      <table class="console-table console-boardtable" data-console-boards hidden>
+        <thead><tr><th scope="col">Board</th><th scope="col">Note</th><th scope="col">Written by</th><th scope="col">Status</th><th scope="col"><span class="console-sr">Actions</span></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="console-empty" data-console-boards-empty hidden>No notes are pinned on the boards.</p>
+    </section>
   </div>
 HTML
             . ($builder ? self::builderPanel() : '')

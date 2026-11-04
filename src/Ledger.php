@@ -517,6 +517,8 @@ final readonly class Ledger
             LedgerBoxes::isOwnerSide($p['trade']) => LedgerBoxes::catchUp($this->db, $entries, $user, $p),
             // A tool picked up keeps its wear (the stack's points), as a live pickup does.
             LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
+            // A note pinned on a board or taken off one keeps its words (LedgerBoard).
+            LedgerBoard::isBoard($p['trade']) => LedgerBoard::catchUp($this->db, $entries, $user, $p),
             // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.
             LedgerUse::isUse($p['trade']) => LedgerUse::catchUp($entries, $p),
             default => LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']),

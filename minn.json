@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.36",
+  "version": "0.5.37",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -280,6 +280,42 @@
       "KEY status (status)",
       "KEY dropper_id (dropper_id)",
       "KEY taker_id (taker_id)"
+    ],
+    "groddle_board_notes": [
+      "id varchar(40) NOT NULL",
+      "street varchar(32) NOT NULL",
+      "board tinyint(3) unsigned NOT NULL DEFAULT 0",
+      "poster_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "author_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "remake tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "title varchar(200) NOT NULL DEFAULT ''",
+      "body text NOT NULL",
+      "status varchar(8) NOT NULL",
+      "taker_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "reports int(10) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "taken_at datetime NULL DEFAULT NULL",
+      "removed_by bigint(20) unsigned NOT NULL DEFAULT 0",
+      "removed_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY street_status (street,status)",
+      "KEY poster_id (poster_id)",
+      "KEY author_id (author_id)",
+      "KEY taker_id (taker_id)"
+    ],
+    "groddle_boards": [
+      "street varchar(32) NOT NULL",
+      "board tinyint(3) unsigned NOT NULL DEFAULT 0",
+      "seeded_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (street,board)"
+    ],
+    "groddle_board_reports": [
+      "note_id varchar(40) NOT NULL",
+      "reporter_id bigint(20) unsigned NOT NULL",
+      "ticket_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (note_id,reporter_id)",
+      "KEY reporter_id (reporter_id)"
     ],
     "groddle_home_signposts": [
       "owner_id bigint(20) unsigned NOT NULL",

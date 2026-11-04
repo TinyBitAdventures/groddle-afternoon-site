@@ -217,6 +217,9 @@
 .console-chatsearch-buttons { display: flex; gap: 6px; }
 .console .console-chatsearch .console-primary { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }
 .console-chat-status { margin: 0 0 6px; min-height: 1em; }
+.console-boardtable td { vertical-align: top; }
+.console-boardtable tr[data-board-reported] { background: color-mix(in srgb, #c8553d 9%, transparent); }
+.console-board-body { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9em; overflow: auto; }
 .console-chattable tbody tr { cursor: default; }
 .console-chattable td { vertical-align: top; }
 .console-chattable td:first-child { width: 1%; color: var(--muted); font-size: 12px; }

@@ -41,6 +41,11 @@
  *   opens the report). A report's thread has a Credit box: its score (kind, points, reason, refs, who
  *   scored it and when) and a form to set or change it (PUT admin/tickets/<id>/credit; picking a kind
  *   puts in its points). #credits opens the tab.
+ * - Boards (src/AdminBoards.php, Austin 2026-11-04): the notes players pinned on the shared Notice
+ *   Boards (src/LedgerBoard.php), reported ones first: where, the words, who wrote and who pinned it,
+ *   how many reported it (a player's Report makes a ticket in Reports too). Show On the boards,
+ *   Reported or All. Remove (a confirm step first; admin/board_remove) takes it off the board for
+ *   everyone there; nothing goes back to anyone. #boards opens the tab.
  * - Builder (the last tab, only when the site option groddle_builder_enabled is on;
  *   src/AdminBuilder.php): the level builder's drafts with their streets, each opening the
  *   builder page (/console/builder/#draft=<id>), Archive, and a new draft (title, and an id
@@ -177,7 +182,31 @@ export const COPY = Object.freeze({
   broadcastConfirm: (n) => (n === 1 ? 'Send to 1 player?' : `Send to ${n} players?`),
   rookEndConfirm: (label) => `End the Rook attack on ${label}?`,
   rookEndNote: 'The Rook flies off as when it leaves after its third wing beat. Everyone there sees it go. Nobody gets iMG or a badge for it, and what it rooked stays rooked until revived.',
+  boardRemoveConfirm: (label) => `Remove this note from the board in ${label}?`,
+  boardRemoveNote: 'It comes off the board for everyone there. Nobody gets the note back, and the player who pinned it is not told.',
+  boardNone: { pinned: 'No notes are pinned on the boards.', reported: 'No note on a board has been reported.', all: 'No player has pinned a note yet.' },
 });
+
+/** A board note's status in words (src/LedgerBoard.php). */
+export const BOARD_STATUS = Object.freeze({ pinned: 'On the board', taken: 'Taken', removed: 'Removed' });
+
+/** Who wrote a board note, and who pinned it when that is someone else. */
+export function boardWho(n) {
+  if (n?.remake) return 'The remake\'s own notice';
+  const by = n?.author?.name || n?.poster?.name || 'Someone';
+  return n?.poster && n?.author && n.poster.id !== n.author.id ? `${by}, pinned by ${n.poster.name}` : by;
+}
+
+/** "Reported by 2", or ''. */
+export function boardReports(n) {
+  const k = Math.max(0, Number(n?.reports) || 0);
+  return k === 0 ? '' : k === 1 ? 'Reported once' : `Reported by ${k}`;
+}
+
+/** Whether Remove is offered: only while it is on its board. */
+export function boardRemovable(n) {
+  return n?.status === 'pinned';
+}
 
 /** A Rook attack's phase in words (groddle-afternoon-server rook.go phases). */
 export const ROOK_PHASE = Object.freeze({
@@ -320,6 +349,11 @@ export function logWords(line) {
       if (line.delivery === 'ending') return `tried to end the Rook attack on ${street}, but it was already leaving`;
       if (line.delivery === 'down') return `tried to end the Rook attack on ${street}${how}`;
       return `ended the Rook attack on ${street}${typeof d.players === 'number' ? ` (${d.players === 1 ? '1 player' : `${d.players} players`} there)` : ''}`;
+    }
+    case 'board_remove': {
+      const street = d.street?.label || d.street?.tsid || 'a board';
+      const title = d.title ? `“${d.title}”` : 'a note';
+      return `removed ${title}${d.by ? ` by ${d.by}` : ''} from the board in ${street}${line.delivery === 'down' ? ' (realtime server down: players there see it until it is taken or the server restarts)' : ''}`;
     }
     case 'credit': return `scored ${who}'s report “${d.subject || ''}”: ${creditWords({ points: d.points, kind: d.kind, by: d.by })}`;
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
@@ -836,6 +870,51 @@ function boot() {
   $('[data-console-chat-clear]').addEventListener('click', () => { chatForm.reset(); loadChat(); });
   $('[data-console-chat-more]').addEventListener('click', () => loadChat(true));
 
+  // == Boards ==
+  const boards = { show: 'pinned', list: [] };
+  function renderBoards() {
+    const table = $('[data-console-boards]');
+    if (!table) return;
+    table.hidden = boards.list.length === 0;
+    table.querySelector('tbody').replaceChildren(...boards.list.map((n) => el('tr', { 'data-board-note': n.id, 'data-board-status': n.status, ...(n.reports > 0 ? { 'data-board-reported': '' } : {}) },
+      el('td', { class: 'console-who' }, el('b', { text: n.street.label }), el('span', { class: 'console-sub', text: ` ${new Date(n.at).toLocaleString()}` })),
+      el('td', { class: 'console-board-note' }, el('b', { text: n.title || '(no title)' }), el('p', { class: 'console-board-body', text: n.body || '(blank)' })),
+      el('td', { text: boardWho(n) }),
+      el('td', {}, el('span', { text: BOARD_STATUS[n.status] || n.status }), boardReports(n) ? el('span', { class: 'console-tag console-tag-bad', text: boardReports(n) }) : null),
+      el('td', { class: 'console-act' }, boardRemovable(n)
+        ? el('button', { type: 'button', class: 'console-small console-danger', text: 'Remove', 'aria-label': `Remove the note “${n.title || 'untitled'}” from the board in ${n.street.label}`, onclick: () => removeBoardNote(n) })
+        : null))));
+    const empty = $('[data-console-boards-empty]');
+    empty.hidden = boards.list.length > 0;
+    empty.textContent = COPY.boardNone[boards.show] || COPY.boardNone.pinned;
+  }
+  async function loadBoards() {
+    let r;
+    try { r = await api.call(`admin/board_notes?show=${boards.show}`); } catch (err) { return failed(err); }
+    boards.list = r.notes || [];
+    $('[data-console-boards-count]').textContent = r.counts?.pinned ? String(r.counts.pinned) : '';
+    const rep = r.counts?.reported || 0;
+    $('[data-console-boards-reported]').textContent = rep ? String(rep) : '';
+    $('[data-console-tab="boards"]').setAttribute('aria-label', rep ? `Boards, ${rep} reported` : 'Boards');
+    renderBoards();
+  }
+  function removeBoardNote(n) {
+    // Outward-facing: a confirm step, so nothing goes by accident.
+    dialog(COPY.boardRemoveConfirm(n.street.label), [el('p', { class: 'console-quote', text: `${n.title || '(no title)'}\n\n${n.body || '(blank)'}` }), el('p', { class: 'console-sub', text: `${boardWho(n)}. ${COPY.boardRemoveNote}` })], 'Remove', async () => {
+      const r = await api.call('admin/board_remove', { method: 'POST', body: { id: n.id } });
+      say(r.text || 'Removed.', r.delivery === 'down' ? 'bad' : 'ok');
+      loadBoards();
+      loadLog();
+    }, { danger: true });
+  }
+  $('[data-console-board-filter]')?.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-show]');
+    if (!b) return;
+    boards.show = b.dataset.show;
+    for (const o of e.currentTarget.querySelectorAll('button[data-show]')) o.setAttribute('aria-pressed', String(o === b));
+    loadBoards();
+  });
+
   // == Tabs ==
   const tablist = $('[data-console-tabs]');
   const tabs = [...tablist.querySelectorAll('[role="tab"]')];
@@ -853,6 +932,8 @@ function boot() {
     if (id === 'builder') loadDrafts();
     if (id === 'credits') loadCredits();
     if (id === 'credits' && location.hash !== '#credits') history.replaceState(null, '', '#credits');
+    if (id === 'boards') loadBoards();
+    if (id === 'boards' && location.hash !== '#boards') history.replaceState(null, '', '#boards');
     if (id === 'chat' && !chat.loaded) loadChat();
     if (id === 'chat' && !/^#chat(=\d+)?$/.test(location.hash)) history.replaceState(null, '', '#chat');
     if (id === 'builder' && location.hash !== '#builder') history.replaceState(null, '', '#builder');
@@ -1164,6 +1245,7 @@ function boot() {
     else if (/^#chat=\d+$/.test(location.hash)) openChat({ id: Number(location.hash.slice(6)) });
     else if (location.hash === '#chat') showTab('chat');
     else if (location.hash === '#credits') showTab('credits');
+    else if (location.hash === '#boards') showTab('boards');
   }
   addEventListener('hashchange', fromHash);
 
