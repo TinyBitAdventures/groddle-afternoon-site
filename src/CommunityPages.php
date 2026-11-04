@@ -40,6 +40,19 @@ use Minn\RestError;
  * Everything a player wrote is escaped (CommunityText::bodyHtml); writers
  * show by their character's name, linked to their profile when it is public.
  * Images: none in v1 (the reply box says so).
+ *
+ * The look (Austin 2026-11-04: "more like the chat interface but full
+ * screen"): every page is the game's Social drawer laid out as a chat app
+ * (shell()): a rail on the left (Channels, Chats, Buddies for a signed-in
+ * player; the Boards for everyone), the conversation in the middle (a
+ * channel's or an IM's lines, a board's topics as a list, a topic's posts as
+ * chat lines) with the drawer's rounded input at the bottom, a thread panel
+ * that slides in on the right, and Who's around beside it. On a phone the
+ * rail is one screen and a conversation another (data-cx-view). The drawer's
+ * look is copied into community/community.css (its tokens, rows, chips and
+ * input; the type is the game's own Nunito from /assets/fonts/nunito/).
+ * community.js makes it live for signed-in players (the realtime socket,
+ * groddle-afternoon-server web.go, with polling when it can't connect).
  */
 final readonly class CommunityPages
 {
@@ -49,7 +62,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-3';
+    public const ASSET_KEY = 'community-4';
 
     /** The words the pages share. */
     public const COPY = [
@@ -81,28 +94,35 @@ final readonly class CommunityPages
     {
         $community = new Community($this->minn);
         $viewer = $community->viewer();
-        $now = time();
-        $items = '';
-        foreach ($community->boards() as $b) {
-            $latest = $b['latest'];
-            $items .= "\n      <li class=\"cboard\">"
-                . '<div class="cboard-main"><h3 class="cboard-name"><a href="/chat/' . Html::attr($b['slug']) . '/">' . Html::esc($b['name']) . '</a></h3>'
-                . '<p class="cboard-about">' . Html::esc($b['about']) . '</p></div>'
-                . '<p class="cboard-stats">' . CommunityText::count($b['threads'], 'thread', 'threads') . ' · ' . CommunityText::count($b['posts'], 'post', 'posts') . '</p>'
-                . '<p class="cboard-latest">' . ($latest === null
-                    ? '<span class="cmuted">Nothing yet</span>'
-                    : '<a href="' . Html::attr($latest['url']) . '">' . Html::esc($latest['title']) . '</a><span class="cmuted">' . ($latest['by'] === '' ? '' : ' by ' . Html::esc($latest['by'])) . ', ' . self::time($latest['at'], $now) . '</span>')
-                . '</p></li>';
-        }
+        // A signed-in player opens on a channel (?c=<key>, ?im=<id> are the app's own); a visitor on the boards.
         $channels = $viewer['id'] > 0
             ? $this->channelsPanel($viewer)
-            : "    <aside class=\"cchannels cchannels-out\" aria-labelledby=\"cchannels-title\">\n      <h2 id=\"cchannels-title\">In the game now</h2>\n      <p>" . Html::esc(self::COPY['channelsSignedOut']) . "</p>\n      " . self::signInLinks() . "\n    </aside>\n";
-        $body = self::masthead('Community', 'Community', self::COPY['lead'], [])
-            . '<main class="band community" ' . self::data($viewer, []) . ">\n  <div class=\"wrap community-wrap\">\n"
-            . $channels
-            . "    <section class=\"cboards\" aria-labelledby=\"cboards-title\">\n      <h2 id=\"cboards-title\">Boards</h2>\n      <ul class=\"cboard-list\">{$items}\n      </ul>\n    </section>\n"
-            . "  </div>\n</main>";
+            : self::signedOutPanel() . $this->boardsList($community);
+        $body = $this->shell($community, $viewer, $viewer['id'] > 0 ? 'chan' : 'boards', $channels, $viewer['id'] > 0 ? 'list' : 'main');
         return $this->page('Community', 'The Groddle Afternoon community boards: talk with other players about the game, ideas, trades and anything else.', $body, $viewer, '/chat/');
+    }
+
+    /** The boards as rows of the Chats list (a visitor's /chat/). */
+    private function boardsList(Community $community): string
+    {
+        $now = time();
+        $rows = '';
+        foreach ($community->boards() as $b) {
+            $latest = $b['latest'];
+            $last = $latest === null ? 'Nothing yet' : ($latest['by'] === '' ? '' : $latest['by'] . ': ') . $latest['title'];
+            $rows .= '<li><a class="cx-row" href="/chat/' . Html::attr($b['slug']) . '/">' . self::avatar((string) $b['name'], 'cx-av-lg')
+                . '<span class="cx-txt"><span class="cx-name"><span class="cx-label">' . Html::esc($b['name']) . '</span><small class="cx-note">' . CommunityText::count($b['threads'], 'topic', 'topics') . '</small></span>'
+                . '<span class="cx-last">' . Html::esc($b['about']) . '</span>'
+                . '<span class="cx-last">' . Html::esc($last) . ($latest === null ? '' : ' · ' . self::time($latest['at'], $now)) . '</span></span></a></li>';
+        }
+        return '<section class="cx-conv cx-boards" aria-labelledby="cx-boards-title">' . self::head('Boards', 'Talk outside the game', 'cx-boards-title', '', false)
+            . '<div class="cx-log cx-list-log"><ul class="cx-list">' . $rows . '</ul></div></section>';
+    }
+
+    /** What a visitor sees where the game's chat would be. */
+    private static function signedOutPanel(): string
+    {
+        return '<aside class="cchannels cchannels-out cx-signin" aria-labelledby="cchannels-title"><h2 id="cchannels-title">In the game now</h2><p>' . Html::esc(self::COPY['channelsSignedOut']) . '</p>' . self::signInLinks() . '</aside>';
     }
 
     #[Route(Method::Get, '/chat/{board:[a-z-]+}', policy: new Policy(Access::Public))]
@@ -114,7 +134,7 @@ final readonly class CommunityPages
         return Response::redirect("/chat/{$board}/" . self::query($request), 301);
     }
 
-    /** A board's threads. */
+    /** A board's threads: its topics as the Chats list's rows. */
     #[Route(Method::Get, '/chat/{board:[a-z-]+}/', policy: new Policy(Access::Public))]
     public function board(Request $request, string $board): Response
     {
@@ -128,22 +148,23 @@ final readonly class CommunityPages
             $url = CommunityText::threadPath($board, (int) $t['id'], (string) $t['title']);
             $replies = max(0, (int) $t['posts'] - 1);
             $marks = ((int) $t['pinned'] === 1 ? '<span class="ctag ctag-pin">Pinned</span>' : '') . ((int) $t['locked'] === 1 ? '<span class="ctag">Locked</span>' : '');
-            $rows .= "\n      <li class=\"cthread\"" . ((int) $t['pinned'] === 1 ? ' data-pinned=""' : '') . '>'
-                . '<div class="cthread-main"><a class="cthread-title" href="' . Html::attr($url) . '">' . Html::esc((string) $t['title']) . '</a>' . $marks
-                . '<p class="cthread-by cmuted">Started by ' . Html::esc((string) $t['author_name']) . ', ' . self::time(Community::unix((string) $t['created_at']), $now) . '</p></div>'
-                . '<p class="cthread-count"><b>' . number_format($replies) . '</b> <span class="cmuted">' . ($replies === 1 ? 'reply' : 'replies') . '</span></p>'
-                . '<p class="cthread-last cmuted"><a href="' . Html::attr($url . ($replies + 1 > CommunityText::POSTS_PAGE ? '?page=' . (int) ceil(((int) $t['posts']) / CommunityText::POSTS_PAGE) : '') . '#post-' . (int) $t['last_post_id']) . '">' . self::time(Community::unix((string) $t['last_post_at']), $now) . '</a>'
-                . ($t['last_author_name'] === '' ? '' : '<br />' . Html::esc((string) $t['last_author_name'])) . '</p></li>';
+            $lastBy = (string) ($t['last_author_name'] ?? '');
+            $rows .= "\n      <li class=\"cthread\"" . ((int) $t['pinned'] === 1 ? ' data-pinned=""' : '') . '><a class="cx-row cthread-row" href="' . Html::attr($url) . '">'
+                . self::avatar((string) $t['author_name'], 'cx-av-lg')
+                . '<span class="cx-txt"><span class="cx-name"><span class="cx-label cthread-title">' . Html::esc((string) $t['title']) . '</span>' . $marks . '</span>'
+                . '<span class="cx-last">' . ($lastBy === '' ? '' : Html::esc($lastBy) . ': ') . Html::esc((string) ($t['last_snippet'] ?? '')) . '<span class="cthread-by"> Started by ' . Html::esc((string) $t['author_name']) . '</span></span></span>'
+                . '<span class="cx-meta"><span class="cthread-count">' . number_format($replies) . ' ' . ($replies === 1 ? 'reply' : 'replies') . '</span>' . self::time(Community::unix((string) $t['last_post_at']), $now) . '</span></a></li>';
         }
         $start = $community->postRefusal($viewer, true) === 'groddle_community_signed_out'
             ? self::signInLinks()
-            : ($viewer['player'] || $viewer['admin'] ? '<a class="cbutton" href="/chat/' . Html::attr($board) . '/new/">Start a thread</a>' : '<p class="cmuted">' . Html::esc(self::COPY['notPlayer']) . '</p>');
-        $body = self::masthead($b['name'], 'Community', $b['about'], [['/chat/', 'Community']])
-            . '<main class="band community" ' . self::data($viewer, []) . ">\n  <div class=\"wrap community-wrap\">\n"
-            . '    <div class="cbar"><p class="cmuted">' . CommunityText::count($b['threads'], 'thread', 'threads') . ' · ' . CommunityText::count($b['posts'], 'post', 'posts') . "</p>{$start}</div>\n"
-            . ($rows === '' ? '    <p class="cempty">' . Html::esc(self::COPY['noThreads']) . "</p>\n" : "    <ul class=\"cthread-list\">{$rows}\n    </ul>\n")
+            : ($viewer['player'] || $viewer['admin'] ? '<a class="cx-chip cbutton" href="/chat/' . Html::attr($board) . '/new/">Start a topic</a>' : '<p class="cmuted">' . Html::esc(self::COPY['notPlayer']) . '</p>');
+        $main = '<section class="cx-conv cx-board" aria-labelledby="cx-conv-title" data-cx-board="' . Html::attr($board) . '">'
+            . self::head((string) $b['name'], CommunityText::count($b['threads'], 'topic', 'topics'), 'cx-conv-title', '', true, (string) $b['about'])
+            . '<div class="cx-log cx-list-log">'
+            . ($rows === '' ? '<p class="cempty cx-empty">' . Html::esc(self::COPY['noThreads']) . '</p>' : "<ul class=\"cthread-list cx-list\">{$rows}\n    </ul>")
             . self::pager($page, $pages, static fn (int $n): string => "/chat/{$board}/" . ($n > 1 ? "?page={$n}" : ''))
-            . "  </div>\n</main>";
+            . '</div><div class="cx-compose cx-compose-bar">' . $start . '</div></section>';
+        $body = $this->shell($community, $viewer, "board:{$board}", $main, 'main');
         $title = $b['name'] . ' – Community' . ($page > 1 ? " – page {$page}" : '');
         return $this->page($title, $b['about'], $body, $viewer, "/chat/{$board}/" . ($page > 1 ? "?page={$page}" : ''));
     }
@@ -193,16 +214,18 @@ final readonly class CommunityPages
         } else {
             $box = '    <form class="cform" method="post" action="/chat/' . Html::attr($board) . '/new/" data-community-new="' . Html::attr($board) . "\">\n"
                 . '      <input type="hidden" name="_wpnonce" value="' . Html::attr($viewer['nonce']) . "\" />\n"
-                . '      <label class="clabel" for="cthread-title">Title</label>' . "\n"
-                . '      <input class="cinput" id="cthread-title" name="title" type="text" required minlength="' . CommunityText::TITLE_MIN . '" maxlength="' . CommunityText::TITLE_MAX . '" autocomplete="off" value="' . Html::attr($title) . "\" />\n"
-                . '      <label class="clabel" for="cthread-body">What do you want to say?</label>' . "\n"
-                . '      <textarea class="ctext ctext-tall" id="cthread-body" name="body" rows="8" required maxlength="' . CommunityText::BODY_MAX . '">' . Html::esc($text) . "</textarea>\n"
-                . '      <div class="cform-row"><p class="chint">' . Html::esc(self::COPY['noImages']) . '</p><button class="cbutton" type="submit">Start the thread</button></div>' . "\n"
+                . '      <label class="visually-hidden" for="cthread-title">Title</label>' . "\n"
+                . '      <input class="cinput cx-title-field" id="cthread-title" name="title" type="text" required minlength="' . CommunityText::TITLE_MIN . '" maxlength="' . CommunityText::TITLE_MAX . '" autocomplete="off" placeholder="Title" value="' . Html::attr($title) . "\" />\n"
+                . '      <div class="cx-say"><label class="visually-hidden" for="cthread-body">What do you want to say?</label>'
+                . '<textarea class="ctext cx-field" id="cthread-body" name="body" rows="1" required maxlength="' . CommunityText::BODY_MAX . '" placeholder="What do you want to say?">' . Html::esc($text) . '</textarea>'
+                . '<button class="cx-send" type="submit" aria-label="Start the topic" title="Start the topic">' . self::ICON_SEND . "</button></div>\n"
+                . '      <p class="chint">' . Html::esc(self::COPY['noImages']) . "</p>\n"
                 . '      <p class="csaid" role="status" aria-live="polite"' . ($error === '' && $refusal === null ? '' : ' data-tone="bad"') . '>' . Html::esc($error !== '' ? CommunityText::said($error) : ($refusal !== null ? CommunityText::said($refusal) : '')) . "</p>\n"
                 . "    </form>\n";
         }
-        $body = self::masthead('Start a thread', $b['name'], 'In ' . $b['name'] . ': ' . $b['about'], [['/chat/', 'Community'], ["/chat/{$board}/", $b['name']]])
-            . '<main class="band community" ' . self::data($viewer, []) . ">\n  <div class=\"wrap community-wrap community-narrow\">\n{$box}  </div>\n</main>";
+        $main = '<section class="cx-conv cx-new" aria-labelledby="cx-conv-title">' . self::head('Start a topic', 'In ' . $b['name'], 'cx-conv-title', '', true, (string) $b['about'], "/chat/{$board}/")
+            . '<div class="cx-log"></div><div class="cx-compose">' . $box . '</div></section>';
+        $body = $this->shell($community, $viewer, "board:{$board}", $main, 'main');
         return $this->page('Start a thread – ' . $b['name'], $b['about'], $body, $viewer, null, $error === '' ? 200 : 400);
     }
 
@@ -270,14 +293,17 @@ final readonly class CommunityPages
             . ((int) $thread['locked'] === 1 ? ' · <span class="ctag">Locked</span>' : '') . ((int) $thread['pinned'] === 1 ? ' · <span class="ctag ctag-pin">Pinned</span>' : '')
             . ($thread['status'] !== 'open' ? ' · <span class="ctag ctag-bad">' . ($thread['status'] === 'removed' ? 'Removed' : 'Deleted') . '</span>' : '');
         $pagerLink = static fn (int $n): string => $canonical . ($n > 1 ? "?page={$n}" : '');
-        $body = self::masthead((string) $thread['title'], (string) $thread['board_name'], '', [['/chat/', 'Community'], ["/chat/{$thread['board']}/", (string) $thread['board_name']]], $meta)
-            . '<main class="band community" ' . self::data($viewer, ['thread' => (int) $thread['id'], 'after' => $last, 'since' => Community::ms(), 'last-page' => $page === $pages ? '1' : '0', 'board' => (string) $thread['board']]) . ">\n  <div class=\"wrap community-wrap community-narrow\">\n"
+        $main = '<section class="cx-conv cx-topic" aria-labelledby="cx-conv-title">'
+            . self::head((string) $thread['title'], (string) $thread['board_name'], 'cx-conv-title', '', true, '', "/chat/{$thread['board']}/", '<p class="cmeta">' . $meta . '</p>')
+            . '<div class="cx-log" data-cx-log>'
             . self::pager($page, $pages, $pagerLink)
-            . "    <ol class=\"cposts\" data-community-posts>{$items}\n    </ol>\n"
-            . '    <p class="cnew" data-community-new-posts hidden></p>' . "\n"
+            . "<ol class=\"cposts\" data-community-posts>{$items}\n    </ol>\n"
+            . '<p class="cnew" data-community-new-posts hidden></p>'
             . self::pager($page, $pages, $pagerLink)
+            . '</div><div class="cx-compose">'
             . $this->replyBox($community, $thread, $viewer, $canonical, $quote, is_string($form['body'] ?? null) ? $form['body'] : '', $error)
-            . "  </div>\n</main>";
+            . '</div></section>';
+        $body = $this->shell($community, $viewer, "board:{$thread['board']}", $main, 'main', ['thread' => (int) $thread['id'], 'after' => $last, 'since' => Community::ms(), 'last-page' => $page === $pages ? '1' : '0', 'board' => (string) $thread['board']]);
         $first = $posts !== [] && $page === 1 && $posts[0]['status'] === 'shown' ? CommunityText::snippet((string) $posts[0]['body'], 155) : '';
         $title = $thread['title'] . ' – ' . $thread['board_name'] . ($page > 1 ? " – page {$page}" : '');
         return $this->page($title, $first !== '' ? $first : 'A thread on the ' . $thread['board_name'] . ' board of the Groddle Afternoon community.', $body, $viewer, $pagerLink($page), $error === '' ? 200 : 400, $thread['status'] === 'open');
@@ -310,9 +336,10 @@ final readonly class CommunityPages
             . '      <input type="hidden" name="quote" value="' . ($quoted === null ? '' : (int) $quoted['id']) . "\" data-quote-field />\n"
             . '      <div class="cquoting" data-quoting' . ($quoted === null ? ' hidden' : '') . '><span data-quoting-text>' . ($quoted === null ? '' : 'Quoting ' . Html::esc($quoteName) . ': ' . Html::esc(CommunityText::snippet((string) $quoted['body'], 90))) . '</span>'
             . '<a class="cquoting-off" href="' . Html::attr($canonical) . '#reply" data-unquote>Remove quote</a></div>' . "\n"
-            . '      <label class="visually-hidden" for="creply-body">Your reply</label>' . "\n"
-            . '      <textarea class="ctext" id="creply-body" name="body" rows="3" required maxlength="' . CommunityText::BODY_MAX . '" placeholder="Write a reply as ' . Html::attr($viewer['name']) . '">' . Html::esc($text) . "</textarea>\n"
-            . '      <div class="cform-row"><p class="chint" data-reply-hint>' . Html::esc(self::COPY['noImages']) . '</p><button class="cbutton" type="submit">Post reply</button></div>' . "\n"
+            . '      <div class="cx-say"><label class="visually-hidden" for="creply-body">Your reply</label>'
+            . '<textarea class="ctext cx-field" id="creply-body" name="body" rows="1" required maxlength="' . CommunityText::BODY_MAX . '" placeholder="Reply as ' . Html::attr($viewer['name']) . '">' . Html::esc($text) . '</textarea>'
+            . '<button class="cx-send" type="submit" aria-label="Post reply" title="Post reply">' . self::ICON_SEND . "</button></div>\n"
+            . '      <p class="chint" data-reply-hint>' . Html::esc(self::COPY['noImages']) . "</p>\n"
             . '      <p class="csaid" role="status" aria-live="polite"' . ($said === '' ? '' : ' data-tone="bad"') . '>' . Html::esc($said) . "</p>\n"
             . "    </form>\n";
     }
@@ -330,31 +357,29 @@ final readonly class CommunityPages
         $history = new ChatHistory($this->minn);
         $open = $history->open((int) $viewer['id']);
         if ($open === []) {
-            return "    <aside class=\"cchannels cchannels-out\" aria-labelledby=\"cchannels-title\">\n      <h2 id=\"cchannels-title\">In the game now</h2>\n      <p>" . Html::esc(self::COPY['notPlayer']) . "</p>\n    </aside>\n";
+            return '<aside class="cchannels cchannels-out cx-signin" aria-labelledby="cchannels-title"><h2 id="cchannels-title">In the game now</h2><p>' . Html::esc(self::COPY['notPlayer']) . '</p></aside>';
         }
         $first = array_key_first($open);
         [$lines, $more] = $history->latest((int) $viewer['id'], $open[$first][1], null, self::CHANNEL_LINES);
-        $tabs = '';
-        foreach ($open as $key => [$label]) {
-            $tabs .= '<button type="button" role="tab" class="cchan-tab" id="cchan-tab-' . $key . '" aria-controls="cchan-log" aria-selected="' . ($key === $first ? 'true' : 'false') . '"' . ($key === $first ? '' : ' tabindex="-1"') . ' data-chan="' . $key . '">' . Html::esc($label) . '</button>';
-        }
         $items = '';
         foreach (array_reverse($lines) as $l) {
             $items .= self::channelLineHtml($l, (int) $viewer['id'], $viewer['homeHosts'] ?? CommunityText::HOME_HOSTS);
         }
         $last = $lines === [] ? 0 : $lines[0]['lid'];
         $oldest = $lines === [] ? 0 : $lines[count($lines) - 1]['lid'];
-        return "    <section class=\"cchannels\" aria-labelledby=\"cchannels-title\" data-chat-live data-chan=\"{$first}\" data-after=\"{$last}\" data-before=\"{$oldest}\" data-since=\"" . Community::ms() . "\" data-me=\"" . (int) $viewer['id'] . "\">\n"
-            . "      <div class=\"cchan-head\"><h2 id=\"cchannels-title\">In the game now</h2><div class=\"cchan-tabs\" role=\"tablist\" aria-label=\"Channels\">{$tabs}</div></div>\n"
-            . '      <div class="cchan-log" id="cchan-log" role="tabpanel" aria-labelledby="cchan-tab-' . $first . "\">\n"
-            . '        <button type="button" class="cact cchan-more" data-chan-more' . ($more ? '' : ' hidden') . ">Earlier messages</button>\n"
-            . '        <ol class="cchan-lines" data-chan-lines role="log" aria-live="polite">' . $items . "</ol>\n"
-            . '        <p class="cchan-empty cmuted" data-chan-empty' . ($lines === [] ? '' : ' hidden') . ">Nobody has said anything here yet.</p>\n"
-            . "      </div>\n"
-            . '      <form class="cchan-say" data-chan-say><label class="visually-hidden" for="cchan-text">Say something</label><input class="cinput" id="cchan-text" name="text" type="text" maxlength="' . ChatHistory::TEXT_MAX . '" autocomplete="off" placeholder="Say something in ' . Html::attr($open[$first][0]) . '" /><button class="cbutton" type="submit">Send</button></form>' . "\n"
-            . '      <p class="chint">' . Html::esc(self::COPY['channelsHint']) . "</p>\n"
-            . "      <p class=\"csaid\" role=\"status\" aria-live=\"polite\" data-chan-said></p>\n"
-            . "    </section>\n";
+        $label = $open[$first][0];
+        $actions = '<button type="button" class="cx-chip" data-cx-around-open aria-controls="cx-around" aria-expanded="false">Who\'s around</button>';
+        return '<section class="cx-conv cchannels" aria-labelledby="cx-conv-title" data-chat-live data-chan="' . $first . '" data-after="' . $last . '" data-before="' . $oldest . '" data-since="' . Community::ms() . '" data-me="' . (int) $viewer['id'] . '">'
+            . self::head($label, 'Everyone', 'cx-conv-title', $actions, true)
+            . '<div class="cx-log cchan-log" id="cchan-log" data-cx-log>'
+            . '<button type="button" class="cx-chip cchan-more" data-chan-more' . ($more ? '' : ' hidden') . '>Earlier messages</button>'
+            . '<ol class="cchan-lines" data-chan-lines role="log" aria-live="polite">' . $items . '</ol>'
+            . '<p class="cchan-empty cmuted" data-chan-empty' . ($lines === [] ? '' : ' hidden') . '>Nobody has said anything here yet.</p>'
+            . '</div>'
+            . '<form class="cx-compose cchan-say" data-chan-say><div class="cx-say"><label class="visually-hidden" for="cchan-text">Say something</label><input class="cinput cx-field" id="cchan-text" name="text" type="text" maxlength="' . ChatHistory::TEXT_MAX . '" autocomplete="off" placeholder="Chat in ' . Html::attr($label) . '" />'
+            . '<button class="cx-send" type="submit" aria-label="Send" title="Send">' . self::ICON_SEND . '</button></div>'
+            . '<p class="chint">' . Html::esc(self::COPY['channelsHint']) . '</p><p class="csaid" role="status" aria-live="polite" data-chan-said></p></form>'
+            . '</section>';
     }
 
     /**
@@ -364,7 +389,7 @@ final readonly class CommunityPages
      * @param array<string, mixed> $l
      * @param list<string> $hosts
      */
-    public static function channelLineHtml(array $l, int $me, array $hosts): string
+    public static function channelLineHtml(array $l, int $me, array $hosts, bool $threads = true): string
     {
         $chips = '';
         foreach ($l['r'] ?? [] as $r) {
@@ -376,7 +401,9 @@ final readonly class CommunityPages
             . '<time datetime="' . gmdate('Y-m-d\TH:i:s\Z', $at) . '" title="' . Html::attr(gmdate('M j, Y H:i', $at) . ' UTC') . '">' . gmdate('H:i', $at) . '</time> '
             . '<b class="cchan-name">' . Html::esc((string) $l['name']) . '</b>' . ($l['web'] ? '<span class="cchan-web" title="Said on the website">web</span>' : '') . ' '
             . '<span class="cchan-text">' . CommunityText::lineHtml((string) $l['text'], $hosts) . '</span>'
-            . ($chips === '' ? '' : '<span class="cchan-chips">' . $chips . '</span>') . '</li>';
+            . ($chips === '' ? '' : '<span class="cchan-chips">' . $chips . '</span>')
+            . ($threads && isset($l['th']) ? '<a class="cx-replies" href="?c=' . Html::attr((string) ($l['key'] ?? '')) . '#t' . (int) $l['lid'] . '" data-cx-replies="' . (int) $l['lid'] . '">' . Html::esc(CommunityText::count((int) $l['th']['n'], 'reply', 'replies')) . ' · ' . Html::esc((string) $l['th']['last']['name']) . '</a>' : '')
+            . '</li>';
     }
 
     // —— One post ——
@@ -481,6 +508,99 @@ final readonly class CommunityPages
         return $art !== ''
             ? '<span class="cchip-art cchip-' . Html::attr($key) . '" aria-hidden="true"></span>'
             : '<span class="cchip-glyph" aria-hidden="true">' . $glyph . '</span>';
+    }
+
+    // —— The app's frame ——
+
+    /** The drawer's send arrow and back chevron (js/ui/social-drawer.js ICONS). */
+    private const ICON_SEND = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3.5 10 16.5 4l-4 12-2.5-5z"/></svg>';
+    private const ICON_BACK = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="m7.5 3-3 3 3 3"/></svg>';
+
+    /** The drawer's colour slot for a name (js/ui/social-drawer.js avatarOf), 0-7. */
+    public static function hue(string $name): int
+    {
+        $s = trim($name) === '' ? '?' : trim($name);
+        $h = 0;
+        foreach (mb_str_split($s) as $ch) {
+            $h = ($h * 31 + mb_ord($ch)) & 0xFFFFFFFF;
+        }
+        return $h % 8;
+    }
+
+    /** A round avatar: the name's first letter in its colour (the drawer's .social-av). */
+    public static function avatar(string $name, string $cls = ''): string
+    {
+        $s = trim($name) === '' ? '?' : trim($name);
+        return '<span class="cx-av' . ($cls === '' ? '' : ' ' . $cls) . '" data-hue="' . self::hue($s) . '" aria-hidden="true">' . Html::esc(mb_strtoupper(mb_substr($s, 0, 1))) . '</span>';
+    }
+
+    /** The bar over a conversation: back to the list (phones), its avatar and name, a note, its buttons. */
+    private static function head(string $name, string $note, string $id, string $actions, bool $back, string $about = '', string $backTo = '/chat/', string $extra = ''): string
+    {
+        return '<header class="cx-head">'
+            . ($back ? '<a class="cx-back" href="' . Html::attr($backTo) . '" data-cx-back>' . self::ICON_BACK . '<span>Chats</span></a>' : '')
+            . self::avatar($name, 'cx-av-md')
+            . '<div class="cx-head-txt"><h2 class="cx-head-name" id="' . Html::attr($id) . '" data-cx-head-name>' . Html::esc($name) . '</h2>'
+            . ($note !== '' ? '<small class="cx-note" data-cx-head-note>' . Html::esc($note) . '</small>' : '')
+            . ($about !== '' ? '<p class="cx-about">' . Html::esc($about) . '</p>' : '') . $extra . '</div>'
+            . ($actions !== '' ? '<div class="cx-head-acts" data-cx-head-acts>' . $actions . '</div>' : '')
+            . '</header>';
+    }
+
+    /**
+     * The whole app: the rail (Channels, Chats and Buddies for a signed-in player, the Boards for
+     * everyone), the conversation, and for a signed-in player the thread panel and Who's around.
+     * $active: what the rail marks (chan, boards, board:<slug>); $view: what a phone shows (list|main).
+     *
+     * @param array<string, mixed> $viewer
+     * @param array<string, int|string> $extra main's data attributes
+     */
+    private function shell(Community $community, array $viewer, string $active, string $main, string $view, array $extra = []): string
+    {
+        $signed = ($viewer['id'] ?? 0) > 0;
+        $rail = '';
+        if ($signed) {
+            $open = (new ChatHistory($this->minn))->open((int) $viewer['id']);
+            $chans = '';
+            foreach ($open as $key => [$label]) {
+                $chans .= '<li><a class="cx-row" href="/chat/?c=' . $key . '" data-cx-open="chan:' . $key . '"' . ($active === 'chan' && $key === array_key_first($open) ? ' aria-current="true"' : '') . '>'
+                    . '<span class="cx-av cx-av-lg" data-hue="' . self::hue($label) . '" aria-hidden="true">' . ($key === 'help' ? '?' : '#') . '</span>'
+                    . '<span class="cx-txt"><span class="cx-name"><span class="cx-label">' . Html::esc($label) . '</span><small class="cx-note">Everyone</small></span><span class="cx-last" data-cx-last></span></span>'
+                    . '<span class="cx-badge" data-cx-unread hidden></span></a></li>';
+            }
+            if ($chans !== '') {
+                $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-channels"><h2 class="cx-sec-title" id="cx-sec-channels">Channels</h2><ul class="cx-list">' . $chans . '</ul></section>';
+            }
+            $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-chats"><h2 class="cx-sec-title" id="cx-sec-chats">Chats</h2><ul class="cx-list" data-cx-ims><li class="cx-empty">Your IMs show here.</li></ul></section>'
+                . '<section class="cx-sec" aria-labelledby="cx-sec-buddies"><h2 class="cx-sec-title" id="cx-sec-buddies">Buddies</h2><ul class="cx-list cx-people" data-cx-buddies><li class="cx-empty">Loading your buddies…</li></ul></section>';
+        }
+        $boards = '';
+        foreach ($community->boards() as $b) {
+            $current = $active === 'board:' . $b['slug'] ? ' aria-current="page"' : '';
+            $boards .= '<li><a class="cx-row" href="/chat/' . Html::attr($b['slug']) . '/"' . $current . '>' . self::avatar((string) $b['name'], 'cx-av-lg')
+                . '<span class="cx-txt"><span class="cx-name"><span class="cx-label">' . Html::esc($b['name']) . '</span></span><span class="cx-last">' . Html::esc($b['latest'] === null ? $b['about'] : $b['latest']['title']) . '</span></span></a></li>';
+        }
+        $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-boards"><h2 class="cx-sec-title" id="cx-sec-boards">Boards</h2><ul class="cx-list">' . $boards . '</ul></section>';
+        if (!$signed) {
+            $rail .= '<div class="cx-sec cx-rail-signin"><p>' . Html::esc(self::COPY['channelsSignedOut']) . '</p>' . self::signInLinks() . '</div>';
+        }
+        $side = '';
+        if ($signed) {
+            $side = '<aside class="cx-side cx-thread" id="cx-thread" aria-labelledby="cx-thread-title" data-cx-thread hidden></aside>'
+                . '<aside class="cx-side cx-around" id="cx-around" aria-labelledby="cx-around-title" data-cx-around>'
+                . '<header class="cx-side-head"><h2 class="cx-side-title" id="cx-around-title">Who\'s around</h2><small class="cx-note" data-cx-around-count></small>'
+                . '<button type="button" class="cx-x" data-cx-around-close aria-label="Close Who\'s around" title="Close">' . self::ICON_BACK . '</button></header>'
+                . '<label class="cx-switch"><input type="checkbox" data-cx-offline disabled /> <span>Appear offline</span></label>'
+                . '<p class="cx-note cx-switch-hint">Nobody sees you online, buddies included. You can still chat and post.</p>'
+                . '<ul class="cx-list cx-people" data-cx-people><li class="cx-empty">Connecting…</li></ul>'
+                . '</aside>';
+        }
+        $socket = RealtimeTicket::socketUrl() ?? '';
+        return '<main class="cx community" ' . self::data($viewer, $extra + ['cx-active' => $active, 'cx-view' => $view, 'socket' => $socket, 'me' => (int) ($viewer['id'] ?? 0), 'me-name' => (string) ($viewer['name'] ?? '')]) . '>'
+            . '<nav class="cx-rail" aria-label="Community">' . $rail . '</nav>'
+            . '<div class="cx-pane" data-cx-pane>' . $main . '</div>'
+            . $side
+            . '</main>';
     }
 
     // —— Pieces ——

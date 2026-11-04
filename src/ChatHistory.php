@@ -277,11 +277,11 @@ final readonly class ChatHistory
     #[Route(Method::Post, '/groddle/v1/chat/channels/{key:global|help|trade}', policy: new Policy(Access::SignedIn))]
     public function say(Request $request, string $key): Response
     {
-        return $this->sayFrom($request, $this->player(), $key, 0);
+        return $this->sayFrom($request, $this->player(), $key, 0, false);
     }
 
     /** A line (or, with a parent, a thread reply) said from the website, through the realtime server. */
-    private function sayFrom(Request $request, int $me, string $key, int $parent): Response
+    private function sayFrom(Request $request, int $me, string $key, int $parent, bool $kept): Response
     {
         $db = $this->minn->db;
         if (AdminConsole::banned($db, $me) !== null) {
@@ -304,6 +304,7 @@ final readonly class ChatHistory
         $call = ['player' => $me, 'name' => $name, 'channel' => $key, 'rooms' => implode(',', $rooms), 'silence' => implode(',', $c['silenced']), 'text' => mb_substr($text, 0, self::TEXT_MAX)];
         if ($parent > 0) {
             $call['parent'] = $parent;
+            $call['kept'] = $kept;
         }
         $answer = (new RealtimeCall($this->minn))->post('web_say', $call);
         return match ($answer['status'] ?? null) {
@@ -312,6 +313,7 @@ final readonly class ChatHistory
             'slow_down' => throw new RestError('groddle_chat_slow', 'Slow down a little.', 429),
             'banned' => throw new RestError('groddle_suspended', AdminConsole::SUSPENDED, 403),
             'closed' => throw new RestError('groddle_chat_closed', 'That chat is not open to you.', 403),
+            'no_line' => throw new RestError('groddle_chat_no_line', 'That line is not there to reply to.', 404),
             default => throw new RestError('groddle_chat_down', 'The game\'s chat is not answering. Try again in a moment.', 503),
         };
     }
@@ -468,10 +470,13 @@ final readonly class ChatHistory
         $me = $this->player();
         $db = $this->minn->db;
         $room = $this->readable($me, $key) ?? throw new RestError('groddle_chat_closed', 'That chat is not open to you.', 403);
-        if ($db->value('SELECT 1 FROM ' . $db->table(self::LINES) . ' WHERE room = ? AND lid = ? AND parent_lid = 0', [$room, (int) $lid]) === null) {
-            throw new RestError('groddle_chat_no_line', 'That line is not there to reply to.', 404);
+        // A line said a moment ago may not be kept here yet (the server sends its batches every few
+        // seconds): the server knows its own recent lines, and refuses one it has never had.
+        $row = $db->row('SELECT parent_lid FROM ' . $db->table(self::LINES) . ' WHERE room = ? AND lid = ?', [$room, (int) $lid]);
+        if ($row !== null && (int) $row['parent_lid'] !== 0) {
+            throw new RestError('groddle_chat_no_line', 'A reply takes no thread of its own.', 404);
         }
-        return $this->sayFrom($request, $me, $key, (int) $lid);
+        return $this->sayFrom($request, $me, $key, (int) $lid, $row !== null);
     }
 
     // —— Shared ——
