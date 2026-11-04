@@ -1,0 +1,132 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Groddle\Minn;
+
+/**
+ * A copy's own words on the way between players (2026-11-04): a Cubimal's
+ * name, a Draught of Giant Amicability's Giant, a Still's hopper and Hooch, a
+ * lit pumpkin's phrases. The game keeps them beside each copy (js/tools.js
+ * row.tags) and sends them as an item's "t", beside its wear "r", on a
+ * one-copy stack: mail and auctions straight here, gifts and shared ground
+ * drops through the realtime server (which checks them too, copytags.go).
+ * Each is checked here before it is stored or handed on, by the rules the game
+ * writes into data/economy.json ("tags", and each class's "tag" kind), the
+ * same as the game's js/copy-tags.js (the three agree on the game repo's
+ * tests/fixtures/copy-tag-vectors.json):
+ *
+ *   - name: the characters a Cubimal name keeps (letters, digits, spaces and
+ *     the word filter's symbols), at most max of them, the word filter,
+ *     spaces trimmed (npc_cubimal_chick.js onInputBoxResponse 41).
+ *   - phrases: at most max; each one line with no control characters, angle
+ *     brackets or U+FFFD, spaces trimmed, at most len characters, the word
+ *     filter, trimmed; empty ones dropped (lit_pumpkin_base teach).
+ *   - giant: one of the giants (potion_favor.js config.giants).
+ *   - still: {hopper, hooch, workingSince} whole numbers, at most hopper and
+ *     hooch, and a start no later than now (still.js 30-31).
+ *
+ * Words a class does not keep, words on a stack of more than one, or words
+ * that come out empty are none (null): the copy goes without them. Only the
+ * side giving a copy sends its words; whoever takes it gets the stored ones.
+ * Plain PHP, no engine calls.
+ */
+final class CopyTags
+{
+    /** The most bytes one copy's stored words may take. */
+    public const MAX = 2048;
+
+    /**
+     * The checked words of one stack as stored JSON, or null for none.
+     */
+    public static function json(Economy $economy, string $class, int $n, mixed $value, ?int $nowMs = null): ?string
+    {
+        if ($value === null || $n !== 1) {
+            return null;
+        }
+        $kind = $economy->tagKind($class);
+        if ($kind === '') {
+            return null;
+        }
+        $out = self::clean($economy->tagRules(), $kind, $value, $nowMs ?? (int) floor(microtime(true) * 1000));
+        if ($out === null) {
+            return null;
+        }
+        $json = json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return is_string($json) && strlen($json) <= self::MAX ? $json : null;
+    }
+
+    /** Stored words as they go back out on an item (null: none). */
+    public static function decode(mixed $json): mixed
+    {
+        if (!is_string($json) || $json === '') {
+            return null;
+        }
+        $v = json_decode($json, true);
+        return is_string($v) || is_array($v) ? $v : null;
+    }
+
+    /** The checked words of kind (a string, a list or a Still's map), or null. */
+    public static function clean(array $rules, string $kind, mixed $value, int $nowMs): string|array|null
+    {
+        switch ($kind) {
+            case 'name':
+                $name = is_string($value) ? self::name($value, (int) ($rules['name']['max'] ?? 0)) : '';
+                return $name === '' ? null : $name;
+            case 'phrases':
+                if (!is_array($value) || !array_is_list($value)) {
+                    return null;
+                }
+                $out = [];
+                foreach (array_slice($value, 0, (int) ($rules['phrases']['max'] ?? 0)) as $p) {
+                    $s = is_string($p) ? self::phrase($p, (int) ($rules['phrases']['len'] ?? 0)) : '';
+                    if ($s !== '') {
+                        $out[] = $s;
+                    }
+                }
+                return $out === [] ? null : $out;
+            case 'giant':
+                return is_string($value) && in_array($value, (array) ($rules['giant']['giants'] ?? []), true) ? $value : null;
+            case 'still':
+                if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+                    return null;
+                }
+                $v = [
+                    'hopper' => self::whole($value['hopper'] ?? null, (int) ($rules['still']['hopper'] ?? 0)),
+                    'hooch' => self::whole($value['hooch'] ?? null, (int) ($rules['still']['hooch'] ?? 0)),
+                    'workingSince' => self::whole($value['workingSince'] ?? null, $nowMs),
+                ];
+                return $v['hopper'] > 0 || $v['hooch'] > 0 || $v['workingSince'] > 0 ? $v : null;
+        }
+        return null;
+    }
+
+    /** A Cubimal name: its characters, at most $max, the word filter, trimmed ('' for none). */
+    public static function name(string $s, int $max): string
+    {
+        $s = (string) preg_replace('/[^A-Za-z0-9 #!@$%&*]/', '', $s);
+        return trim(WordFilter::text(substr($s, 0, max(0, $max))), ' ');
+    }
+
+    /** One phrase: one line, no control characters, angle brackets or U+FFFD, at most $len characters ('' for none). */
+    public static function phrase(string $s, int $len): string
+    {
+        if (!mb_check_encoding($s, 'UTF-8')) {
+            return '';
+        }
+        $s = (string) preg_replace('/[<>\x{FFFD}]/u', '', $s);
+        $s = (string) preg_replace('/[\n\r\t]/', ' ', $s);
+        $s = (string) preg_replace('/[\x{00}-\x{1F}\x{7F}-\x{9F}\x{2028}\x{2029}]/u', '', $s);
+        $s = mb_substr(trim($s, ' '), 0, max(0, $len), 'UTF-8');
+        return trim(WordFilter::text($s), ' ');
+    }
+
+    /** A JSON number as a whole number from 0 to $max (anything else, a numeric string too, is 0). */
+    private static function whole(mixed $v, int $max): int
+    {
+        if (!(is_int($v) || (is_float($v) && is_finite($v))) || $v <= 0) {
+            return 0;
+        }
+        return $v >= $max ? $max : (int) floor($v);
+    }
+}

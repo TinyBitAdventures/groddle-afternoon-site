@@ -129,6 +129,10 @@ final readonly class LedgerGift
             if (is_int($it['r'] ?? null) && $it['r'] >= 0 && $it['r'] <= 1000000) {
                 $row['r'] = $it['r'];
             }
+            // The giver's own copy's words, checked again (the realtime server checked them first).
+            if (isset($it['t']) && ($t = CopyTags::json(Economy::shared(), $c, $n, $it['t'])) !== null) {
+                $row['t'] = CopyTags::decode($t);
+            }
             $items[] = $row;
         }
         if ($box) {
@@ -267,7 +271,17 @@ final readonly class LedgerGift
             return $entries;
         }
         if (!$g['box'] && $g['note'] === null) {
-            return $side === 'gave' ? LedgerMath::applyTrade($entries, $g['op'], $counts, $none) : LedgerMath::applyTrade($entries, $g['op'], $none, $counts);
+            if ($side === 'gave') {
+                return LedgerMath::applyTrade($entries, $g['op'], $counts, $none);
+            }
+            $it = $g['items'][0] ?? null;
+            $had = is_array($it) ? LedgerMath::count($state->inventory->{$it['c']} ?? 0) : 0;
+            $entries = LedgerMath::applyTrade($entries, $g['op'], $none, $counts);
+            // A tool that came keeps the giver's wear, and one copy its own words (as the game's apply).
+            if (is_array($it) && is_int($it['r'] ?? null)) {
+                $entries = LedgerDrop::withToolPoints($entries, $it['c'], $it['r'], $had, $it['n'], $it['n'] === 1 ? ($it['t'] ?? null) : null);
+            }
+            return $entries;
         }
         foreach (['inventory', 'systems'] as $k) {
             if (!($state->{$k} ?? null) instanceof \stdClass) {
@@ -355,6 +369,9 @@ final readonly class LedgerGift
                 $row = ['c' => $it['c'], 'n' => LedgerMath::count($it['n'])];
                 if (is_int($it['r'] ?? null)) {
                     $row['r'] = $it['r'];
+                }
+                if ((is_string($it['t'] ?? null) || is_array($it['t'] ?? null)) && $row['n'] === 1) {
+                    $row['t'] = $it['t'];
                 }
                 $items[] = $row;
             }

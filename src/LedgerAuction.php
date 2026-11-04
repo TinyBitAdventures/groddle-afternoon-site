@@ -27,7 +27,8 @@ use Minn\RestError;
  *   GET  groddle/v1/auctions                 active listings: ?q= (3+ letters: an item's name or a seller's) &cat= &c= &seller=<id> &others=1 (not your own) &sort=new|unit|price|ends &page=
  *        {"auctions":[Listing],"total","page","per","cats":[[key,name]],"rules":{…}}
  *   GET  groddle/v1/auctions/mine            {"active":[Listing],"ended":[Listing],"deliveries":[Delivery],"receipts":[Receipt],"listable":{c:{n,v}},"rules":{…}}
- *   POST groddle/v1/auctions                 {"id":"<16 hex>","c":"cherry","n":3,"cost":45,"r"?:40}
+ *   POST groddle/v1/auctions                 {"id":"<16 hex>","c":"cherry","n":3,"cost":45,"r"?:40,"t"?:…}
+ *        (t: a one-copy listing's own words, a Cubimal's name ...: CopyTags; they go with it to the buyer)
  *        200 {"status":"listed","auction":Listing,"receipt":Receipt} | 409 {"status":"refused","why","text"}
  *   POST groddle/v1/auctions/{id}/buy        200 {"status":"bought","auction":Listing,"receipt":Receipt,"delivery":Delivery} | 409 refused
  *   POST groddle/v1/auctions/{id}/cancel     200 {"status":"cancelled","auction":Listing,"delivery":Delivery} | 409 refused
@@ -228,12 +229,13 @@ final readonly class LedgerAuction
             throw new RestError('groddle_auction_invalid', 'Not an auction.', 400);
         }
         $me = $this->me();
-        $out = Ledger::atomically($this->minn->db, fn () => $this->list($id, $me, $c, $n, $cost, is_int($r) && $r >= 0 && $r <= 1000000 ? $r : null, time()));
+        $tag = isset($body['t']) && is_string($c) && is_int($n) ? CopyTags::json(Economy::shared(), $c, $n, $body['t']) : null;
+        $out = Ledger::atomically($this->minn->db, fn () => $this->list($id, $me, $c, $n, $cost, is_int($r) && $r >= 0 && $r <= 1000000 ? $r : null, time(), $tag));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
     /** @return array{status: string, why?: string, text?: string, auction?: array, receipt?: array} */
-    private function list(string $id, int $me, string $c, int $n, int $cost, ?int $r, int $now): array
+    private function list(string $id, int $me, string $c, int $n, int $cost, ?int $r, int $now, ?string $tag = null): array
     {
         $db = $this->minn->db;
         $t = $db->table(self::TABLE);
@@ -258,8 +260,8 @@ final readonly class LedgerAuction
             return $moved === 'currants' ? self::refused('fee', self::TEXT_FEE) : self::refused('short', self::TEXT_SHORT);
         }
         $stamp = gmdate('Y-m-d H:i:s', $now);
-        $db->execute("INSERT INTO {$t} (id, seller_id, class_tsid, count, cost, fee, r, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)", [
-            $id, $me, $c, $n, $cost, $fee, $r, $stamp, gmdate('Y-m-d H:i:s', $now + self::DURATION),
+        $db->execute("INSERT INTO {$t} (id, seller_id, class_tsid, count, cost, fee, r, tag, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)", [
+            $id, $me, $c, $n, $cost, $fee, $r, $tag, $stamp, gmdate('Y-m-d H:i:s', $now + self::DURATION),
         ]);
         $row = $db->row("SELECT * FROM {$t} WHERE id = ?", [$id]);
         return ['status' => 'listed', 'auction' => $this->listings([$row])[0], 'receipt' => $this->receipt($op)];
@@ -522,6 +524,9 @@ final readonly class LedgerAuction
             if ($r['r'] !== null) {
                 $row['r'] = (int) $r['r'];
             }
+            if (isset($r['tag']) && ($tag = CopyTags::decode($r['tag'])) !== null && (int) $r['count'] === 1) {
+                $row['t'] = $tag;
+            }
             if ($r['status'] !== 'active') {
                 $row['ended'] = self::ms($r['ended_at']);
             }
@@ -554,6 +559,10 @@ final readonly class LedgerAuction
         $out = ['id' => (string) $r['id'], 'op' => self::op((string) $r['id'], 'd'), 'kind' => $kind, 'item' => ['c' => (string) $r['class_tsid'], 'n' => (int) $r['count']], 'at' => self::ms($r['deliver_at']), 'collected' => $r['collected_at'] !== null];
         if ($r['r'] !== null) {
             $out['item']['r'] = (int) $r['r'];
+        }
+        // The listing's own words go with it, to the buyer or back to the seller.
+        if (isset($r['tag']) && ($tag = CopyTags::decode($r['tag'])) !== null && (int) $r['count'] === 1) {
+            $out['item']['t'] = $tag;
         }
         return $out;
     }

@@ -722,7 +722,7 @@ final readonly class LedgerBoxes
             }
         } elseif (($kind === 'take' || $kind === 'put') && $row !== null && isset(self::CABINETS[(string) ($row->classTsid ?? '')])) {
             $slots = self::slots((string) $row->classTsid, json_decode((string) json_encode($row->contents ?? []), true));
-            // Keep each slot's tool wear as the save had it: only the counts change here.
+            // Keep each slot's tool wear and words as the save had them: only the counts change here.
             $before = json_decode((string) json_encode($row->contents ?? []), true);
             $max = (int) (LedgerStarter::table()['classes'][$class][0] ?? 0);
             $slot = (int) $o['slot'] >= 0 ? (int) $o['slot'] : null;
@@ -735,6 +735,10 @@ final readonly class LedgerBoxes
                 $out = (object) ['classTsid' => $s['classTsid'], 'count' => $s['count']];
                 if ($was !== null && ($was['classTsid'] ?? null) === $s['classTsid'] && is_array($was['points'] ?? null)) {
                     $out->points = array_slice($was['points'], 0, $s['count']);
+                }
+                // ... and each copy's own words (a Cubimal's name ...: the game's js/home-storage.js tags).
+                if ($was !== null && ($was['classTsid'] ?? null) === $s['classTsid'] && is_array($was['tags'] ?? null)) {
+                    $out->tags = array_slice($was['tags'], 0, $s['count']);
                 }
                 return $out;
             }, $slots, array_keys($slots));

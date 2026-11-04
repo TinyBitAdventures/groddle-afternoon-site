@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.39",
+  "version": "0.5.40",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -195,6 +195,7 @@
       "class_tsid varchar(64) NOT NULL DEFAULT ''",
       "count int(10) unsigned NOT NULL DEFAULT 0",
       "r int(10) unsigned NULL DEFAULT NULL",
+      "tag text NULL",
       "currants int(10) unsigned NOT NULL DEFAULT 0",
       "postage int(10) unsigned NOT NULL DEFAULT 0",
       "reply_to varchar(16) NULL DEFAULT NULL",
@@ -220,6 +221,7 @@
       "cost bigint(20) unsigned NOT NULL",
       "fee int(10) unsigned NOT NULL DEFAULT 0",
       "r int(10) unsigned NULL DEFAULT NULL",
+      "tag text NULL",
       "status varchar(10) NOT NULL DEFAULT 'active'",
       "buyer_id bigint(20) unsigned NULL DEFAULT NULL",
       "proceeds bigint(20) unsigned NOT NULL DEFAULT 0",
@@ -271,6 +273,7 @@
       "class_tsid varchar(64) NOT NULL",
       "count int(10) unsigned NOT NULL",
       "points int(10) unsigned NULL DEFAULT NULL",
+      "tag text NULL",
       "status varchar(8) NOT NULL",
       "taker_id bigint(20) unsigned NOT NULL DEFAULT 0",
       "why varchar(8) NOT NULL DEFAULT ''",

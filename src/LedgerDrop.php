@@ -184,7 +184,7 @@ final readonly class LedgerDrop
     {
         $this->signed($request, self::GROUND);
         $db = $this->minn->db;
-        $rows = $db->rows('SELECT id, dropper_id, street, x, y, class_tsid, count, points, created_at FROM ' . $db->table(self::TABLE) . " WHERE status = 'ground' ORDER BY created_at, id LIMIT " . self::LIST_MAX);
+        $rows = $db->rows('SELECT id, dropper_id, street, x, y, class_tsid, count, points, tag, created_at FROM ' . $db->table(self::TABLE) . " WHERE status = 'ground' ORDER BY created_at, id LIMIT " . self::LIST_MAX);
         $names = (new Characters($db))->namesOf(array_values(array_unique(array_map(static fn (array $r): int => (int) $r['dropper_id'], $rows))));
         $out = [];
         foreach ($rows as $r) {
@@ -194,6 +194,10 @@ final readonly class LedgerDrop
             if ($r['points'] !== null) {
                 $row['r'] = (int) $r['points'];
             }
+            // One copy's own words (CopyTags): a named Cubimal lies on the street with its name.
+            if (isset($r['tag']) && ($t = CopyTags::decode($r['tag'])) !== null && (int) $r['count'] === 1) {
+                $row['t'] = $t;
+            }
             $out[] = $row;
         }
         return Response::json(['stacks' => $out]);
@@ -202,7 +206,7 @@ final readonly class LedgerDrop
     /**
      * A drop as the realtime server sends it, checked: null when it is not one.
      *
-     * @return array{op: string, id: int, street: string, x: int, y: int, c: string, n: int, r: ?int}|null
+     * @return array{op: string, id: int, street: string, x: int, y: int, c: string, n: int, r: ?int, t?: string}|null
      */
     public static function call(array $body): ?array
     {
@@ -222,7 +226,9 @@ final readonly class LedgerDrop
             return null;
         }
         $r = is_int($item['r'] ?? null) && $item['r'] >= 0 && $item['r'] <= 1000000 ? $item['r'] : null;
-        return ['op' => $op, 'id' => $id, 'street' => $street, 'x' => $x, 'y' => $y, 'c' => $c, 'n' => $n, 'r' => $r];
+        // The dropper's own copy's words, checked again (the realtime server checked them first).
+        $t = isset($item['t']) ? CopyTags::json(Economy::shared(), $c, $n, $item['t']) : null;
+        return ['op' => $op, 'id' => $id, 'street' => $street, 'x' => $x, 'y' => $y, 'c' => $c, 'n' => $n, 'r' => $r] + ($t !== null ? ['t' => $t] : []);
     }
 
     /** @return array{status: string, why?: string, text?: string} */
@@ -250,8 +256,8 @@ final readonly class LedgerDrop
         }
         self::move($db, $drop['id'], $state, $drop['c'], -$drop['n'], $now);
         $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$drop['op'], $drop['id'], $gave, self::NONE, $stamp, $stamp]);
-        $db->execute('INSERT INTO ' . $db->table(self::TABLE) . " (id, dropper_id, street, x, y, class_tsid, count, points, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ground', ?)", [
-            $drop['op'], $drop['id'], $drop['street'], $drop['x'], $drop['y'], $drop['c'], $drop['n'], $drop['r'], $stamp,
+        $db->execute('INSERT INTO ' . $db->table(self::TABLE) . " (id, dropper_id, street, x, y, class_tsid, count, points, tag, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ground', ?)", [
+            $drop['op'], $drop['id'], $drop['street'], $drop['x'], $drop['y'], $drop['c'], $drop['n'], $drop['r'], $drop['t'] ?? null, $stamp,
         ]);
         $ledger->log($drop['id'], 'drop', ['drop' => $drop['op'], 'street' => $drop['street'], 'gave' => [$drop['c'] => $drop['n']]], $now);
         return ['status' => 'settled'];
@@ -262,13 +268,17 @@ final readonly class LedgerDrop
     {
         $db = $this->minn->db;
         $drops = $db->table(self::TABLE);
-        $row = $db->row("SELECT dropper_id, class_tsid, count, points, status, taker_id FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
+        $row = $db->row("SELECT dropper_id, class_tsid, count, points, tag, status, taker_id FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
         if ($row === null) {
             return ['status' => 'refused', 'why' => 'gone'];
         }
         $item = ['c' => (string) $row['class_tsid'], 'n' => (int) $row['count']];
         if ($row['points'] !== null) {
             $item['r'] = (int) $row['points'];
+        }
+        // Whoever takes it gets the stack's own words, never a picker's.
+        if (isset($row['tag']) && ($t = CopyTags::decode($row['tag'])) !== null && $item['n'] === 1) {
+            $item['t'] = $t;
         }
         $credit = $op . '-t';
         if ($row['status'] !== 'ground') {
@@ -296,7 +306,7 @@ final readonly class LedgerDrop
         $db = $this->minn->db;
         $me = $this->minn->reader->userId;
         $since = gmdate('Y-m-d H:i:s', time() - Ledger::PENDING_FOR);
-        $rows = $db->rows('SELECT t.trade_id, t.a_gave, t.b_gave, d.id, d.class_tsid, d.count, d.points, d.why FROM ' . $db->table(Ledger::TRADES) . ' t JOIN ' . $db->table(self::TABLE) . " d ON (t.trade_id = d.id OR t.trade_id = CONCAT(d.id, '-t'))
+        $rows = $db->rows('SELECT t.trade_id, t.a_gave, t.b_gave, d.id, d.class_tsid, d.count, d.points, d.tag, d.why FROM ' . $db->table(Ledger::TRADES) . ' t JOIN ' . $db->table(self::TABLE) . " d ON (t.trade_id = d.id OR t.trade_id = CONCAT(d.id, '-t'))
             WHERE t.status = 'settled' AND t.a_id = ? AND t.a_applied_at IS NULL AND t.created_at >= ? AND t.trade_id LIKE 'drop-%'
             ORDER BY t.created_at, t.trade_id LIMIT 40", [$me, $since]);
         $out = [];
@@ -306,6 +316,9 @@ final readonly class LedgerDrop
             $item = ['c' => (string) $r['class_tsid'], 'n' => self::movedCount((string) ($took ? $r['b_gave'] : $r['a_gave']), (int) $r['count'])];
             if ($r['points'] !== null) {
                 $item['r'] = (int) $r['points'];
+            }
+            if (isset($r['tag']) && ($t = CopyTags::decode($r['tag'])) !== null && $item['n'] === 1) {
+                $item['t'] = $t;
             }
             $entry = ['op' => (string) $r['trade_id'], 'side' => $took ? 'took' : 'dropped', 'id' => (string) $r['id'], 'item' => $item];
             if ($took) {
@@ -342,14 +355,15 @@ final readonly class LedgerDrop
      */
     public static function catchUp(Db $db, array $entries, int $user, array $p): array
     {
-        $row = $db->row('SELECT class_tsid, points FROM ' . $db->table(self::TABLE) . ' WHERE id = ?', [substr($p['trade'], 0, -2)]);
+        $row = $db->row('SELECT class_tsid, count, points, tag FROM ' . $db->table(self::TABLE) . ' WHERE id = ?', [substr($p['trade'], 0, -2)]);
         $class = $row === null ? '' : (string) $row['class_tsid'];
         $had = self::packCount($entries, $class);
         $entries = LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']);
         if ($row === null || $row['points'] === null) {
             return $entries;
         }
-        return self::withToolPoints($entries, $class, (int) $row['points'], $had, max(1, self::packCount($entries, $class) - $had));
+        $tag = (int) $row['count'] === 1 && isset($row['tag']) ? CopyTags::decode($row['tag']) : null;
+        return self::withToolPoints($entries, $class, (int) $row['points'], $had, max(1, self::packCount($entries, $class) - $had), $tag);
     }
 
     private static function packCount(array $entries, string $class): int
@@ -365,8 +379,9 @@ final readonly class LedgerDrop
      * $n picked up are added last with the stack's $points. An older save's one value per class
      * is the first tool's; a held tool with no value of its own is new (null: full). `remaining`
      * and `broken` repeat the tool in use, the first with points left (tool_base isWorking).
+     * $tag: the one copy's own words (CopyTags), kept in `tags` beside `copies` (js/tools.js row.tags).
      */
-    public static function withToolPoints(array $entries, string $class, int $points, int $had, int $n = 1): array
+    public static function withToolPoints(array $entries, string $class, int $points, int $had, int $n = 1, mixed $tag = null): array
     {
         $raw = $entries['playerState'] ?? null;
         $state = is_string($raw) && $raw !== '' ? json_decode($raw, false) : null;
@@ -408,6 +423,16 @@ final readonly class LedgerDrop
             $row = (object) ['uses' => 0, 'repairs' => 0];
         }
         $row->copies = $copies;
+        if ($tag !== null || is_array($row->tags ?? null)) {
+            $tags = array_slice(is_array($row->tags ?? null) ? array_values($row->tags) : [], 0, max(0, $had));
+            while (count($tags) < $had) {
+                $tags[] = null;
+            }
+            for ($i = 0; $i < max(1, $n); $i++) {
+                $tags[] = $n === 1 ? $tag : null;
+            }
+            $row->tags = $tags;
+        }
         if ($first !== null) {
             $row->remaining = $first;
             $row->broken = $first <= 0;

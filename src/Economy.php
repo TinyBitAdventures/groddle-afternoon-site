@@ -9,7 +9,8 @@ namespace Groddle\Minn;
  * by the game repo's tools/build-economy.mjs, do not edit it by hand): for
  * each tradeable class its unit value (round(0.9 * base_cost), the best
  * haggled vendor price, else the fallback), its names, a tool's points
- * capacity and its gate (credit: nothing in the remake grants it; capped:
+ * capacity, the kind of words a copy carries (tag, with the rules in tags:
+ * CopyTags) and its gate (credit: nothing in the remake grants it; capped:
  * only drop tables do, so a write gains at most cap a day); the transforms
  * a write's losses may explain (recipes, Cubimal boxes, artifact assembly);
  * and the rewards credited once per character (quests, badges, level-ups,
@@ -31,6 +32,9 @@ final class Economy
 
     private array $credits;
 
+    /** @var array<string, mixed> the rules for a copy's words, by kind (CopyTags) */
+    private array $tags;
+
     private static ?self $shared = null;
 
     /** @param array{items?: array, fallback?: int} $table */
@@ -40,6 +44,7 @@ final class Economy
         $this->fallback = max(1, (int) ($table['fallback'] ?? 1000));
         $this->transforms = is_array($table['transforms'] ?? null) ? array_values(array_filter($table['transforms'], static fn ($t) => is_array($t) && is_array($t['i'] ?? null) && is_array($t['o'] ?? null))) : [];
         $this->credits = is_array($table['credits'] ?? null) ? $table['credits'] : [];
+        $this->tags = is_array($table['tags'] ?? null) ? $table['tags'] : [];
     }
 
     /** The site's table, read once per request. */
@@ -104,6 +109,19 @@ final class Economy
     public function credits(string $part): mixed
     {
         return $this->credits[$part] ?? null;
+    }
+
+    /** The kind of words a copy of this class carries (name, phrases, giant, still), '' for none. */
+    public function tagKind(string $class): string
+    {
+        $k = $this->items[$class]['tag'] ?? '';
+        return is_string($k) ? $k : '';
+    }
+
+    /** The rules for a copy's words, by kind (CopyTags::clean). */
+    public function tagRules(): array
+    {
+        return $this->tags;
     }
 
     /** A tool's points capacity, 0 for anything else. */

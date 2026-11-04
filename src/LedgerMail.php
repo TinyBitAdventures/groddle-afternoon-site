@@ -25,7 +25,8 @@ use Minn\RestError;
  * groddle-afternoon-server mail.go).
  *
  *   GET  groddle/v1/mail                   {"letters":[Letter],"sent":[Letter],"next":ms|null,"receipts":[Receipt],"rules":{…},"now":ms}
- *   POST groddle/v1/mail                   {"id":"<16 hex>","to":"Name"|7,"text":"…","item":{"c","n","r"?}|null,"currants":0,"reply":"<16 hex>"|null}
+ *   POST groddle/v1/mail                   {"id":"<16 hex>","to":"Name"|7,"text":"…","item":{"c","n","r"?,"t"?}|null,"currants":0,"reply":"<16 hex>"|null}
+ *        (t: a one-copy attachment's own words, a Cubimal's name ...: CopyTags; they go with it)
  *        200 {"status":"sent","letter":Letter,"receipt":Receipt,"tell":"<token>"|null} | 409 {"status":"refused","why","text","cost"?}
  *   POST groddle/v1/mail/{id}/collect      200 {"status":"collected"|"done","receipt":Receipt|null,"letter":Letter} | 409 refused ("early")
  *
@@ -198,6 +199,10 @@ final readonly class LedgerMail
             if (is_int($it['r'] ?? null) && $it['r'] >= 0 && $it['r'] <= 1000000) {
                 $item['r'] = $it['r'];
             }
+            $tag = isset($it['t']) ? CopyTags::json(Economy::shared(), $c, $n, $it['t']) : null;
+            if ($tag !== null) {
+                $item['t'] = $tag;
+            }
         }
         $text = is_string($body['text'] ?? null) ? LedgerGift::text($body['text'], self::TEXT_MAX, true) : '';
         return ['id' => $id, 'to' => is_string($to) ? trim($to) : $to, 'text' => $text, 'item' => $item, 'currants' => $currants, 'reply' => $reply];
@@ -277,8 +282,8 @@ final readonly class LedgerMail
             }
         }
         $at = $now + ($parcel ? self::DELAY_ATTACHED : self::DELAY);
-        $db->execute("INSERT INTO {$t} (id, from_id, to_id, deliver_to, text, class_tsid, count, r, currants, postage, reply_to, quote, quote_from, status, created_at, deliver_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?)", [
-            $call['id'], $me, $to, $to, $call['text'], $call['item']['c'] ?? '', $call['item']['n'] ?? 0, $call['item']['r'] ?? null, $call['currants'], $postage,
+        $db->execute("INSERT INTO {$t} (id, from_id, to_id, deliver_to, text, class_tsid, count, r, tag, currants, postage, reply_to, quote, quote_from, status, created_at, deliver_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?)", [
+            $call['id'], $me, $to, $to, $call['text'], $call['item']['c'] ?? '', $call['item']['n'] ?? 0, $call['item']['r'] ?? null, $call['item']['t'] ?? null, $call['currants'], $postage,
             $quoteFrom === null ? null : $call['reply'], $quote, $quoteFrom, gmdate('Y-m-d H:i:s', $now), gmdate('Y-m-d H:i:s', $at),
         ]);
         $row = $db->row("SELECT * FROM {$t} WHERE id = ?", [$call['id']]);
@@ -489,6 +494,9 @@ final readonly class LedgerMail
             $item = (string) $r['class_tsid'] === '' ? null : ['c' => (string) $r['class_tsid'], 'n' => (int) $r['count']];
             if ($item !== null && $r['r'] !== null) {
                 $item['r'] = (int) $r['r'];
+            }
+            if ($item !== null && $item['n'] === 1 && isset($r['tag']) && ($tag = CopyTags::decode($r['tag'])) !== null) {
+                $item['t'] = $tag;
             }
             $letter = [
                 'id' => (string) $r['id'], 'box' => $box, 'from' => $who((int) $r['from_id']), 'to' => $who((int) $r['to_id']),
