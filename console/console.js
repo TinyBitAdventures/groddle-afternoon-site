@@ -46,6 +46,11 @@
  *   how many reported it (a player's Report makes a ticket in Reports too). Show On the boards,
  *   Reported or All. Remove (a confirm step first; admin/board_remove) takes it off the board for
  *   everyone there; nothing goes back to anyone. #boards opens the tab.
+ * - Community (src/AdminCommunity.php, Austin 2026-11-04): posts on the Community boards (/chat/,
+ *   src/Community.php), Reported, Newest or Removed: the thread (a link to the post), the words, the
+ *   writer, how many reported it. Remove and Restore (a confirm step first; removing a thread's first
+ *   post takes the thread off its board), Pin and Lock on the thread, Stop posting on the writer (1, 3,
+ *   7 or 30 days or until lifted, with a reason), and who is stopped with Lift. #community opens it.
  * - Builder (the last tab, only when the site option groddle_builder_enabled is on;
  *   src/AdminBuilder.php): the level builder's drafts with their streets, each opening the
  *   builder page (/console/builder/#draft=<id>), Archive, and a new draft (title, and an id
@@ -184,6 +189,11 @@ export const COPY = Object.freeze({
   rookEndNote: 'The Rook flies off as when it leaves after its third wing beat. Everyone there sees it go. Nobody gets iMG or a badge for it, and what it rooked stays rooked until revived.',
   boardRemoveConfirm: (label) => `Remove this note from the board in ${label}?`,
   boardRemoveNote: 'It comes off the board for everyone there. Nobody gets the note back, and the player who pinned it is not told.',
+  communityNone: { reported: 'No post has been reported.', recent: 'Nobody has posted on the boards yet.', removed: 'No post has been removed.' },
+  communityRemoveConfirm: (first) => (first ? 'Remove this thread from its board?' : 'Remove this post?'),
+  communityRemoveNote: (first) => (first ? 'Its first post is removed and the whole thread leaves its board for everyone. Restore brings it back.' : 'Its words are hidden for everyone; the thread says a moderator removed it. Restore brings it back.'),
+  communityStopTitle: (name) => `Stop ${name} posting on the boards`,
+  communityStopNote: 'They can still read the boards and play. A suspended account can\'t post either.',
   boardNone: { pinned: 'No notes are pinned on the boards.', reported: 'No note on a board has been reported.', all: 'No player has pinned a note yet.' },
 });
 
@@ -206,6 +216,17 @@ export function boardReports(n) {
 /** Whether Remove is offered: only while it is on its board. */
 export function boardRemovable(n) {
   return n?.status === 'pinned';
+}
+
+/** A Community post's status in words (src/Community.php). */
+export const COMMUNITY_STATUS = Object.freeze({ shown: 'Showing', deleted: 'Deleted by its writer', removed: 'Removed' });
+
+/** The lengths a stop from posting can be (src/AdminCommunity.php STOP_DAYS), in words. */
+export const COMMUNITY_STOP_DAYS = Object.freeze([[1, '1 day'], [3, '3 days'], [7, '7 days'], [30, '30 days'], [0, 'Until lifted']]);
+
+/** "until Nov 9" or "until lifted" for a stop's end (unix seconds; 0 until lifted). */
+export function stopUntil(until) {
+  return until ? `until ${new Date(until * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' })}` : 'until lifted';
 }
 
 /** A Rook attack's phase in words (groddle-afternoon-server rook.go phases). */
@@ -355,6 +376,14 @@ export function logWords(line) {
       const title = d.title ? `“${d.title}”` : 'a note';
       return `removed ${title}${d.by ? ` by ${d.by}` : ''} from the board in ${street}${line.delivery === 'down' ? ' (realtime server down: players there see it until it is taken or the server restarts)' : ''}`;
     }
+    case 'comm_remove': return `removed ${who}'s ${d.first ? 'thread' : 'post in'} “${d.title || ''}” on the Community boards`;
+    case 'comm_restore': return `restored ${who}'s ${d.first ? 'thread' : 'post in'} “${d.title || ''}” on the Community boards`;
+    case 'comm_pin': return `pinned “${d.title || ''}” on the Community boards`;
+    case 'comm_unpin': return `unpinned “${d.title || ''}” on the Community boards`;
+    case 'comm_lock': return `locked “${d.title || ''}” on the Community boards`;
+    case 'comm_unlock': return `unlocked “${d.title || ''}” on the Community boards`;
+    case 'comm_stop': return `stopped ${who} posting on the Community boards ${d.days ? `for ${d.days === 1 ? '1 day' : `${d.days} days`}` : 'until lifted'}${d.reason ? `: ${d.reason}` : ''}`;
+    case 'comm_unstop': return `let ${who} post on the Community boards again`;
     case 'credit': return `scored ${who}'s report “${d.subject || ''}”: ${creditWords({ points: d.points, kind: d.kind, by: d.by })}`;
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
@@ -915,6 +944,89 @@ function boot() {
     loadBoards();
   });
 
+  // == Community ==
+  const community = { show: 'reported', list: [] };
+  function renderCommunity() {
+    const table = $('[data-console-community]');
+    if (!table) return;
+    table.hidden = community.list.length === 0;
+    table.querySelector('tbody').replaceChildren(...community.list.map((p) => el('tr', { 'data-community-post': p.id, 'data-community-status': p.status, ...(p.reports > 0 && p.status === 'shown' ? { 'data-board-reported': '' } : {}) },
+      el('td', { class: 'console-who' }, el('a', { href: `${p.thread.url}#post-${p.id}`, target: '_blank', rel: 'noopener', text: p.thread.title }),
+        el('span', { class: 'console-sub', text: ` ${p.thread.board}, ${new Date(p.at * 1000).toLocaleString()}` }),
+        p.thread.pinned ? el('span', { class: 'console-tag', text: 'Pinned' }) : null, p.thread.locked ? el('span', { class: 'console-tag', text: 'Locked' }) : null),
+      el('td', {}, p.first ? el('b', { text: 'First post' }) : null, el('p', { class: 'console-board-body', text: p.body || '(blank)' })),
+      el('td', { text: p.author.name }),
+      el('td', {}, el('span', { text: COMMUNITY_STATUS[p.status] || p.status }), p.reports ? el('span', { class: 'console-tag console-tag-bad', text: p.reports === 1 ? 'Reported once' : `Reported by ${p.reports}` }) : null),
+      el('td', { class: 'console-act' },
+        p.status === 'shown' ? el('button', { type: 'button', class: 'console-small console-danger', text: 'Remove', 'aria-label': `Remove ${p.author.name}'s post in “${p.thread.title}”`, onclick: () => moderatePost(p, true) }) : null,
+        p.status === 'removed' ? el('button', { type: 'button', class: 'console-small', text: 'Restore', 'aria-label': `Restore ${p.author.name}'s post in “${p.thread.title}”`, onclick: () => moderatePost(p, false) }) : null,
+        el('button', { type: 'button', class: 'console-small', text: p.thread.pinned ? 'Unpin' : 'Pin', 'aria-label': `${p.thread.pinned ? 'Unpin' : 'Pin'} “${p.thread.title}”`, onclick: () => threadSet(p.thread, { pinned: !p.thread.pinned }) }),
+        el('button', { type: 'button', class: 'console-small', text: p.thread.locked ? 'Unlock' : 'Lock', 'aria-label': `${p.thread.locked ? 'Unlock' : 'Lock'} “${p.thread.title}”`, onclick: () => threadSet(p.thread, { locked: !p.thread.locked }) }),
+        el('button', { type: 'button', class: 'console-small', text: 'Stop posting', 'aria-label': `Stop ${p.author.name} posting on the boards`, onclick: () => stopPosting(p.author) })))));
+    const empty = $('[data-console-community-empty]');
+    empty.hidden = community.list.length > 0;
+    empty.textContent = COPY.communityNone[community.show] || COPY.communityNone.reported;
+  }
+  function renderStops(stops) {
+    $('[data-console-community-stops]').replaceChildren(...stops.map((b) => el('li', { class: 'console-ban' },
+      el('div', {}, el('b', { text: b.player.name }), el('span', { class: 'console-sub', text: ` ${stopUntil(b.until)}, by ${b.by.name || 'an administrator'}` }),
+        b.reason ? el('p', { class: 'console-reason', text: b.reason }) : null),
+      el('button', { type: 'button', class: 'console-small', text: 'Lift', 'aria-label': `Let ${b.player.name} post again`, onclick: async () => {
+        try {
+          const r = await api.call('admin/community_unstop', { method: 'POST', body: { player: b.player.id } });
+          say(r.text || 'Done.');
+          renderStops(r.stopped || []);
+          loadLog();
+        } catch (err) { failed(err); }
+      } }))));
+    $('[data-console-community-stops-empty]').hidden = stops.length > 0;
+  }
+  async function loadCommunity() {
+    let r;
+    try { r = await api.call(`admin/community_posts?show=${community.show}`); } catch (err) { return failed(err); }
+    community.list = r.posts || [];
+    const rep = r.counts?.reported || 0;
+    $('[data-console-community-reported]').textContent = rep ? String(rep) : '';
+    $('[data-console-tab="community"]').setAttribute('aria-label', rep ? `Community, ${rep} reported` : 'Community');
+    renderCommunity();
+    renderStops(r.stopped || []);
+  }
+  function moderatePost(p, remove) {
+    const run = async () => {
+      const r = await api.call(remove ? 'admin/community_remove' : 'admin/community_restore', { method: 'POST', body: { post: p.id } });
+      say(r.text || 'Done.');
+      loadCommunity();
+      loadLog();
+    };
+    if (!remove) return run().catch(failed);
+    dialog(COPY.communityRemoveConfirm(p.first), [el('p', { class: 'console-quote', text: `${p.thread.title}\n\n${p.body || '(blank)'}` }), el('p', { class: 'console-sub', text: `${p.author.name}. ${COPY.communityRemoveNote(p.first)}` })], 'Remove', run, { danger: true });
+  }
+  async function threadSet(t, change) {
+    try {
+      const r = await api.call('admin/community_thread', { method: 'POST', body: { thread: t.id, ...change } });
+      say(r.text || 'Done.');
+      loadCommunity();
+      loadLog();
+    } catch (err) { failed(err); }
+  }
+  function stopPosting(who) {
+    const days = el('select', { name: 'days' }, ...COMMUNITY_STOP_DAYS.map(([d, label]) => el('option', { value: String(d), ...(d === 3 ? { selected: true } : {}), text: label })));
+    const reason = el('input', { type: 'text', name: 'reason', maxlength: '200', placeholder: 'The log keeps it' });
+    dialog(COPY.communityStopTitle(who.name), [el('label', { text: 'How long' }, days), el('label', { text: 'Reason' }, reason), el('p', { class: 'console-sub', text: COPY.communityStopNote })], 'Stop posting', async () => {
+      const r = await api.call('admin/community_stop', { method: 'POST', body: { player: who.id, days: Number(days.value), reason: reason.value } });
+      say(r.text || 'Done.');
+      renderStops(r.stopped || []);
+      loadLog();
+    }, { danger: true });
+  }
+  $('[data-console-community-filter]')?.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-show]');
+    if (!b) return;
+    community.show = b.dataset.show;
+    for (const o of e.currentTarget.querySelectorAll('button[data-show]')) o.setAttribute('aria-pressed', String(o === b));
+    loadCommunity();
+  });
+
   // == Tabs ==
   const tablist = $('[data-console-tabs]');
   const tabs = [...tablist.querySelectorAll('[role="tab"]')];
@@ -932,6 +1044,8 @@ function boot() {
     if (id === 'builder') loadDrafts();
     if (id === 'credits') loadCredits();
     if (id === 'credits' && location.hash !== '#credits') history.replaceState(null, '', '#credits');
+    if (id === 'community') loadCommunity();
+    if (id === 'community' && location.hash !== '#community') history.replaceState(null, '', '#community');
     if (id === 'boards') loadBoards();
     if (id === 'boards' && location.hash !== '#boards') history.replaceState(null, '', '#boards');
     if (id === 'chat' && !chat.loaded) loadChat();
@@ -1246,6 +1360,7 @@ function boot() {
     else if (location.hash === '#chat') showTab('chat');
     else if (location.hash === '#credits') showTab('credits');
     else if (location.hash === '#boards') showTab('boards');
+    else if (location.hash === '#community') showTab('community');
   }
   addEventListener('hashchange', fromHash);
 
