@@ -101,6 +101,8 @@ final readonly class HomeYard
 
     /** The home street's tsid in a save (js/features/homes-feature.js HOME_STREET_TSID). */
     public const STREET = 'RH_HOME_EXT';
+    /** The game's js/animal-husbandry.js MAGIC_STICKS. */
+    public const MAGIC_STICKS = ['magic_pig_stick', 'magic_chicken_stick', 'magic_butterfly_stick'];
     public const SLICE = 'yard-verbs-mp';
 
     public const WAITING_MAX = 200;
@@ -305,7 +307,10 @@ final readonly class HomeYard
         }
         $animals = [];
         foreach (self::animalRows($state) as $row) {
-            $animals[] = ['id' => $row->id, 'classId' => $row->classId, 'x' => is_numeric($row->x ?? null) ? (int) $row->x : 0, 'state' => is_object($row->state ?? null) ? $row->state : (object) []];
+            $x = is_numeric($row->x ?? null) ? (int) $row->x : 0;
+            // Ticket 99: its own spot, the middle of its walk (the game's js/yard-wander.js).
+            $homeX = is_numeric($row->homeX ?? null) ? (int) $row->homeX : $x;
+            $animals[] = ['id' => $row->id, 'classId' => $row->classId, 'x' => $x, 'homeX' => $homeX, 'state' => is_object($row->state ?? null) ? $row->state : (object) []];
         }
         $mine = [];
         foreach (self::usesOf($db, $owner, $me, HomePool::today()) as $what => $n) {
@@ -319,6 +324,7 @@ final readonly class HomeYard
             'cult' => is_object($homes?->cult ?? null) ? $homes->cult : (object) [],
             'patches' => $patches,
             'animals' => $animals,
+            'sticks' => self::stickRows($state),
             'rocks' => $rocks,
             'nodes' => $nodes,
             'mine' => (object) $mine,
@@ -927,6 +933,19 @@ final readonly class HomeYard
         foreach (is_array($rows) ? $rows : [] as $r) {
             if (is_object($r) && is_string($r->id ?? null) && preg_match('/^a\d{1,6}$/', $r->id) === 1 && isset(self::ANIMAL_VERBS[$r->classId ?? ''])) {
                 $out[] = $r;
+            }
+        }
+        return $out;
+    }
+
+    /** The owner's placed Magic Sticks on the home street ({ classTsid, x, distance }): where the animals of each class stay. */
+    public static function stickRows(?object $state): array
+    {
+        $rows = $state?->world?->streets?->{self::STREET}?->features?->{'animal-husbandry'}?->sticks ?? [];
+        $out = [];
+        foreach (is_array($rows) ? $rows : [] as $k) {
+            if (is_object($k) && in_array($k->classTsid ?? '', self::MAGIC_STICKS, true) && is_numeric($k->x ?? null)) {
+                $out[] = ['classTsid' => $k->classTsid, 'x' => (int) $k->x, 'distance' => is_numeric($k->distance ?? null) && (int) $k->distance > 0 ? (int) $k->distance : 250];
             }
         }
         return $out;
