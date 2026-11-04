@@ -58,6 +58,7 @@
 .cchan-more { display: block; margin: 4px auto 0; }
 .cchan-more[hidden] { display: none; }
 .cchan-lines { list-style: none; margin: 0; padding: 8px 12px; height: 18em; overflow-y: auto; font-size: 15px; line-height: 1.45; }
+.cchan-lines:empty { height: auto; padding: 0; }
 .cchan-line { padding: 2px 0; overflow-wrap: anywhere; }
 .cchan-line time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .cchan-name { color: var(--fg); }
@@ -67,7 +68,7 @@
 .cchan-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: 1px; }
 .cchip-small { min-height: 22px; padding: 0 7px; font-size: 12px; }
 .cchip-small .cchip-glyph { font-size: 13px; }
-.cchan-empty { margin: 0; padding: 0 12px 10px; }
+.cchan-empty { margin: 0; padding: 12px; }
 .cchan-empty[hidden] { display: none; }
 .cchan-say { display: flex; gap: 8px; margin-top: 10px; }
 .cchan-say .cinput { flex: 1; min-width: 0; }

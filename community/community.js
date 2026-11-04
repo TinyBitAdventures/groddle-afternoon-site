@@ -471,12 +471,23 @@ if (live) {
   const tabs = [...live.querySelectorAll('[data-chan]')].filter((b) => b.matches('button'));
   const state = { chan: live.dataset.chan, after: Number(live.dataset.after) || 0, before: Number(live.dataset.before) || 0, since: Number(live.dataset.since) || 0, busy: false };
   const atEnd = () => lines.scrollHeight - lines.scrollTop - lines.clientHeight < 24;
+  // The page draws times in UTC; the reader's own clock reads better.
+  const localTime = (li) => {
+    const t = li.querySelector('time[datetime]');
+    const d = t ? new Date(t.getAttribute('datetime')) : null;
+    if (d && !Number.isNaN(d.getTime())) {
+      t.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      t.title = d.toLocaleString();
+    }
+  };
+  for (const li of lines.children) localTime(li);
   const toEnd = () => { lines.scrollTop = lines.scrollHeight; };
   toEnd();
 
   function place(l, { top = false } = {}) {
     const li = fromHtml(l.html);
     if (!li) return;
+    localTime(li);
     const old = lines.querySelector(`[data-lid="${l.lid}"]`);
     if (old) old.replaceWith(li);
     else if (top) lines.prepend(li);
