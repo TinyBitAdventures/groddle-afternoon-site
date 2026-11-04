@@ -49,8 +49,29 @@ final class SiteNav
 
     public static function register(Seams $minn): void
     {
-        $minn->block('blocks/site-nav', static fn (array $a): string => self::nav(self::links($minn, (int) $a['ref']), $minn->request->path));
+        $minn->block('blocks/site-nav', static fn (array $a): string => self::nav(self::links($minn, (int) $a['ref']), $minn->request->path, self::badges($minn)));
     }
+
+    /**
+     * Counts the header shows on links for the signed-in reader, href =>
+     * n: the Community link's unread notices (a reply to your thread, a
+     * quote of you; Community::unread). Only pages drawn here carry them;
+     * the built pages' copy of the menu (tools/site-nav/apply.mjs) has none.
+     *
+     * @return array<string, int>
+     */
+    public static function badges(Seams $minn): array
+    {
+        $reader = $minn->reader->userId;
+        if ($reader <= 0) {
+            return [];
+        }
+        $n = (new Community($minn))->unread($reader);
+        return $n > 0 ? [self::COMMUNITY => $n] : [];
+    }
+
+    /** The Community boards' address (CommunityPages), whose menu link carries the unread badge. */
+    public const COMMUNITY = '/chat/';
 
     /**
      * The menu's top-level links as [label, href, class], a submenu's with
@@ -118,13 +139,22 @@ final class SiteNav
         return $label === '' || $href === '' ? null : [$label, $href, trim((string) $block->attr('className', ''))];
     }
 
-    /** @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $links */
-    public static function nav(array $links, string $path): string
+    /**
+     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $links
+     * @param array<string, int> $badges href => a count its link shows (badges())
+     */
+    public static function nav(array $links, string $path, array $badges = []): string
     {
         $current = self::current($links, $path);
         $items = '';
         foreach ($links as $i => $link) {
-            $items .= "\n      " . self::item($link, $i, $i === $current, $path);
+            $item = self::item($link, $i, $i === $current, $path);
+            $n = $badges[rtrim((string) (parse_url($link[1], PHP_URL_PATH) ?? ''), '/') . '/'] ?? 0;
+            if ($n > 0) {
+                // The count inside the link, read with it ("Community, 2 new").
+                $item = (string) preg_replace('~</a>~', self::badge($n) . '</a>', $item, 1);
+            }
+            $items .= "\n      " . $item;
         }
         return '<nav class="site-nav" aria-label="Site">' . "\n"
             . '  <div class="wrap site-nav-row">' . "\n"
@@ -157,6 +187,12 @@ final class SiteNav
         return '<div class="site-nav-sub">' . $a
             . '<button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="' . $id . '" aria-label="' . Html::attr('More in ' . $label) . '"></button>'
             . '<div class="site-nav-panel" id="' . $id . '" hidden>' . $panel . '</div></div>';
+    }
+
+    /** A link's count badge: the number shown, ", N new" for a screen reader. */
+    public static function badge(int $n): string
+    {
+        return '<span class="site-nav-badge"><span class="visually-hidden">, </span>' . ($n > 9 ? '9+' : $n) . '<span class="visually-hidden"> new</span></span>';
     }
 
     private static function anchor(string $label, string $href, string $class, bool $current): string

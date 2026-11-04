@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.37",
+  "version": "0.5.38",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -683,6 +683,102 @@
       "scored_at datetime NOT NULL",
       "PRIMARY KEY  (ticket_id)",
       "KEY player_points (player_user_id,points)"
+    ],
+    "groddle_community_boards": [
+      "slug varchar(32) NOT NULL",
+      "name varchar(80) NOT NULL",
+      "about varchar(300) NOT NULL DEFAULT ''",
+      "position tinyint(3) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (slug)"
+    ],
+    "groddle_community_threads": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "board varchar(32) NOT NULL",
+      "author_id bigint(20) unsigned NOT NULL",
+      "title varchar(200) NOT NULL",
+      "status varchar(8) NOT NULL DEFAULT 'open'",
+      "pinned tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "locked tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "posts int(10) unsigned NOT NULL DEFAULT 0",
+      "first_post_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "last_post_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "last_author_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "last_post_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY board_activity (board,status,pinned,last_post_at)",
+      "KEY author_id (author_id,created_at)"
+    ],
+    "groddle_community_posts": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "thread_id bigint(20) unsigned NOT NULL",
+      "author_id bigint(20) unsigned NOT NULL",
+      "author_name varchar(80) NOT NULL DEFAULT ''",
+      "body text NOT NULL",
+      "quote_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "status varchar(8) NOT NULL DEFAULT 'shown'",
+      "reports int(10) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "edited_at datetime NULL DEFAULT NULL",
+      "removed_by bigint(20) unsigned NOT NULL DEFAULT 0",
+      "removed_at datetime NULL DEFAULT NULL",
+      "changed_ms bigint(20) unsigned NOT NULL DEFAULT 0",
+      "PRIMARY KEY  (id)",
+      "KEY thread_id (thread_id,id)",
+      "KEY author_id (author_id,created_at)",
+      "KEY changed (thread_id,changed_ms)",
+      "KEY reported (reports,status)"
+    ],
+    "groddle_community_reactions": [
+      "post_id bigint(20) unsigned NOT NULL",
+      "user_id bigint(20) unsigned NOT NULL",
+      "reaction varchar(12) NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (post_id,user_id,reaction)",
+      "KEY user_id (user_id,created_at)"
+    ],
+    "groddle_community_reports": [
+      "post_id bigint(20) unsigned NOT NULL",
+      "reporter_id bigint(20) unsigned NOT NULL",
+      "ticket_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (post_id,reporter_id)",
+      "KEY reporter_id (reporter_id)"
+    ],
+    "groddle_community_edits": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "post_id bigint(20) unsigned NOT NULL",
+      "editor_id bigint(20) unsigned NOT NULL",
+      "body text NOT NULL",
+      "edited_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY post_id (post_id)",
+      "KEY editor_id (editor_id)"
+    ],
+    "groddle_community_bans": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "until datetime NULL DEFAULT NULL",
+      "reason varchar(200) NOT NULL DEFAULT ''",
+      "admin_user_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (user_id)"
+    ],
+    "groddle_community_notices": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "user_id bigint(20) unsigned NOT NULL",
+      "kind varchar(8) NOT NULL",
+      "thread_id bigint(20) unsigned NOT NULL",
+      "post_id bigint(20) unsigned NOT NULL",
+      "from_id bigint(20) unsigned NOT NULL",
+      "count int(10) unsigned NOT NULL DEFAULT 1",
+      "created_at datetime NOT NULL",
+      "read_at datetime NULL DEFAULT NULL",
+      "game_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY user_unread (user_id,read_at)",
+      "KEY from_id (from_id)",
+      "KEY thread_id (thread_id)"
     ]
   }
 }

@@ -1,0 +1,163 @@
+/* The Community boards (/chat/, src/CommunityPages.php; community/community.js). Colours come only
+   from the tokens restoration.css defines for both themes (--bg --surface --fg --muted --border
+   --accent --lead --track --row-line --chip-solid, the play fill and the status tones), so light and
+   dark follow site/theme.js. A mix of forum and chat: boards and threads as lists, a thread as a
+   compact run of posts with the reply box at the bottom. */
+
+.community-head { padding-bottom: 18px; }
+.community-head h1 { font-size: clamp(32px, 4.6vw, 54px); max-width: 22em; overflow-wrap: anywhere; }
+.community-head .lead { margin-bottom: 8px; }
+.ccrumbs a { color: inherit; text-decoration: none; }
+.note-head .ccrumbs > * + *::before { content: none; }
+.ccrumbs a:hover { color: var(--fg); text-decoration: underline; }
+.cmeta { margin: 0; color: var(--muted); font-size: 15px; }
+.community { padding-top: 20px; }
+.community-wrap { display: grid; gap: 22px; }
+.community-narrow > * { max-width: 860px; }
+.cmuted { color: var(--muted); }
+.community h2 { font-size: clamp(24px, 3vw, 30px); margin: 0 0 12px; }
+
+/* Buttons and tags */
+.cbutton { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; padding: 0 18px; border: 1px solid var(--play-bg); border-radius: 999px; background: var(--play-bg); color: var(--play-fg); font: inherit; font-size: 15px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.cbutton:hover { background: var(--play-hover); border-color: var(--play-hover); }
+.cbutton:disabled { opacity: 0.6; cursor: progress; }
+.cbutton-quiet { background: var(--surface); border-color: var(--border); color: var(--fg); }
+.cbutton-quiet:hover { background: var(--surface); border-color: var(--fg); }
+.cbutton:focus-visible, .cact:focus-visible, .cchip:focus-visible, .cpicker button:focus-visible, .community a:focus-visible, .cinput:focus-visible, .ctext:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ctag { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--track); color: var(--fg); font-size: 12px; font-weight: 700; vertical-align: 2px; letter-spacing: 0.02em; }
+.ctag-pin { border-color: var(--sun); }
+.ctag-staff { border-color: var(--moss); color: var(--fg); }
+.ctag-bad { border-color: var(--accent); }
+
+/* The boards */
+.cboard-list, .cthread-list, .cposts { list-style: none; margin: 0; padding: 0; }
+.cboard-list { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+.cboard { display: grid; grid-template-columns: minmax(0, 1fr) 11em minmax(0, 16em); gap: 6px 20px; align-items: start; padding: 16px 20px; border-top: 1px solid var(--row-line); }
+.cboard:first-child { border-top: 0; }
+.cboard-name { margin: 0 0 2px; font-size: 22px; }
+.cboard-name a { color: var(--fg); text-decoration: none; }
+.cboard-name a:hover { text-decoration: underline; text-decoration-color: var(--accent); }
+.cboard-about { margin: 0; color: var(--lead); }
+.cboard-stats, .cboard-latest { margin: 3px 0 0; font-size: 14px; color: var(--muted); }
+.cboard-latest a { color: var(--fg); font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+.cboard-latest a:hover { text-decoration: underline; }
+
+/* The game's channels (signed out: a sign-in line, nothing of the channels) */
+.cchannels { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 16px 20px; }
+.cchannels h2 { font-size: 22px; margin: 0 0 4px; }
+.cchannels p { margin: 0 0 10px; color: var(--lead); }
+.csignin { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+
+/* A board's threads */
+.cbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.cbar > p { margin: 0; }
+.cthread-list { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); overflow: hidden; }
+.cthread { display: grid; grid-template-columns: minmax(0, 1fr) 6em 10em; gap: 4px 16px; align-items: center; padding: 12px 18px; border-top: 1px solid var(--row-line); }
+.cthread:first-child { border-top: 0; }
+.cthread[data-pinned] { background: color-mix(in srgb, var(--sun) 7%, transparent); }
+.cthread-title { color: var(--fg); font-weight: 700; font-size: 17px; text-decoration: none; overflow-wrap: anywhere; }
+.cthread-title:hover { text-decoration: underline; text-decoration-color: var(--accent); }
+.cthread-by, .cthread-count, .cthread-last { margin: 2px 0 0; font-size: 14px; }
+.cthread-count { text-align: right; }
+.cthread-last a { color: inherit; }
+.cempty { color: var(--muted); margin: 0; }
+.cpager { margin: 0; }
+
+/* A thread: a compact run of posts, chat-like */
+.cposts { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.cpost { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; padding: 14px 18px; border-top: 1px solid var(--row-line); scroll-margin-top: calc(var(--site-nav-h, 60px) + 12px); }
+.cpost:first-child { border-top: 0; }
+.cpost:target, .cpost[data-fresh] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.cpost-face { width: 40px; height: 40px; border-radius: 999px; overflow: hidden; background: var(--track); display: grid; place-items: center; }
+.cpost-tile { width: 40px; height: 58px; object-fit: cover; object-position: 50% 8%; align-self: start; }
+.cpost-initial { font-weight: 800; color: var(--muted); font-size: 17px; }
+.cpost-main { min-width: 0; }
+.cpost-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.cpost-name { font-weight: 800; color: var(--fg); text-decoration: none; }
+a.cpost-name:hover { text-decoration: underline; }
+.cpost-head .ctag { margin-left: 0; }
+.cpost-time, .cpost-edited { color: var(--muted); font-size: 13px; text-decoration: none; }
+.cpost-time:hover { text-decoration: underline; }
+.cpost-edited { font-style: italic; }
+.cpost-body { margin-top: 2px; overflow-wrap: anywhere; line-height: 1.5; }
+.cpost-body p { margin: 0 0 8px; white-space: pre-wrap; }
+.cpost-body p:last-child { margin-bottom: 0; }
+.cpost-body a, .cquote a { color: var(--fg); text-decoration-color: var(--accent); }
+.cpost-gone { margin: 2px 0 0; color: var(--muted); font-style: italic; }
+.cquote { margin: 6px 0 8px; padding: 6px 12px; border-left: 3px solid var(--accent); background: var(--track); border-radius: 0 var(--radius) var(--radius) 0; font-size: 15px; }
+.cquote > a { font-weight: 700; text-decoration: none; }
+.cquote p { margin: 2px 0 0; color: var(--lead); overflow-wrap: anywhere; }
+.cpost-blocked > summary { cursor: pointer; color: var(--muted); font-style: italic; }
+.cpost-blocked[open] > summary { margin-bottom: 6px; }
+
+/* Reactions: chips under the words */
+.cpost-reactions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cpost-reactions[data-empty] { display: none; }
+.cchip { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--chip-solid); color: var(--fg); font: inherit; font-size: 14px; font-weight: 700; line-height: 1; }
+button.cchip { cursor: pointer; }
+button.cchip:hover { border-color: var(--muted); }
+.cchip[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--chip-solid)); }
+.cchip-glyph { font-size: 16px; }
+/* Tiny Speck's "Hi" sign (CC0), its letters cut from the frame as the game's .react-glyph-hi: the art is
+   444 x 348 at 3x, the letters at 197,171 and 74 x 60. */
+.cchip-hi { display: inline-block; width: 1.5em; height: calc(1.5em * 60 / 74); background: url("/assets/sprites/hi-signs/hi_hi_1@3x.webp") no-repeat; background-size: calc(1.5em * 444 / 74) calc(1.5em * 348 / 74); background-position: calc(1.5em * -197 / 74) calc(1.5em * -171 / 74); }
+.cpicker .cchip-hi { font-size: 16px; }
+
+/* A post's actions: quiet text buttons */
+.cpost-actions { display: flex; flex-wrap: wrap; gap: 2px 4px; margin-top: 6px; }
+.cact { display: inline-flex; align-items: center; min-height: 30px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.cact:hover, .cact[aria-expanded="true"] { background: var(--track); color: var(--fg); }
+.cpost:not(:hover):not(:focus-within) .cpost-actions .cact { color: color-mix(in srgb, var(--muted) 80%, transparent); }
+
+/* The reaction picker community.js places under React */
+.cpicker { position: absolute; z-index: 30; display: flex; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.cpicker[hidden] { display: none; }
+.cpicker button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; font-size: 20px; cursor: pointer; }
+.cpicker button:hover, .cpicker button[aria-pressed="true"] { background: var(--track); }
+
+/* Editing in place */
+.cedit { display: grid; gap: 8px; margin-top: 4px; }
+.cedit-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* The reply box and the new thread form */
+.creply, .cform, .cpanel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 14px 16px; }
+.cpanel p { margin: 0 0 10px; color: var(--lead); }
+.cpanel p:last-child { margin-bottom: 0; }
+.cform { display: grid; gap: 6px; }
+.clabel { font-weight: 700; margin-top: 6px; }
+.cinput, .ctext { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--fg); font: inherit; font-size: 16px; line-height: 1.4; }
+.ctext { display: block; resize: vertical; min-height: 46px; max-height: 50vh; }
+.ctext-tall { min-height: 180px; }
+.cinput::placeholder, .ctext::placeholder { color: var(--muted); opacity: 1; }
+.cform-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; margin-top: 8px; }
+.chint { margin: 0; color: var(--muted); font-size: 13px; }
+.csaid { margin: 6px 0 0; min-height: 1em; color: var(--muted); font-size: 14px; }
+.csaid:empty { display: none; }
+.csaid[data-tone="bad"] { color: var(--fg); font-weight: 700; }
+.cquoting { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--track); border-radius: 0 var(--radius) var(--radius) 0; font-size: 14px; color: var(--lead); }
+.cquoting[hidden] { display: none; }
+.cquoting-off { color: var(--muted); font-size: 13px; }
+.cnew { margin: 0; text-align: center; }
+.cnew a { font-weight: 700; color: var(--fg); }
+
+/* The sign-in form community.js shows in a sign-in panel */
+.csignin-form { display: grid; gap: 8px; max-width: 28em; margin-top: 10px; }
+.csignin-form[hidden] { display: none; }
+
+/* A link to another site asks first (the game's js/chat-links.js openLinkConfirm). */
+.chat-link-confirm { position: fixed; z-index: 40; max-width: min(320px, calc(100vw - 16px)); padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--fg); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2); font-size: 14px; }
+.chat-link-confirm-text { margin: 0 0 8px; overflow-wrap: anywhere; }
+.chat-link-confirm-row { display: flex; gap: 8px; }
+.chat-link-confirm-open, .chat-link-confirm-cancel { display: inline-flex; align-items: center; min-height: 32px; padding: 0 14px; border-radius: 999px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; text-decoration: none; }
+.chat-link-confirm-open { background: var(--play-bg); color: var(--play-fg); border: 1px solid var(--play-bg); }
+.chat-link-confirm-cancel { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+
+@media (max-width: 760px) {
+  .cboard { grid-template-columns: minmax(0, 1fr); padding: 14px 16px; }
+  .cthread { grid-template-columns: minmax(0, 1fr) auto; padding: 12px 14px; }
+  .cthread-last { grid-column: 1 / -1; }
+  .cthread-last br { display: none; }
+  .cpost { grid-template-columns: 32px minmax(0, 1fr); gap: 10px; padding: 12px 14px; }
+  .cpost-face { width: 32px; height: 32px; }
+  .cpost-tile { width: 32px; height: 46px; }
+}

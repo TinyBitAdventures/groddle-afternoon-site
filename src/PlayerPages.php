@@ -756,7 +756,7 @@ final readonly class PlayerPages
             . '<meta name="description" content="' . Html::attr($description) . "\" />\n"
             . Extension::head()
             . "</head>\n<body class=\"notes players-page\">\n"
-            . SiteNav::nav(SiteNav::links($this->minn, 0), $path) . "\n"
+            . SiteNav::nav(SiteNav::links($this->minn, 0), $path, SiteNav::badges($this->minn)) . "\n"
             . $body . "\n"
             . trim($footer) . "\n" . $scripts . "</body>\n</html>\n";
         $html = SocialTags::insert($html, (string) ($this->minn->site->option('home') ?? ''), $path);
