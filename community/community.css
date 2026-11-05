@@ -103,7 +103,11 @@ body.community-page { display: flex; flex-direction: column; height: 100vh; heig
 .notif-all:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .notif-all:disabled { color: var(--muted); cursor: default; background: transparent; }
 .notif-list { flex: 1 1 auto; min-height: 0; margin: 0; padding: 6px; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; }
-.notif-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--fg); text-decoration: none; }
+.notif-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: var(--fg); font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+/* A buddy add's quiet actions under its row: View profile, Send IM. */
+.notif-acts { display: flex; gap: 12px; margin: -4px 0 6px 52px; }
+.notif-act { padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 700; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--muted) 40%, transparent); text-underline-offset: 2px; cursor: pointer; }
+.notif-act:hover, .notif-act:focus-visible { color: var(--fg); text-decoration-color: var(--accent); }
 .notif-row:hover, .notif-row:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); outline: none; }
 .notif-row:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .notif-icon { display: grid; flex: none; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--track); color: var(--fg); }

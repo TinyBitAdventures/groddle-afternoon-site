@@ -110,7 +110,8 @@ export function startNotifications({ call }) {
     const rows = [];
     for (const item of items) {
       const li = el('li', { class: 'notif-item', 'data-notif-key': item.key, 'data-kind': item.kind, ...(item.unread ? { 'data-unread': '' } : {}), ...(item.sample ? { 'data-sample': '' } : {}) });
-      const a = el('a', { class: 'notif-row', href: item.url || '/chat/' });
+      // A row is a button: a click reads it, and opens a conversation, thread or topic in place; it never leaves for a profile.
+      const a = el('button', { type: 'button', class: 'notif-row' });
       const icon = el('span', { class: 'notif-icon', 'data-kind': item.kind, 'aria-hidden': 'true' });
       icon.innerHTML = ICONS[item.kind] || ICONS.reply;
       const txt = el('span', { class: 'notif-txt' });
@@ -124,6 +125,13 @@ export function startNotifications({ call }) {
       txt.append(el('time', { datetime: new Date(item.at).toISOString(), title: new Date(item.at).toLocaleString() }, agoLabel(item.at, now)));
       a.append(icon, txt, el('span', { class: 'notif-dot', 'aria-label': item.unread ? 'New' : null, role: item.unread ? 'img' : null }));
       li.append(a);
+      // A buddy add: small, quiet actions beside the row (the row itself only reads it).
+      if (item.kind === 'buddy' && item.from?.id) {
+        const acts = el('span', { class: 'notif-acts' });
+        if (typeof item.url === 'string' && item.url.startsWith('/players/')) acts.append(el('a', { class: 'notif-act', href: item.url }, 'View profile'));
+        acts.append(el('button', { type: 'button', class: 'notif-act', 'data-notif-im': String(item.from.id) }, 'Send IM'));
+        li.append(acts);
+      }
       if (expanded.has(item.key)) li.append(expanded.get(item.key));
       rows.push(li);
     }
@@ -250,9 +258,30 @@ export function startNotifications({ call }) {
       closePanel();
       return;
     }
-    // Leaving the page: the read goes first, but never holds the click up for long.
+    // Only a board topic or a conversation on /chat/ is opened from the row; anything else (a buddy add's
+    // profile) is just read, and its own small action buttons go further.
+    if (typeof item.url !== 'string' || !item.url.startsWith('/chat/')) return;
     await Promise.race([wait, new Promise((r) => setTimeout(r, 600))]);
     location.href = item.url;
+  });
+
+  // A buddy add's Send IM: the IM in place when the chat app is open, else /chat/?im=<id>.
+  list.addEventListener('click', (e) => {
+    const act = e.target.closest('.notif-act');
+    if (!act) return;
+    const key = act.closest('[data-notif-key]')?.dataset.notifKey;
+    // The local preview's samples are nobody: their actions only say so.
+    if (items.find((i) => i.key === key)?.sample) {
+      e.preventDefault();
+      said.textContent = WORDS.sampleOnly;
+      return;
+    }
+    const b = act.matches('[data-notif-im]') ? act : null;
+    if (!b) { if (key) read(key); return; }
+    const id = b.dataset.notifIm;
+    if (key) read(key);
+    if (app.open?.({ conv: `im:${id}` })) { closePanel(); return; }
+    location.href = `/chat/?im=${encodeURIComponent(id)}`;
   });
 
   /** The team's answer, under its row (opening it reads it in the game too, as the Reports sheet does). */
