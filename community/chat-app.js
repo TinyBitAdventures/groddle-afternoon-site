@@ -170,7 +170,9 @@ const REACT_DEFS = new Map();
 
 function repliesNode(c, l) {
   if (!l.th || !(l.th.n > 0)) return null;
-  const a = el('button', { type: 'button', class: 'cx-replies', 'data-cx-replies': String(l.id) }, `${WORDS.replies(l.th.n)} · ${l.th.last?.id === ME ? 'You' : l.th.last?.name || ''}`);
+  const a = el('button', { type: 'button', class: 'cx-replies', 'data-cx-replies': String(l.id) });
+  a.innerHTML = ICON.thread;
+  a.append(el('span', {}, `${WORDS.replies(l.th.n)} · ${l.th.last?.id === ME ? 'You' : l.th.last?.name || ''}`));
   return a;
 }
 

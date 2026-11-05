@@ -190,8 +190,10 @@ textarea.cx-field { display: block; height: 36px; max-height: 40vh; overflow-y: 
 .cx-act { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .cx-act:hover { background: var(--cx-parchment); color: var(--fg); }
 .cx-act svg { width: 18px; height: 18px; }
-.cx-replies { display: inline-block; margin: 2px 0 0; padding: 0; border: 0; background: none; font-size: 13px; font-weight: 800; color: var(--accent); text-decoration: none; cursor: pointer; }
-.cx-replies:hover { text-decoration: underline; }
+/* "3 replies · Ada": a button of its own under the line, with room before the next line (the drawer's .thread-open). */
+.cx-replies { display: flex; align-items: center; gap: 5px; width: fit-content; min-height: 26px; margin: 5px 0 6px; padding: 0 10px 0 8px; border: 1px solid var(--cx-strong); border-radius: 999px; background: var(--surface); font-size: 13px; font-weight: 800; line-height: 1; color: var(--accent); text-decoration: none; cursor: pointer; -webkit-user-select: none; user-select: none; }
+.cx-replies svg { width: 15px; height: 15px; flex: none; }
+.cx-replies:hover { border-color: var(--accent); background: var(--cx-soft); }
 .cchan-more { align-self: center; }
 .cchan-empty { margin: 0; color: var(--muted); }
 
