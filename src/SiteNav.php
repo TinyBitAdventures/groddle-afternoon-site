@@ -54,9 +54,11 @@ final class SiteNav
 
     /**
      * Counts the header shows on links for the signed-in reader, href =>
-     * n: the Community link's unread notices (a reply to your thread, a
-     * quote of you; Community::unread). Only pages drawn here carry them;
-     * the built pages' copy of the menu (tools/site-nav/apply.mjs) has none.
+     * n: the Community link's unread notifications (a reply to your topic, a
+     * quote, replies under your chat line, IMs you haven't answered, buddy
+     * adds, the team's answer to a report; Notifications::unread), the same
+     * count as the chat app's bell. Only pages drawn here carry them; the
+     * built pages' copy of the menu (tools/site-nav/apply.mjs) has none.
      *
      * @return array<string, int>
      */
@@ -66,7 +68,7 @@ final class SiteNav
         if ($reader <= 0) {
             return [];
         }
-        $n = (new Community($minn))->unread($reader);
+        $n = (new Notifications($minn))->unread($reader);
         return $n > 0 ? [self::COMMUNITY => $n] : [];
     }
 
@@ -140,10 +142,18 @@ final class SiteNav
     }
 
     /**
+     * The header. $app draws the chat app's layout instead (Austin 2026-11-04, /chat/ only,
+     * CommunityPages): the same block, links and theme button, full width in one compact row,
+     * the wordmark over the app's left rail, and for a signed-in reader ($app['bell'], the unread
+     * count) the notifications bell; on a phone the links fold behind a menu button
+     * (community.js). site/site-nav.css names the header, its mark and name, the links and the theme
+     * button for the page-to-page View Transition, so the centred header stretches into this one and back.
+     *
      * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $links
      * @param array<string, int> $badges href => a count its link shows (badges())
+     * @param array{bell?: int|null}|null $app
      */
-    public static function nav(array $links, string $path, array $badges = []): string
+    public static function nav(array $links, string $path, array $badges = [], ?array $app = null): string
     {
         $current = self::current($links, $path);
         $items = '';
@@ -156,11 +166,30 @@ final class SiteNav
             }
             $items .= "\n      " . $item;
         }
-        return '<nav class="site-nav" aria-label="Site">' . "\n"
-            . '  <div class="wrap site-nav-row">' . "\n"
-            . '    <a class="wordmark" href="/"' . ($path === '/' ? ' aria-current="page"' : '') . '><img src="/favicon.svg?v=arch" alt="" width="28" height="28" /><span>Groddle Afternoon</span></a>' . "\n"
-            . '    <div class="site-nav-links">' . $items . "\n    </div>\n"
-            . '    <button class="site-nav-theme" type="button" aria-label="Colour theme"></button>' . "\n  </div>\n</nav>";
+        $wordmark = '    <a class="wordmark" href="/"' . ($path === '/' ? ' aria-current="page"' : '') . '><img src="/favicon.svg?v=arch" alt="" width="28" height="28" /><span>Groddle Afternoon</span></a>' . "\n";
+        $theme = '    <button class="site-nav-theme" type="button" aria-label="Colour theme"></button>' . "\n  </div>\n</nav>";
+        if ($app === null) {
+            return '<nav class="site-nav" aria-label="Site">' . "\n"
+                . '  <div class="wrap site-nav-row">' . "\n"
+                . $wordmark
+                . '    <div class="site-nav-links">' . $items . "\n    </div>\n"
+                . $theme;
+        }
+        $bell = isset($app['bell']) ? self::bell((int) $app['bell']) . "\n" : '';
+        return '<nav class="site-nav site-nav-app" aria-label="Site">' . "\n"
+            . '  <div class="site-nav-row">' . "\n"
+            . $wordmark
+            . '    <button class="site-nav-menu" type="button" aria-expanded="false" aria-controls="site-nav-links" aria-label="Menu" hidden></button>' . "\n"
+            . '    <div class="site-nav-links" id="site-nav-links">' . $items . "\n    </div>\n"
+            . $bell
+            . $theme;
+    }
+
+    /** The chat app's notifications bell with its unread count (community/notifications.js opens its panel). */
+    public static function bell(int $n): string
+    {
+        return '    <div class="site-nav-bell" data-notif><button class="site-nav-bell-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="site-nav-notif" data-notif-open>'
+            . '<span class="visually-hidden">Notifications</span><span class="site-nav-bell-n" data-notif-n' . ($n > 0 ? '' : ' hidden') . '><span class="visually-hidden">, </span><span data-notif-count>' . ($n > 9 ? '9+' : ($n > 0 ? (string) $n : '')) . '</span><span class="visually-hidden"> new</span></span></button></div>';
     }
 
     /**

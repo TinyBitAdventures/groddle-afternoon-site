@@ -14,7 +14,6 @@
   --track: #f4e9d6; --row-line: #efe4cf; --chip-solid: #fffdf8; --play-bg: #6b4c9e; --play-fg: #fffdf8; --play-hover: #5b3f8a; --sun: #d39a26; --moss: #276b2c;
   --cx-parchment: #f4e9d6; --cx-strong: #cdb792; --cx-soft: #eee6f8; --cx-good: #276b2c; --cx-danger: #bf3127; --cx-inverse: #fffdf8;
   --cx-hue-0: #5b4f6b; --cx-hue-1: #2e5a20; --cx-hue-2: #9b1c1f; --cx-hue-3: #175070; --cx-hue-4: #674879; --cx-hue-5: #664d37; --cx-hue-6: #19587e; --cx-hue-7: #6a4f17;
-  --cx-rail-w: 300px; --cx-side-w: 300px;
   display: grid;
   grid-template-columns: var(--cx-rail-w) minmax(0, 1fr) var(--cx-side-w);
   grid-template-rows: minmax(0, 1fr);
@@ -41,6 +40,68 @@
 .cx button { font: inherit; color: inherit; }
 .cx :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .community-page .foot { margin-top: 0; }
+
+/* The chat app's header (SiteNav::nav with the app layout, /chat/ only; Austin 2026-11-04 "a chat UI
+   designed header just for this page"): the site's header and menu, full width and compact, over the
+   app's columns: the wordmark over the left rail at its width, its mark centred over the rail's
+   avatars and its words over their names; the menu's links, the bell and the theme button at the
+   right; the header's own hairline to the app. Its colour and tokens are the header's. site/site-nav.css
+   names the same parts for the View Transition, so the centred header stretches into this one. */
+.community-page { --site-nav-h: 52px; --cx-rail-w: 300px; --cx-side-w: 300px; }
+.community-page .site-nav { z-index: 30; }
+.site-nav-app .site-nav-row { gap: 16px; min-height: var(--site-nav-h); padding: 0 16px 0 0; }
+.site-nav-app .wordmark { box-sizing: border-box; align-self: stretch; width: var(--cx-rail-w); gap: 14px; padding: 0 16px 0 20px; font-size: 19px; border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+.site-nav-app .site-nav-links { gap: 18px; }
+.site-nav-app .site-nav-play { min-height: 32px; }
+.site-nav-menu { display: none; }
+
+/* The bell (community/notifications.js) and its count: the theme button's size and line, the Community count's colours. */
+.site-nav-bell { position: relative; flex-shrink: 0; view-transition-name: site-nav-bell; }
+/* Arriving from another page, the bell comes in once the theme button has slid past it. */
+::view-transition-new(site-nav-bell) { animation: 280ms cubic-bezier(0.2, 0, 0, 1) both cx-bell-in; }
+@keyframes cx-bell-in { 0%, 60% { opacity: 0; } to { opacity: 1; } }
+.site-nav-bell-btn { position: relative; display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.site-nav-bell-btn::before, .site-nav-menu::before { content: ''; width: 18px; height: 18px; background: currentColor; -webkit-mask: var(--nav-icon) center / contain no-repeat; mask: var(--nav-icon) center / contain no-repeat; }
+.site-nav-bell-btn { --nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9.5a6 6 0 0 1 12 0c0 4.5 1.6 6.3 2.4 7H3.6c.8-.7 2.4-2.5 2.4-7z'/%3E%3Cpath d='M10 20a2.2 2.2 0 0 0 4 0'/%3E%3C/svg%3E"); }
+.site-nav-bell-btn:hover, .site-nav-bell-btn[aria-expanded="true"] { color: var(--fg); border-color: var(--muted); }
+.site-nav-bell-btn:focus-visible, .site-nav-menu:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.site-nav-bell-n { position: absolute; top: -5px; right: -6px; display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 999px; background: var(--accent); color: #1f1407; box-shadow: 0 0 0 2px var(--bg); font-size: 11px; font-weight: 800; line-height: 1; }
+.site-nav-bell-n[hidden] { display: none; }
+
+/* Its panel: under the bell, the header's dropdown look (the submenus' .site-nav-panel). */
+.notif-panel { position: absolute; z-index: 40; top: calc(100% + 8px); right: -52px; display: flex; flex-direction: column; width: min(380px, calc(100vw - 16px)); max-height: min(560px, calc(100dvh - var(--site-nav-h) - 24px)); box-sizing: border-box; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--fg); box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.5); font-family: var(--font-body); }
+.notif-panel[hidden] { display: none; }
+.notif-head { display: flex; flex: none; align-items: center; gap: 8px; padding: 10px 10px 8px 16px; border-bottom: 1px solid var(--border); }
+.notif-title { flex: 1 1 auto; margin: 0; font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--fg); }
+.notif-sample { padding: 1px 8px; border: 1px dashed var(--muted); border-radius: 999px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.notif-all { min-height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--fg); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.notif-all:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.notif-all:disabled { color: var(--muted); cursor: default; background: transparent; }
+.notif-list { flex: 1 1 auto; min-height: 0; margin: 0; padding: 6px; overflow-y: auto; overscroll-behavior: contain; list-style: none; scrollbar-width: thin; }
+.notif-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--fg); text-decoration: none; }
+.notif-row:hover, .notif-row:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); outline: none; }
+.notif-row:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.notif-icon { display: grid; flex: none; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--track); color: var(--fg); }
+.notif-icon svg { width: 18px; height: 18px; }
+.notif-icon[data-kind="im"] { background: color-mix(in srgb, var(--sky) 22%, var(--surface)); }
+.notif-icon[data-kind="thread"] { background: color-mix(in srgb, var(--plum) 20%, var(--surface)); }
+.notif-icon[data-kind="buddy"] { background: color-mix(in srgb, var(--moss) 22%, var(--surface)); }
+.notif-icon[data-kind="ticket"] { background: color-mix(in srgb, var(--sun) 26%, var(--surface)); }
+.notif-icon[data-kind="reply"], .notif-icon[data-kind="quote"] { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+.notif-txt { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.notif-line { font-size: 14px; line-height: 1.35; color: var(--lead); overflow-wrap: anywhere; }
+.notif-line b { color: var(--fg); font-weight: 800; }
+.notif-snip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); }
+.notif-txt time { font-size: 12px; font-weight: 700; color: var(--muted); }
+.notif-dot { flex: none; width: 9px; height: 9px; margin-top: 6px; border-radius: 50%; }
+.notif-item[data-unread] .notif-dot { background: var(--accent); }
+.notif-item[data-unread] .notif-line { color: var(--fg); font-weight: 700; }
+.notif-more { margin: 0 10px 8px 52px; padding: 8px 10px; border-radius: 10px; background: var(--track); font-size: 14px; }
+.notif-answer { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lead); }
+.notif-go { font-weight: 700; color: var(--fg); }
+.notif-empty { margin: 0; padding: 18px 16px; color: var(--muted); font-size: 14px; }
+.notif-said { margin: 0; padding: 0 16px 10px; font-size: 13px; color: var(--muted); }
+.notif-said:empty { display: none; }
 
 /* The rail: the drawer's Chats list, four sections */
 .cx-rail { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px 16px; border-right: 1px solid var(--border); background: var(--surface); scrollbar-width: thin; }
@@ -279,6 +340,42 @@ button.cchip:hover { border-color: var(--muted); }
 .chat-link-confirm-open { background: var(--play-bg); color: var(--play-fg); border: 1px solid var(--play-bg); }
 .chat-link-confirm-cancel { background: transparent; color: var(--fg); border: 1px solid var(--border); }
 
+/* Right-click menus (community/chat-menus.js): the game's context menu (public/js/ui/context-menu.js and
+   its Modern card in public/style.css, RIGHTCLICK), in the drawer's palette: a raised card, 32 px rows
+   with key caps, the footer line saying what a row does or why it can't be done now. */
+.cx-ctx { display: none; }
+.cx-ctx:not([hidden]) { position: fixed; z-index: 45; display: block; box-sizing: border-box; width: 236px; padding: 6px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--fg); box-shadow: 0 6px 12px rgba(40, 24, 8, 0.2), 0 20px 48px rgba(40, 24, 8, 0.34); font-size: 14px; line-height: 1.15; transform-origin: 0 0; animation: cx-ctx-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes cx-ctx-in { from { opacity: 0; transform: translateY(-3px); } }
+.cx-ctx .ctx-head { padding: 2px 6px 4px; }
+.cx-ctx .ctx-title { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; font-weight: 800; }
+.cx-ctx .ctx-title:empty { display: none; }
+.cx-ctx .vm-row { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; margin: 0; padding: 0 8px 0 6px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
+.cx-ctx .vm-row:hover, .cx-ctx .vm-row.cur { background: var(--cx-soft); }
+.cx-ctx .vm-row:focus { outline: none; }
+.cx-ctx .vm-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cx-ctx .vm-row[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
+.cx-ctx .vm-key { display: inline-grid; flex: none; place-items: center; box-sizing: border-box; min-width: 16px; height: 16px; padding: 0 3px; border: 1px solid var(--cx-strong); border-radius: 4px; background: var(--cx-parchment); color: var(--muted); font-size: 11px; font-weight: 800; line-height: 1; }
+.cx-ctx .vm-key-none { visibility: hidden; }
+.cx-ctx .vm-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-ctx .vm-lock, .cx-ctx .vm-check { flex: none; color: var(--muted); }
+.cx-ctx .vm-detail { margin: 4px 2px 0; padding: 6px 8px; min-height: 32px; box-sizing: border-box; border-radius: 6px; background: var(--cx-parchment); color: var(--muted); font-size: 12px; font-weight: 600; line-height: 1.35; }
+.cx-ctx .vm-detail[hidden] { display: none; }
+.cx-ctx .vm-detail.bad { color: var(--cx-danger); }
+/* A name with no page of its own opens its menu (it reads as the name, as the game's chat names do). */
+.cchan-who { margin: 0; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; font-weight: 800; cursor: pointer; }
+.cchan-who:hover { text-decoration: underline; }
+.cchan-line, .cx-people li, .cx-rail .cx-row, .cpost { -webkit-touch-callout: none; }
+/* A line a link opened at (#l<id>). */
+.cchan-line[data-cx-hit] { background: var(--cx-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.cx-row.is-muted .cx-label::after { content: ''; display: inline-block; width: 12px; height: 12px; margin-left: 6px; vertical-align: -1px; background: var(--muted); -webkit-mask: var(--cx-mute) center / contain no-repeat; mask: var(--cx-mute) center / contain no-repeat; }
+.cx { --cx-mute: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9.5a6 6 0 0 1 9.6-4.8M18 9.5c0 4.5 1.6 6.3 2.4 7H7.5M10 20a2.2 2.2 0 0 0 4 0M3 3l18 18'/%3E%3C/svg%3E"); }
+/* Report (a player or a line): a small box over the app; then a ticket for the team. */
+.cx-report { position: fixed; z-index: 46; left: 50%; top: 18vh; display: grid; gap: 6px; width: min(420px, calc(100vw - 24px)); box-sizing: border-box; padding: 16px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 14px; background: var(--bg); box-shadow: 0 6px 12px rgba(40, 24, 8, 0.2), 0 20px 48px rgba(40, 24, 8, 0.34); }
+.cx-report-title { margin: 0; font-family: inherit; font-size: 17px; font-weight: 800; color: var(--fg); }
+.cx-report-line { margin: 0; padding: 6px 10px; border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; background: var(--cx-parchment); color: var(--lead); overflow-wrap: anywhere; }
+.cx-toast { position: fixed; z-index: 46; left: 50%; bottom: 18px; margin: 0; padding: 8px 14px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 999px; background: var(--bg); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+@media (prefers-reduced-motion: reduce) { .cx-ctx:not([hidden]) { animation: none; } }
+
 /* Narrower: Who's around and a thread slide in over the conversation */
 @media (max-width: 1180px) {
   .cx, .cx[data-cx-around="off"]:not([data-cx-threaded]) { grid-template-columns: var(--cx-rail-w) minmax(0, 1fr); }
@@ -303,4 +400,31 @@ button.cchip:hover { border-color: var(--muted); }
   .cchan-line { padding-right: 0; }
   .cx-acts { position: static; display: inline-flex; opacity: 1; vertical-align: middle; }
   .cchan-line:hover > time { display: none; }
+}
+
+/* The chat app's header on a phone: one compact bar, the mark, the bell, the theme button and a menu
+   button (community.js; data-menu once it runs) that drops the menu's links down under the bar. */
+@media (max-width: 720px) {
+  .community-page { --site-nav-h: 48px; }
+  .site-nav-app .site-nav-row { gap: 8px; padding: 0 10px 0 0; }
+  .site-nav-app .wordmark { width: auto; padding: 0 4px 0 12px; border-right: 0; font-size: 17px; }
+  .site-nav-app[data-menu] .site-nav-bell { order: 1; margin-left: auto; }
+  .site-nav-app[data-menu] .site-nav-theme { order: 2; }
+  .site-nav-app[data-menu] .site-nav-menu { order: 3; display: inline-grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; --nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M4 7h16M4 12h16M4 17h16'/%3E%3C/svg%3E"); }
+  .site-nav-app[data-menu="open"] .site-nav-menu { color: var(--fg); border-color: var(--muted); --nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E"); }
+  .site-nav-app[data-menu] .site-nav-links { position: absolute; top: 100%; left: 0; right: 0; display: none; flex-direction: column; align-items: stretch; gap: 0; margin: 0; padding: 4px 16px 14px; overflow: visible; background: var(--bg); border-bottom: 1px solid var(--border); box-shadow: 0 16px 28px -20px rgba(0, 0, 0, 0.5); }
+  .site-nav-app[data-menu="open"] .site-nav-links { display: flex; }
+  .site-nav-app[data-menu] .site-nav-links a:not(.site-nav-play) { padding: 11px 2px; font-size: 16px; border-bottom: 1px solid var(--row-line); white-space: normal; }
+  .site-nav-app[data-menu] .site-nav-links a[aria-current="page"] { border-bottom-color: var(--row-line); box-shadow: inset 3px 0 0 var(--accent); padding-left: 12px; }
+  .site-nav-app[data-menu] .site-nav-links .site-nav-play { position: static; align-self: flex-start; margin-top: 12px; box-shadow: none; padding: 0 18px; font-size: 15px; min-height: 36px; }
+  .site-nav-app[data-menu] .site-nav-sub { display: block; }
+  .site-nav-app[data-menu] .site-nav-toggle { display: none; }
+  .site-nav-app[data-menu] .site-nav-panel, .site-nav-app[data-menu] .site-nav-panel[hidden] { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; min-width: 0; margin: 0 0 4px; padding: 2px 0 6px 14px; border: 0; border-radius: 0; background: none; box-shadow: none; }
+  .site-nav-app[data-menu] .site-nav-panel::before { display: none; }
+  .site-nav-app[data-menu] .site-nav-links .site-nav-panel a { padding: 8px 4px; font-size: 14px; color: var(--muted); border-bottom: 0; }
+  .notif-panel { position: fixed; top: calc(var(--site-nav-h) + 6px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--site-nav-h) - 16px); }
+  .cx-side { top: var(--site-nav-h); }
+}
+@media (max-width: 440px) {
+  .site-nav-app .site-nav-bell-btn, .site-nav-app[data-menu] .site-nav-menu { width: 32px; height: 32px; }
 }

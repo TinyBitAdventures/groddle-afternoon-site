@@ -53,6 +53,15 @@ use Minn\RestError;
  * input; the type is the game's own Nunito from /assets/fonts/nunito/).
  * community.js makes it live for signed-in players (the realtime socket,
  * groddle-afternoon-server web.go, with polling when it can't connect).
+ *
+ * The header (Austin 2026-11-04: "a chat UI designed header just for this
+ * page"): the site's header block and menu in the chat app's layout
+ * (SiteNav::nav with $app), full width over the app's columns, with the
+ * notifications bell for a signed-in reader (Notifications; the panel is
+ * community/notifications.js). On a phone its links fold behind a menu
+ * button. ?notifdemo=1 fills the panel with samples on a .localhost site only
+ * (notifDemo). Right-click menus on players, lines, posts and the rail are
+ * community/chat-menus.js (the game's context menu).
  */
 final readonly class CommunityPages
 {
@@ -62,7 +71,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-4';
+    public const ASSET_KEY = 'community-5';
 
     /** The words the pages share. */
     public const COPY = [
@@ -468,7 +477,7 @@ final readonly class CommunityPages
         if ($p['blocked'] ?? false) {
             $inner = '<details class="cpost-blocked"><summary>' . Html::esc(self::COPY['blocked']) . '</summary>' . $inner . '</details>';
         }
-        $data = ' data-post="' . $id . '" data-status="' . Html::attr($status) . '"' . ($mine ? ' data-mine=""' : '') . ($p['blocked'] ?? false ? ' data-blocked=""' : '') . ' data-quote-text="' . Html::attr(CommunityText::snippet((string) $p['body'], 90)) . '"';
+        $data = ' data-post="' . $id . '" data-status="' . Html::attr($status) . '"' . ($signed ? ' data-author="' . (int) ($p['author_id'] ?? 0) . '" data-author-name="' . Html::attr($name) . '"' : '') . ($mine ? ' data-mine=""' : '') . ($p['blocked'] ?? false ? ' data-blocked=""' : '') . ' data-quote-text="' . Html::attr(CommunityText::snippet((string) $p['body'], 90)) . '"';
         return '<li class="cpost" id="post-' . $id . '"' . $data . '><div class="cpost-face">' . $face . '</div><div class="cpost-main">' . $inner . '</div></li>';
     }
 
@@ -646,6 +655,16 @@ final readonly class CommunityPages
         return $out;
     }
 
+    /**
+     * PURE: whether ?notifdemo=1 shows the sample notifications: only that value, and only when both
+     * the site's home and the request are on a .localhost host (never on the live site).
+     */
+    public static function notifDemo(string $home, string $host, ?string $flag): bool
+    {
+        $local = static fn (string $h): bool => preg_match('/(?:^|\.)localhost$/', strtolower((string) preg_replace('/:\d+$/', '', $h))) === 1;
+        return $flag === '1' && $local((string) parse_url($home, PHP_URL_HOST)) && $local($host);
+    }
+
     /** "2 hours ago" with the exact time for a hover and for machines. */
     private static function time(int $at, int $now): string
     {
@@ -694,6 +713,10 @@ final readonly class CommunityPages
         $footer = (string) preg_replace('/<!--.*?-->\s*/s', '', (string) @file_get_contents(dirname(__DIR__) . '/parts/footer.html'));
         $v = self::ASSET_KEY;
         $a = self::ASSETS;
+        $badges = SiteNav::badges($this->minn);
+        $signed = ($viewer['id'] ?? 0) > 0;
+        // The local preview of the bell's panel (?notifdemo=1): sample notifications drawn by the script, on a .localhost site only.
+        $demo = $signed && self::notifDemo((string) ($this->minn->site->option('home') ?? ''), $this->minn->request->host, $this->minn->request->query('notifdemo'));
         $html = "<!DOCTYPE html>\n<html lang=\"en-US\">\n<head>\n<meta charset=\"UTF-8\" />\n"
             . "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n"
             . '<title>' . Html::esc($title) . " &#8211; Groddle Afternoon</title>\n"
@@ -702,8 +725,9 @@ final readonly class CommunityPages
             . (!$index || $canonical === null || $status !== 200 ? "<meta name=\"robots\" content=\"noindex\" />\n" : '')
             . Extension::head()
             . "<link rel=\"stylesheet\" href=\"{$a}community.css?v={$v}\" />\n"
-            . "</head>\n<body class=\"notes community-page\">\n"
-            . SiteNav::nav(SiteNav::links($this->minn, 0), $path, SiteNav::badges($this->minn)) . "\n"
+            . "</head>\n<body class=\"notes community-page\"" . ($demo ? ' data-notif-demo=""' : '') . ">\n"
+            // The chat app's own header: the menu's links laid out over the app's columns, with the bell for a signed-in reader.
+            . SiteNav::nav(SiteNav::links($this->minn, 0), $path, $badges, ['bell' => $signed ? ($badges[SiteNav::COMMUNITY] ?? 0) : null]) . "\n"
             . $body . "\n"
             . trim($footer) . "\n"
             . "<script type=\"module\" src=\"{$a}community.js?v={$v}\"></script>\n"

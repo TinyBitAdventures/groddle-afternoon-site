@@ -7,7 +7,9 @@
  * - new and changed posts come in while the thread is open (GET community/threads/<id>/updates every
  *   POLL_MS while the tab is visible): appended on the newest page, a "new posts" link on older ones;
  * - a link to another site asks first (the game's own js/chat-links.js, as in its chat);
- * - a sign-in panel can sign you in here (groddle/v1/session), then the page reloads.
+ * - a sign-in panel can sign you in here (groddle/v1/session), then the page reloads;
+ * - the chat app's header (src/SiteNav.php app layout): its links fold behind a menu button on a
+ *   phone; for a signed-in player the bell (notifications.js) starts first and is handed to the app.
  *
  * The REST nonce is the one the page drew (main[data-nonce]); a stale one is swapped for a fresh one
  * from admin-ajax.php?action=rest-nonce, as players/buddy.js does.
@@ -470,7 +472,42 @@ if (list && threadId) {
 
 export const live = { on: false };
 if (main?.matches('.cx[data-signed="1"]')) {
-  import(`./chat-app.js${new URL(import.meta.url).search}`)
-    .then((m) => m.start({ main, call, say, SAID, openPicker, live, lineReact, topicNow }))
+  const v = new URL(import.meta.url).search;
+  // The bell first (src/Notifications.php), so the app can tell it when something happens.
+  import(`./notifications.js${v}`)
+    .then((n) => n.startNotifications({ call }))
+    .catch((e) => { console.warn('notifications', e); return null; })
+    .then((notif) => import(`./chat-app.js${v}`).then((m) => m.start({ main, call, say, SAID, openPicker, live, lineReact, topicNow, notif })))
     .catch((e) => console.warn('chat app', e));
+}
+
+// —— The chat app's header on a phone: the menu's links fold behind a menu button (SiteNav app layout) ——
+
+const appNav = document.querySelector('.site-nav-app');
+const menuButton = appNav?.querySelector('.site-nav-menu');
+if (appNav && menuButton) {
+  const links = appNav.querySelector('.site-nav-links');
+  const phone = matchMedia('(max-width: 720px)');
+  const setOpen = (on, focusBack = false) => {
+    appNav.dataset.menu = on ? 'open' : 'closed';
+    menuButton.setAttribute('aria-expanded', String(on));
+    if (on) links?.querySelector('a')?.focus({ preventScroll: true });
+    else if (focusBack) menuButton.focus({ preventScroll: true });
+  };
+  menuButton.hidden = false;
+  setOpen(false);
+  menuButton.addEventListener('click', () => setOpen(appNav.dataset.menu !== 'open'));
+  appNav.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && appNav.dataset.menu === 'open' && phone.matches) {
+      // A submenu panel open inside closes first (site/theme.js has it).
+      if (links?.querySelector('.site-nav-panel:not([hidden])')) return;
+      e.preventDefault();
+      setOpen(false, true);
+    }
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (appNav.dataset.menu === 'open' && !appNav.contains(e.target)) setOpen(false);
+  });
+  links?.addEventListener('click', (e) => { if (e.target.closest('a')) setOpen(false); });
+  phone.addEventListener('change', () => setOpen(false));
 }

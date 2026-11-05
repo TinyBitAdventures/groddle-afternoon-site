@@ -18,11 +18,20 @@
  *   happen. When it can't connect, the open conversation is polled every POLL_MS (Who's around waits for
  *   the socket) and it tries again with a growing wait.
  *
+ * - Links: /chat/?c=global#l<id> opens the channel at a line (earlier messages come in until it shows),
+ *   #t<id> opens a line's thread (Copy link to this line, the bell's thread replies).
+ * - The bell (notifications.js): told when the socket brings something that may be a notification,
+ *   asked what is being looked at (read at once), and opens a conversation or thread in place.
+ * - Right-click menus (chat-menus.js) through menuApi(); Mute keeps a channel's or chat's count quiet
+ *   on this browser; the players you block are listed last under Buddies, so Unblock stays in reach.
+ *
  * Phones: the rail is one screen and a conversation another (main[data-cx-view]); "‹ Chats" goes back.
  * QA: main[data-cx-live] ("on" | "off"), [data-cx-conv] on the open conversation, window.groddleChat.
  */
+import { MUTED_KEY, lineHash, readMuted } from './chat-pure.js';
+
 // community.js hands over its helpers (start()): one copy of them and of its state.
-let main; let call; let say; let SAID; let openPicker; let live; let lineReact; let topicNow;
+let main; let call; let say; let SAID; let openPicker; let live; let lineReact; let topicNow; let notif;
 
 const POLL_MS = 3000;
 const WATCH_MS = 30 * 60 * 1000;
@@ -48,6 +57,7 @@ const WORDS = {
   aroundNone: 'Nobody else is around right now.',
   noBuddies: 'No buddies yet. Add players from their page or in the game.',
   noIms: 'Your IMs show here.',
+  blocked: 'Blocked. Right-click to unblock.',
   reactLive: 'Reactions need the live connection. Try again in a moment.',
   threadOld: 'That thread is not open to you.',
   replies: (n) => (n === 1 ? '1 reply' : `${n} replies`),
@@ -103,6 +113,8 @@ const streets = new Map();
 /** Who's around: id -> the server's entry. */
 const around = new Map();
 let buddies = { list: [], loaded: false };
+/** The players on your own buddy list (buddies.list also holds who added you). */
+const held = new Set();
 let ims = [];
 let open = '';
 let thread = null; // { key, parent, lines: [] }
@@ -163,13 +175,14 @@ function repliesNode(c, l) {
 }
 
 function lineNode(c, l, { inThread = false } = {}) {
-  const li = el('li', { class: `cchan-line${l.from === ME ? ' is-mine' : ''}`, 'data-line': String(l.id), 'data-rk': reactKey(c, l) });
+  const li = el('li', { class: `cchan-line${l.from === ME ? ' is-mine' : ''}`, 'data-line': String(l.id), 'data-rk': reactKey(c, l), 'data-from': String(l.from), 'data-name': l.name });
   li.append(el('time', { datetime: new Date(l.at).toISOString(), title: new Date(l.at).toLocaleString() }, clockLabel(l.at)));
   const who = el('b', { class: 'cchan-name' });
   const p = people.get(l.from);
+  // Another player's name opens their menu (chat-menus.js): a link to their page when it is public, else a button.
   if (l.from === ME) who.textContent = 'You';
   else if (p?.profile) who.append(el('a', { href: p.profile }, l.name));
-  else who.textContent = l.name;
+  else who.append(el('button', { type: 'button', class: 'cchan-who', 'aria-haspopup': 'menu' }, l.name));
   li.append(who);
   if (l.web) li.append(el('span', { class: 'cchan-web', title: 'Said on the website' }, '(web)'));
   li.append(document.createTextNode(' '));
@@ -230,6 +243,8 @@ function shownLines(c) {
   return [...c.lines.values()].filter((l) => !l.parent && !(l.from !== ME && blocked(l.from))).sort((a, b) => a.at - b.at || a.id - b.id);
 }
 const blocks = new Set();
+/** The players you block, with names, for the Buddies list's Blocked rows (right-click: Unblock). */
+let blockedList = [];
 const blocked = (id) => blocks.has(Number(id));
 
 function convSection(c) {
@@ -315,6 +330,91 @@ async function load(c) {
   c.since = Number(r.data.now) || Date.now();
   c.loaded = true;
   if (open === c.key) redraw(c, { toEnd: true });
+  if (wanted && wanted.key === c.key) {
+    const want = wanted;
+    wanted = null;
+    seek(c, want);
+  }
+}
+
+/** What a link asked for when the page opened ({ key, line? , thread? }), until its conversation loads. */
+let wanted = null;
+
+/** Goes to a line (earlier messages are brought in until it shows, or there are none) or opens its thread. */
+async function seek(c, want) {
+  if (want.thread) {
+    openThread(c.key, want.thread);
+    return;
+  }
+  if (!want.line) return;
+  for (let i = 0; i < 12; i += 1) {
+    const li = pane.querySelector(`[data-cx-conv="${CSS.escape(c.key)}"] [data-line="${want.line}"]`);
+    if (li) {
+      li.scrollIntoView({ block: 'center' });
+      li.dataset.cxHit = '';
+      setTimeout(() => { delete li.dataset.cxHit; }, 4000);
+      return;
+    }
+    if (!c.more) return;
+    await earlier(c);
+  }
+}
+
+/** Reads the bell's notification for something now open. */
+function readNotif(key) {
+  if (notif?.items().some((i) => i.key === key && i.unread)) notif.read(key);
+}
+
+/** What the menus need from the app (community/chat-menus.js). */
+function menuApi() {
+  return {
+    main,
+    call,
+    me: ME,
+    canIm: main.dataset.canPost === '1',
+    notif,
+    flash,
+    person: (id) => people.get(Number(id)),
+    lookUp: async (id) => {
+      if (people.get(id)?.checked) return;
+      const r = await call(`chat/people?ids=${Number(id)}&streets=`);
+      if (!r.ok) return;
+      for (const p of r.data.people || []) people.set(p.id, { ...p, checked: true });
+      if (!people.has(id)) people.set(id, { id, checked: true });
+    },
+    isBuddy: (id) => held.has(Number(id)),
+    isBlocked: (id) => blocked(id),
+    openIm: (id) => openConv(`im:${Number(id)}`, { focus: true }),
+    lineOf: (li) => {
+      const sec = li.closest('[data-cx-conv]');
+      if (sec) return { conv: sec.dataset.cxConv, label: convOf(sec.dataset.cxConv).label, inThread: false, parent: 0 };
+      const key = thread?.key || open;
+      const isParent = Boolean(li.closest('.cx-thread-parent'));
+      return { conv: key, label: convOf(key).label, inThread: true, parent: isParent ? 0 : thread?.parent || 0 };
+    },
+    openThread: (key, id) => openThread(key, Number(id)),
+    react: (li) => openPicker(li, li.querySelector('[data-react-open]') || li),
+    reloadBuddies: async () => {
+      await loadBuddies();
+      if (open) redraw(convOf(open));
+      drawIms();
+      drawAround();
+      if (thread) loadThread(convOf(thread.key), thread.parent);
+    },
+    railUnread: (key) => convs.get(key)?.unread || 0,
+    markRailRead: (key) => {
+      const c = convOf(key);
+      c.unread = 0;
+      markRail(c);
+      drawIms();
+      if (c.kind === 'im') {
+        send('im_read', { with: c.id });
+        readNotif(key);
+      }
+    },
+    isMuted: (key) => muted.has(key),
+    setMuted,
+  };
 }
 
 async function earlier(c) {
@@ -357,7 +457,10 @@ function openConv(key, { push = true, focus = false } = {}) {
   wireConv(c);
   if (c.loaded) redraw(c, { toEnd: true });
   load(c);
-  if (c.kind === 'im') send('im_read', { with: c.id });
+  if (c.kind === 'im') {
+    send('im_read', { with: c.id });
+    readNotif(key);
+  }
   if (focus) $('#cchan-text', pane)?.focus();
   closeThread();
 }
@@ -417,12 +520,23 @@ function setReactions(rk, r) {
   }
 }
 
-function flash(text) {
-  const note = pane.querySelector('[data-chan-said]') || threadBox?.querySelector('.csaid');
+function flash(text, bad = true) {
+  const note = pane.querySelector('[data-chan-said]') || threadBox?.querySelector('.csaid') || toast();
   if (note) {
-    say(note, text, true);
-    setTimeout(() => say(note, ''), 4000);
+    say(note, text, bad);
+    clearTimeout(note.flashTimer);
+    note.flashTimer = setTimeout(() => say(note, ''), 4000);
   }
+}
+
+/** A line for what an action did where the page has no box of its own (a board's page). */
+function toast() {
+  let t = main.querySelector('.cx-toast');
+  if (!t) {
+    t = el('p', { class: 'csaid cx-toast', role: 'status', 'aria-live': 'polite' });
+    main.append(t);
+  }
+  return t;
 }
 
 // —— Threads ——
@@ -441,6 +555,7 @@ async function openThread(key, parentId) {
   const parent = c.lines.get(parentId);
   thread = { key, parent: parentId, lines: [] };
   main.dataset.cxThreaded = '';
+  if (c.kind === 'chan') readNotif(`th:${c.id}:${parentId}`);
   threadBox.hidden = false;
   const head = el('header', { class: 'cx-side-head' });
   head.append(el('h2', { class: 'cx-side-title', id: 'cx-thread-title' }, 'Thread'), el('small', { class: 'cx-note' }, c.label));
@@ -532,11 +647,23 @@ function markRail(c) {
   const row = rows.get(c.key);
   if (!row) return;
   const badge = $('[data-cx-unread]', row);
+  const quiet = muted.has(c.key);
   if (badge) {
-    badge.hidden = !c.unread;
+    badge.hidden = !c.unread || quiet;
     badge.textContent = c.unread > 99 ? '99+' : String(c.unread);
   }
-  row.classList.toggle('is-unread', c.unread > 0);
+  row.classList.toggle('is-unread', c.unread > 0 && !quiet);
+  row.classList.toggle('is-muted', quiet);
+}
+
+/** Channels and chats muted on this browser (chat-menus.js Mute): no count for new lines. */
+let muted = new Set();
+function setMuted(key, on) {
+  if (on) muted.add(key);
+  else muted.delete(key);
+  try { localStorage.setItem(MUTED_KEY, JSON.stringify([...muted])); } catch { /* private window */ }
+  if (rows.has(key)) markRail(convOf(key));
+  if (key.startsWith('im:')) drawIms();
 }
 
 function drawIms() {
@@ -547,7 +674,8 @@ function drawIms() {
     if (blocked(x.with.id)) continue;
     const key = `im:${x.with.id}`;
     const c = convOf(key);
-    const a = el('a', { class: `cx-row${c.unread ? ' is-unread' : ''}`, href: `/chat/?im=${x.with.id}`, 'data-cx-open': key });
+    const quiet = muted.has(key);
+    const a = el('a', { class: `cx-row${c.unread && !quiet ? ' is-unread' : ''}${quiet ? ' is-muted' : ''}`, href: `/chat/?im=${x.with.id}`, 'data-cx-open': key });
     if (open === key) a.setAttribute('aria-current', 'true');
     const txt = el('span', { class: 'cx-txt' });
     const name = el('span', { class: 'cx-name' });
@@ -556,7 +684,7 @@ function drawIms() {
     const last = x.last ? `${x.last.from === ME ? 'You: ' : ''}${x.last.text}` : '';
     txt.append(name, el('span', { class: 'cx-last' }, last));
     a.append(avatar(x.with.name), txt);
-    const badge = el('span', { class: 'cx-badge', 'data-cx-unread': '', hidden: !c.unread }, String(c.unread));
+    const badge = el('span', { class: 'cx-badge', 'data-cx-unread': '', hidden: !c.unread || quiet }, String(c.unread));
     a.append(badge);
     rows.set(key, a);
     const li = el('li');
@@ -605,7 +733,7 @@ function drawBuddies() {
   all.sort((a, b) => Number(around.has(b.id)) - Number(around.has(a.id)) || a.name.localeCompare(b.name));
   for (const b of all) {
     const p = around.get(b.id);
-    const li = el('li', { 'data-online': String(Boolean(p)), 'data-cx-buddy': String(b.id) });
+    const li = el('li', { 'data-online': String(Boolean(p)), 'data-cx-buddy': String(b.id), 'data-name': b.name });
     const info = people.get(b.id);
     li.append(avatar(b.name, 'cx-av-lg', { tile: info?.tile || null, status: p ? p.status : '' }));
     const who = info?.profile ? el('a', { class: 'cx-who', href: info.profile }) : el('span', { class: 'cx-who' });
@@ -618,6 +746,15 @@ function drawBuddies() {
     items.push(li);
   }
   if (!items.length) items.push(el('li', { class: 'cx-empty' }, buddies.loaded ? WORDS.noBuddies : 'Loading your buddies…'));
+  // The players you block, last and quiet, so their menu (Unblock) is still within reach.
+  for (const b of [...blockedList].sort((x, y) => x.name.localeCompare(y.name))) {
+    const li = el('li', { 'data-online': 'false', 'data-cx-buddy': String(b.id), 'data-name': b.name, 'data-blocked': '' });
+    li.append(avatar(b.name, 'cx-av-lg'));
+    const who = el('span', { class: 'cx-who' });
+    who.append(el('span', { class: 'cx-label' }, b.name), el('small', {}, WORDS.blocked));
+    li.append(who);
+    items.push(li);
+  }
   list.replaceChildren(...items);
 }
 
@@ -627,8 +764,14 @@ async function loadBuddies() {
   const seen = new Map();
   for (const b of [...(r.data.buddies || []), ...(r.data.reverse || [])]) if (!seen.has(b.id)) seen.set(b.id, { id: b.id, name: b.name });
   buddies = { list: [...seen.values()], loaded: true };
+  held.clear();
+  for (const b of r.data.buddies || []) held.add(Number(b.id));
   blocks.clear();
-  for (const b of r.data.ignoring || []) blocks.add(Number(b.id));
+  blockedList = [];
+  for (const b of r.data.ignoring || []) {
+    blocks.add(Number(b.id));
+    blockedList.push({ id: Number(b.id), name: String(b.name || '') });
+  }
   drawBuddies();
   return r.data.watch?.token || null;
 }
@@ -649,7 +792,7 @@ function drawAround() {
   const items = [];
   for (const p of all) {
     const info = people.get(p.id);
-    const li = el('li', { 'data-cx-person': String(p.id), 'data-status': p.status });
+    const li = el('li', { 'data-cx-person': String(p.id), 'data-status': p.status, 'data-name': p.name, ...(p.me ? { 'data-me': '' } : {}) });
     li.append(avatar(p.name, 'cx-av-lg', { tile: info?.tile || null, status: p.me && off ? '' : p.status }));
     const who = !p.me && info?.profile ? el('a', { class: 'cx-who', href: info.profile }) : el('span', { class: 'cx-who' });
     who.append(el('span', { class: 'cx-label' }, p.me ? `${p.name} (${WORDS.you})` : p.name), el('small', {}, p.me && off ? WORDS.hidden : statusWords(p)));
@@ -807,6 +950,8 @@ function retry() {
 const heard = {};
 function onMessage(m) {
   heard[m.t] = (heard[m.t] || 0) + 1;
+  // Something that may be a notification (src/Notifications.php): the bell asks again in a moment.
+  if (m.t === 'thread_said' || m.t === 'board_post' || m.t === 'buddy_added' || (m.t === 'im' && Number(m.line?.from) !== ME)) notif?.soon();
   switch (m.t) {
     case 'channel_said': {
       const key = `chan:${m.channel}`;
@@ -919,8 +1064,9 @@ function boardNews() {
 // —— Wiring ——
 
 export function start(helpers) {
-  ({ main, call, say, SAID, openPicker, live, lineReact, topicNow } = helpers);
+  ({ main, call, say, SAID, openPicker, live, lineReact, topicNow, notif } = helpers);
   ME = Number(main.dataset.me) || 0;
+  try { muted = readMuted(localStorage.getItem(MUTED_KEY)); } catch { muted = new Set(); }
   pane = $('[data-cx-pane]', main);
   aroundBox = $('[data-cx-around]', main);
   threadBox = $('[data-cx-thread]', main);
@@ -1007,11 +1153,29 @@ export function start(helpers) {
     const first = main.querySelector('[data-cx-open^="chan:"]')?.dataset.cxOpen || '';
     const key = q.get('im') ? `im:${Number(q.get('im'))}` : q.get('c') && rows.has(`chan:${q.get('c')}`) ? `chan:${q.get('c')}` : first;
     if (key) {
+      // A link to a line (#l<id>, Copy link to this line) or to its thread (#t<id>).
+      wanted = { key, ...lineHash(location.hash) };
       openConv(key, { push: false });
       // A phone opens on the list unless a conversation was asked for.
       if (!q.get('im') && !q.get('c')) main.dataset.cxView = 'list';
     }
   }
+  // The bell (community/notifications.js): what is being looked at is read, and a click opens in place.
+  if (notif) {
+    notif.app.looking = () => [
+      ...(open.startsWith('im:') ? [open] : []),
+      ...(thread && thread.key.startsWith('chan:') ? [`th:${thread.key.slice(5)}:${thread.parent}`] : []),
+    ];
+    notif.app.open = ({ conv, thread: lid }) => {
+      if (!onIndex || !/^(?:chan:(?:global|help|trade)|im:\d+)$/.test(conv) || (conv.startsWith('chan:') && !rows.has(conv))) return false;
+      if (open !== conv) openConv(conv);
+      else main.dataset.cxView = 'main';
+      if (lid) openThread(conv, Number(lid));
+      return true;
+    };
+  }
+  // Right-click menus (community/chat-menus.js, the game's context-menu component).
+  import(`./chat-menus.js${new URL(import.meta.url).search}`).then((m) => m.startMenus(menuApi())).catch((e) => console.warn('chat menus', e));
   globalThis.groddleChat = {
     get live() { return live.on; },
     get open() { return open; },

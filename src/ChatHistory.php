@@ -667,6 +667,92 @@ final readonly class ChatHistory
         return self::private(Response::json(['lines' => array_map(static fn (array $r): array => self::imOut($r, $names), $rows), 'blocked' => false]));
     }
 
+    // —— For the notifications panel (Notifications) ——
+
+    /**
+     * Replies under the reader's own channel lines since $sinceMs (one entry a line, newest reply
+     * first), in the channels they may read on the website (open()), by players they don't block and
+     * accounts that still exist: [key, label, lid, text (their line), n, people, last {id, name},
+     * at (the newest reply), mine (their own newest reply in it, 0 when none)].
+     *
+     * @return list<array{key: string, label: string, lid: int, text: string, n: int, people: int, last: array{id: int, name: string}, at: int, mine: int}>
+     */
+    public function threadNotices(int $me, int $sinceMs, int $limit = 20): array
+    {
+        $rooms = [];
+        foreach ($this->open($me) as $key => [$label, $room]) {
+            $rooms[$room] = [$key, $label];
+        }
+        if ($rooms === []) {
+            return [];
+        }
+        $db = $this->minn->db;
+        $t = $db->table(self::LINES);
+        $users = $db->table('users');
+        $blocks = $this->blocks($me);
+        $notBlocked = $blocks === [] ? '' : ' AND r.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
+        $rows = $db->rows("SELECT p.lid, p.room, p.text, COUNT(*) AS n, COUNT(DISTINCT r.author_id) AS people, MAX(r.lid) AS last_lid, MAX(r.at_ms) AS last_at FROM {$t} p JOIN {$t} r ON r.room = p.room AND r.parent_lid = p.lid JOIN {$users} u ON u.ID = r.author_id WHERE p.author_id = ? AND p.parent_lid = 0 AND p.room IN (?) AND r.author_id <> ? AND r.at_ms >= ?{$notBlocked} GROUP BY p.lid, p.room ORDER BY last_at DESC LIMIT " . max(1, $limit), [$me, array_keys($rooms), $me, $sinceMs]);
+        if ($rows === []) {
+            return [];
+        }
+        $lastBy = [];
+        foreach ($db->rows("SELECT lid, author_id FROM {$t} WHERE lid IN (" . implode(',', array_map(static fn (array $r): int => (int) $r['last_lid'], $rows)) . ')') as $r) {
+            $lastBy[(int) $r['lid']] = (int) $r['author_id'];
+        }
+        $names = (new Characters($db))->namesOf(array_values(array_unique($lastBy)));
+        $out = [];
+        foreach ($rows as $r) {
+            $who = $lastBy[(int) $r['last_lid']] ?? 0;
+            $mine = (int) ($db->value("SELECT MAX(at_ms) FROM {$t} WHERE room = ? AND parent_lid = ? AND author_id = ?", [$r['room'], (int) $r['lid'], $me]) ?? 0);
+            [$key, $label] = $rooms[(string) $r['room']];
+            $out[] = ['key' => $key, 'label' => $label, 'lid' => (int) $r['lid'], 'text' => (string) $r['text'], 'n' => (int) $r['n'], 'people' => (int) $r['people'], 'last' => ['id' => $who, 'name' => (string) ($names[$who] ?? '')], 'at' => (int) $r['last_at'], 'mine' => $mine];
+        }
+        return $out;
+    }
+
+    /**
+     * IMs the reader has not answered (lines from the other player after the reader's own last line
+     * in the conversation, thread replies too), since $sinceMs: one entry a conversation, newest
+     * first, never with a player either of them blocks nor an account that is gone. Only the reader's
+     * own conversations are read, as every route here: [with {id, name}, n, text and parent of the
+     * newest, at].
+     *
+     * @return list<array{with: array{id: int, name: string}, n: int, text: string, parent: int, at: int}>
+     */
+    public function imNotices(int $me, int $sinceMs, int $limit = 20): array
+    {
+        $db = $this->minn->db;
+        $t = $db->table(self::IMS);
+        $ignores = $db->table(Buddies::IGNORES);
+        $blocked = [];
+        foreach ($db->rows("SELECT ignored_id AS id FROM {$ignores} WHERE user_id = ? UNION SELECT user_id AS id FROM {$ignores} WHERE ignored_id = ?", [$me, $me]) as $r) {
+            $blocked[(int) $r['id']] = true;
+        }
+        $rows = $db->rows("SELECT a_id, b_id, MAX(CASE WHEN from_id = ? THEN at_ms ELSE 0 END) AS mine, MAX(CASE WHEN from_id <> ? THEN at_ms ELSE 0 END) AS theirs FROM {$t} WHERE (a_id = ? OR b_id = ?) AND at_ms >= ? GROUP BY a_id, b_id ORDER BY theirs DESC LIMIT " . (max(1, $limit) * 2), [$me, $me, $me, $me, $sinceMs]);
+        $others = [];
+        foreach ($rows as $r) {
+            $other = (int) $r['a_id'] === $me ? (int) $r['b_id'] : (int) $r['a_id'];
+            if ((int) $r['theirs'] > (int) $r['mine'] && !isset($blocked[$other])) {
+                $others[$other] = $r;
+            }
+        }
+        $names = $others === [] ? [] : (new Characters($db))->namesOf(array_keys($others));
+        $out = [];
+        foreach ($others as $other => $r) {
+            if (!isset($names[$other]) || count($out) >= $limit) {
+                continue;
+            }
+            $after = max((int) $r['mine'], $sinceMs - 1);
+            $n = (int) $db->value("SELECT COUNT(*) FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? AND at_ms > ?", [(int) $r['a_id'], (int) $r['b_id'], $other, $after]);
+            $last = $db->row("SELECT text, parent_id, at_ms FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? ORDER BY at_ms DESC, id DESC LIMIT 1", [(int) $r['a_id'], (int) $r['b_id'], $other]);
+            if ($last === null || $n < 1) {
+                continue;
+            }
+            $out[] = ['with' => ['id' => $other, 'name' => $names[$other]], 'n' => $n, 'text' => (string) $last['text'], 'parent' => (int) $last['parent_id'], 'at' => (int) $last['at_ms']];
+        }
+        return $out;
+    }
+
     private static function private(Response $r): Response
     {
         return $r->withHeader('Cache-Control', 'private, no-store')->withHeader('X-Robots-Tag', 'noindex');

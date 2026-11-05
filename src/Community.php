@@ -900,6 +900,46 @@ final readonly class Community
         return $out;
     }
 
+    /**
+     * The player's notices since $since (read ones too), newest first, for the notifications panel
+     * (Notifications): [id, kind, count, from {id, name}, title, url, at (unix), read].
+     *
+     * @return list<array{id: int, kind: string, count: int, from: array{id: int, name: string}, title: string, url: string, at: int, read: bool}>
+     */
+    public function recentNotices(int $user, int $since): array
+    {
+        $db = $this->minn->db;
+        $n = $db->table(self::NOTICES);
+        $t = $db->table(self::THREADS);
+        $rows = $db->rows("SELECT x.*, t.board, t.title, t.status AS thread_status FROM {$n} x JOIN {$t} t ON t.id = x.thread_id WHERE x.user_id = ? AND x.created_at >= ? ORDER BY x.created_at DESC, x.id DESC LIMIT " . self::NOTICES_SHOWN, [$user, gmdate('Y-m-d H:i:s', $since)]);
+        $names = (new Characters($db))->namesOf(array_values(array_unique(array_map(static fn (array $r): int => (int) $r['from_id'], $rows))));
+        $out = [];
+        foreach ($rows as $r) {
+            if ($r['thread_status'] !== 'open' || !CommunityText::isBoard($r['board'])) {
+                continue;
+            }
+            $page = $this->pageOf((int) $r['thread_id'], (int) $r['post_id']);
+            $out[] = [
+                'id' => (int) $r['id'],
+                'kind' => (string) $r['kind'],
+                'count' => (int) $r['count'],
+                'from' => ['id' => (int) $r['from_id'], 'name' => $names[(int) $r['from_id']] ?? 'Someone'],
+                'title' => (string) $r['title'],
+                'url' => CommunityText::threadPath((string) $r['board'], (int) $r['thread_id'], (string) $r['title']) . ($page > 1 ? "?page={$page}" : '') . '#post-' . (int) $r['post_id'],
+                'at' => self::unix((string) $r['created_at']),
+                'read' => $r['read_at'] !== null,
+            ];
+        }
+        return $out;
+    }
+
+    /** Reads one of the player's notices (the panel), or all of them (Mark all read). */
+    public function readNotices(int $user, ?int $id = null): void
+    {
+        $db = $this->minn->db;
+        $db->execute('UPDATE ' . $db->table(self::NOTICES) . ' SET read_at = ? WHERE user_id = ? AND read_at IS NULL' . ($id === null ? '' : ' AND id = ?'), $id === null ? [gmdate('Y-m-d H:i:s'), $user] : [gmdate('Y-m-d H:i:s'), $user, $id]);
+    }
+
     /** A notice in words (the badge's list and the game's Activity line). */
     public static function noticeText(string $kind, int $count, string $from, string $title): string
     {
