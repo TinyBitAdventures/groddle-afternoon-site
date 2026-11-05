@@ -62,6 +62,14 @@ use Minn\RestError;
  * button. ?notifdemo=1 fills the panel with samples on a .localhost site only
  * (notifDemo). Right-click menus on players, lines, posts and the rail are
  * community/chat-menus.js (the game's context menu).
+ *
+ * The frame (Austin 2026-11-04: "minimal and integrated with the chat UI ...
+ * remove the footer for this chat UI"): the app is the whole window. The page
+ * itself never scrolls; under the header the rail, the conversation, the
+ * thread panel and Who's around each scroll inside themselves, with the input
+ * pinned at the foot of the conversation. There is no site footer: its
+ * fan-remake credit, Credits and Privacy are one quiet row pinned at the foot
+ * of the rail (RAIL_FOOT), which is also a phone's list screen.
  */
 final readonly class CommunityPages
 {
@@ -71,7 +79,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-5';
+    public const ASSET_KEY = 'community-6';
 
     /** The words the pages share. */
     public const COPY = [
@@ -87,6 +95,9 @@ final readonly class CommunityPages
         'blocked' => 'A post from a player you blocked',
         'noThreads' => 'No threads here yet. Start the first one.',
     ];
+
+    /** The site footer's credit line, as one quiet row at the foot of the rail (parts/footer.html's first line). */
+    public const RAIL_FOOT = '<p class="cx-rail-foot">A <a href="https://tinybitadventures.com">fan remake</a> of Tiny Speck’s Glitch · <a href="/credits/">Credits</a> · <a href="/privacy-policy/">Privacy</a></p>';
 
     public function __construct(private Seams $minn)
     {
@@ -104,10 +115,11 @@ final readonly class CommunityPages
         $community = new Community($this->minn);
         $viewer = $community->viewer();
         // A signed-in player opens on a channel (?c=<key>, ?im=<id> are the app's own); a visitor on the boards.
+        // On a phone both start on the list screen: the rail, with the boards, signing in and the credit row.
         $channels = $viewer['id'] > 0
             ? $this->channelsPanel($viewer)
             : self::signedOutPanel() . $this->boardsList($community);
-        $body = $this->shell($community, $viewer, $viewer['id'] > 0 ? 'chan' : 'boards', $channels, $viewer['id'] > 0 ? 'list' : 'main');
+        $body = $this->shell($community, $viewer, $viewer['id'] > 0 ? 'chan' : 'boards', $channels, 'list');
         return $this->page('Community', 'The Groddle Afternoon community boards: talk with other players about the game, ideas, trades and anything else.', $body, $viewer, '/chat/');
     }
 
@@ -606,7 +618,7 @@ final readonly class CommunityPages
         }
         $socket = RealtimeTicket::socketUrl() ?? '';
         return '<main class="cx community" ' . self::data($viewer, $extra + ['cx-active' => $active, 'cx-view' => $view, 'socket' => $socket, 'me' => (int) ($viewer['id'] ?? 0), 'me-name' => (string) ($viewer['name'] ?? '')]) . '>'
-            . '<nav class="cx-rail" aria-label="Community">' . $rail . '</nav>'
+            . '<div class="cx-rail"><nav class="cx-rail-list" aria-label="Community">' . $rail . '</nav>' . self::RAIL_FOOT . '</div>'
             . '<div class="cx-pane" data-cx-pane>' . $main . '</div>'
             . $side
             . '</main>';
@@ -701,8 +713,9 @@ final readonly class CommunityPages
 
     /**
      * A whole page in the site's look (PlayerPages' frame): the head, the
-     * header menu with the Community badge, the footer, this page's
-     * stylesheet and script.
+     * chat app's header with the Community badge, the app, this page's
+     * stylesheet and script. No site footer: the app fills the window, and
+     * the footer's credit row sits at the foot of the rail (RAIL_FOOT).
      *
      * @param array<string, mixed> $viewer
      */
@@ -710,7 +723,6 @@ final readonly class CommunityPages
     {
         $path = $this->minn->request->path;
         $home = rtrim((string) ($this->minn->site->option('home') ?? ''), '/');
-        $footer = (string) preg_replace('/<!--.*?-->\s*/s', '', (string) @file_get_contents(dirname(__DIR__) . '/parts/footer.html'));
         $v = self::ASSET_KEY;
         $a = self::ASSETS;
         $badges = SiteNav::badges($this->minn);
@@ -718,7 +730,8 @@ final readonly class CommunityPages
         // The local preview of the bell's panel (?notifdemo=1): sample notifications drawn by the script, on a .localhost site only.
         $demo = $signed && self::notifDemo((string) ($this->minn->site->option('home') ?? ''), $this->minn->request->host, $this->minn->request->query('notifdemo'));
         $html = "<!DOCTYPE html>\n<html lang=\"en-US\">\n<head>\n<meta charset=\"UTF-8\" />\n"
-            . "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n"
+            // viewport-fit=cover: the app reaches the screen's edges and keeps its parts inside the safe area (community.css).
+            . "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\" />\n"
             . '<title>' . Html::esc($title) . " &#8211; Groddle Afternoon</title>\n"
             . '<meta name="description" content="' . Html::attr($description) . "\" />\n"
             . ($canonical !== null ? '<link rel="canonical" href="' . Html::attr($home . $canonical) . "\" />\n" : '')
@@ -729,7 +742,6 @@ final readonly class CommunityPages
             // The chat app's own header: the menu's links laid out over the app's columns, with the bell for a signed-in reader.
             . SiteNav::nav(SiteNav::links($this->minn, 0), $path, $badges, ['bell' => $signed ? ($badges[SiteNav::COMMUNITY] ?? 0) : null]) . "\n"
             . $body . "\n"
-            . trim($footer) . "\n"
             . "<script type=\"module\" src=\"{$a}community.js?v={$v}\"></script>\n"
             . "</body>\n</html>\n";
         $html = SocialTags::insert($html, $home, $path);

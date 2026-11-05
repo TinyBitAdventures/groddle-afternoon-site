@@ -14,13 +14,29 @@
   --track: #f4e9d6; --row-line: #efe4cf; --chip-solid: #fffdf8; --play-bg: #6b4c9e; --play-fg: #fffdf8; --play-hover: #5b3f8a; --sun: #d39a26; --moss: #276b2c;
   --cx-parchment: #f4e9d6; --cx-strong: #cdb792; --cx-soft: #eee6f8; --cx-good: #276b2c; --cx-danger: #bf3127; --cx-inverse: #fffdf8;
   --cx-hue-0: #5b4f6b; --cx-hue-1: #2e5a20; --cx-hue-2: #9b1c1f; --cx-hue-3: #175070; --cx-hue-4: #674879; --cx-hue-5: #664d37; --cx-hue-6: #19587e; --cx-hue-7: #6a4f17;
+}
+:root[data-theme="dark"] .cx {
+  --bg: #1d1813; --surface: #231d17; --fg: #f1e7d8; --muted: #b8a48c; --lead: #d9ccb8; --border: #3e3328; --accent: #b49ae0;
+  --track: #2e261e; --row-line: #2a231c; --chip-solid: #2a231c; --play-bg: #b49ae0; --play-fg: #1b1426; --play-hover: #c6b0ec; --sun: #e3b04a; --moss: #6cc070;
+  --cx-parchment: #2e261e; --cx-strong: #5a4a38; --cx-soft: #352b45; --cx-good: #6cc070; --cx-danger: #e8776c; --cx-inverse: #fffdf8;
+}
+
+/* A full-window app (Austin 2026-11-04 "minimal and integrated"): the page never scrolls or grows. The
+   body is a column of the header and the app; the app takes what is left of the window, and its rail,
+   conversation, thread panel and Who's around each scroll inside themselves. Phones: the parts keep
+   inside the safe area (the page asks for viewport-fit=cover). */
+html:has(> body.community-page) { height: 100%; overflow: hidden; overscroll-behavior: none; scroll-padding-top: 0; }
+body.community-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; margin: 0; overflow: hidden; overscroll-behavior: none; background: var(--bg); }
+.community-page > .site-nav { flex: none; }
+.cx {
+  position: relative;
   display: grid;
+  flex: 1 1 auto;
   grid-template-columns: var(--cx-rail-w) minmax(0, 1fr) var(--cx-side-w);
   grid-template-rows: minmax(0, 1fr);
-  height: calc(100dvh - var(--site-nav-h, 60px));
-  min-height: 420px;
+  min-height: 0;
   margin: 0;
-  padding: 0;
+  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
   overflow: hidden;
   color: var(--fg);
   background: var(--bg);
@@ -29,17 +45,13 @@
   font-weight: 600;
   line-height: 1.35;
 }
-:root[data-theme="dark"] .cx {
-  --bg: #1d1813; --surface: #231d17; --fg: #f1e7d8; --muted: #b8a48c; --lead: #d9ccb8; --border: #3e3328; --accent: #b49ae0;
-  --track: #2e261e; --row-line: #2a231c; --chip-solid: #2a231c; --play-bg: #b49ae0; --play-fg: #1b1426; --play-hover: #c6b0ec; --sun: #e3b04a; --moss: #6cc070;
-  --cx-parchment: #2e261e; --cx-strong: #5a4a38; --cx-soft: #352b45; --cx-good: #6cc070; --cx-danger: #e8776c; --cx-inverse: #fffdf8;
-}
 .cx[data-cx-around="off"]:not([data-cx-threaded]) { grid-template-columns: var(--cx-rail-w) minmax(0, 1fr); }
+/* Closed, Who's around is gone, never placed in a new grid row under the rail (it grew the page, 2026-11-04). */
+.cx[data-cx-around="off"] .cx-around { display: none; }
 .cx[data-signed="0"] { grid-template-columns: var(--cx-rail-w) minmax(0, 1fr); }
 .cx [hidden] { display: none !important; }
 .cx button { font: inherit; color: inherit; }
 .cx :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.community-page .foot { margin-top: 0; }
 
 /* The chat app's header (SiteNav::nav with the app layout, /chat/ only; Austin 2026-11-04 "a chat UI
    designed header just for this page"): the site's header and menu, full width and compact, over the
@@ -48,7 +60,7 @@
    right; the header's own hairline to the app. Its colour and tokens are the header's. site/site-nav.css
    names the same parts for the View Transition, so the centred header stretches into this one. */
 .community-page { --site-nav-h: 52px; --cx-rail-w: 300px; --cx-side-w: 300px; }
-.community-page .site-nav { z-index: 30; }
+.community-page .site-nav { z-index: 30; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .site-nav-app .site-nav-row { gap: 16px; min-height: var(--site-nav-h); padding: 0 16px 0 0; }
 .site-nav-app .wordmark { box-sizing: border-box; align-self: stretch; width: var(--cx-rail-w); gap: 14px; padding: 0 16px 0 20px; font-size: 19px; border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
 .site-nav-app .site-nav-links { gap: 18px; }
@@ -103,8 +115,13 @@
 .notif-said { margin: 0; padding: 0 16px 10px; font-size: 13px; color: var(--muted); }
 .notif-said:empty { display: none; }
 
-/* The rail: the drawer's Chats list, four sections */
-.cx-rail { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px 16px; border-right: 1px solid var(--border); background: var(--surface); scrollbar-width: thin; }
+/* The rail: the drawer's Chats list, four sections, scrolling on its own; under it, pinned, the site
+   footer's credit row (CommunityPages::RAIL_FOOT) in small muted type. */
+.cx-rail { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid var(--border); background: var(--surface); }
+.cx-rail-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px 16px; scrollbar-width: thin; }
+.cx-rail-foot { flex: none; margin: 0; padding: 8px 12px calc(9px + env(safe-area-inset-bottom)); border-top: 1px solid var(--row-line); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1.4; text-wrap: balance; }
+.cx-rail-foot a { color: inherit; text-decoration: none; }
+.cx-rail-foot a:hover { color: var(--fg); text-decoration: underline; }
 .cx-sec { display: grid; gap: 2px; }
 .cx-sec-title { margin: 14px 8px 4px; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .cx-list { display: grid; align-content: start; gap: 2px; margin: 0; padding: 0; list-style: none; }
@@ -156,7 +173,7 @@ a.cx-who:hover .cx-label { text-decoration: underline; }
 .cx-log { display: flex; flex: 1 1 auto; flex-direction: column; gap: 6px; min-height: 0; padding: 12px 18px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .cx-list-log { padding: 8px 10px; }
 .cx-time { align-self: center; padding: 4px 0; font-size: 13px; font-weight: 700; color: var(--muted); }
-.cx-compose { flex: none; padding: 8px 12px 10px; border-top: 1px solid var(--border); background: var(--bg); }
+.cx-compose { flex: none; padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--bg); }
 .cx-compose-bar { display: flex; justify-content: center; }
 .cx-say { display: flex; align-items: flex-end; gap: 4px; }
 .cx-field, .cx .cx-field { flex: 1 1 auto; box-sizing: border-box; min-width: 0; min-height: 36px; margin: 0; padding: 8px 14px; border: 1px solid var(--cx-strong); border-radius: 18px; background: var(--bg); color: var(--fg); font: inherit; font-size: 15px; line-height: 18px; resize: none; }
@@ -203,7 +220,7 @@ textarea.cx-field { display: block; height: 36px; max-height: 40vh; overflow-y: 
 .cx-side-title { flex: 1 1 auto; margin: 0; font-family: inherit; font-size: 16px; font-weight: 800; color: var(--fg); }
 .cx-x { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; transform: scaleX(-1); }
 .cx-x:hover { background: var(--bg); color: var(--fg); }
-.cx-around .cx-people { flex: 1 1 auto; padding: 6px; overflow-y: auto; }
+.cx-around .cx-people { flex: 1 1 auto; min-height: 0; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .cx-switch { display: flex; align-items: center; gap: 8px; margin: 10px 14px 0; font-weight: 700; cursor: pointer; }
 .cx-switch input { width: 18px; height: 18px; accent-color: var(--accent); }
 .cx-switch-hint { margin: 2px 14px 6px 40px; }
@@ -383,7 +400,7 @@ button.cchip:hover { border-color: var(--muted); }
 /* Narrower: Who's around and a thread slide in over the conversation */
 @media (max-width: 1180px) {
   .cx, .cx[data-cx-around="off"]:not([data-cx-threaded]) { grid-template-columns: var(--cx-rail-w) minmax(0, 1fr); }
-  .cx-side { position: fixed; z-index: 25; top: var(--site-nav-h, 60px); right: 0; bottom: 0; width: min(var(--cx-side-w), 100vw); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16); }
+  .cx-side { position: absolute; z-index: 25; grid-column: auto; grid-row: auto; top: 0; right: 0; bottom: 0; width: min(var(--cx-side-w), 100%); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16); }
   .cx-around { display: none; }
   .cx[data-cx-around="on"] .cx-around { display: flex; }
   .cx[data-cx-threaded] .cx-around { display: none; }
@@ -398,7 +415,7 @@ button.cchip:hover { border-color: var(--muted); }
   .cx[data-cx-view="main"] .cx-rail { display: none; }
   .cx-rail { border-right: 0; }
   .cx-back { display: inline-flex; }
-  .cx-side { width: 100vw; }
+  .cx-side { width: 100%; }
   .cx-head { padding: 8px 10px; }
   .cx-log { padding: 10px 12px; }
   .cchan-line { padding-right: 0; }
@@ -426,8 +443,7 @@ button.cchip:hover { border-color: var(--muted); }
   .site-nav-app[data-menu] .site-nav-panel, .site-nav-app[data-menu] .site-nav-panel[hidden] { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; min-width: 0; margin: 0 0 4px; padding: 2px 0 6px 14px; border: 0; border-radius: 0; background: none; box-shadow: none; }
   .site-nav-app[data-menu] .site-nav-panel::before { display: none; }
   .site-nav-app[data-menu] .site-nav-links .site-nav-panel a { padding: 8px 4px; font-size: 14px; color: var(--muted); border-bottom: 0; }
-  .notif-panel { position: fixed; top: calc(var(--site-nav-h) + 6px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--site-nav-h) - 16px); }
-  .cx-side { top: var(--site-nav-h); }
+  .notif-panel { position: fixed; top: calc(var(--site-nav-h) + env(safe-area-inset-top) + 6px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--site-nav-h) - env(safe-area-inset-top) - 16px); }
 }
 @media (max-width: 440px) {
   .site-nav-app .site-nav-bell-btn, .site-nav-app[data-menu] .site-nav-menu { width: 32px; height: 32px; }
