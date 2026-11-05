@@ -204,10 +204,11 @@ textarea.cx-field { display: block; height: 36px; max-height: 40vh; overflow-y: 
 
 /* Lines: "name words", the drawer's .social-msg */
 .cchan-lines { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.cchan-line { position: relative; margin: 0; padding: 2px 64px 2px 0; overflow-wrap: anywhere; border-radius: 6px; }
+/* The right of a line keeps room for its hover time and the two action buttons, so the words wrap before them and nothing moves on hover. */
+.cchan-line { position: relative; margin: 0; padding: 2px 136px 2px 0; overflow-wrap: anywhere; border-radius: 6px; }
 .cchan-line:hover, .cchan-line:focus-within { background: color-mix(in srgb, var(--cx-parchment) 55%, transparent); }
 .cchan-line > time { display: none; }
-.cchan-line:hover > time { display: inline; position: absolute; right: 64px; top: 2px; font-size: 11px; color: var(--muted); }
+.cchan-line:hover > time { display: inline; position: absolute; right: 64px; top: 7px; width: 64px; text-align: right; font-size: 11px; line-height: 1; white-space: nowrap; color: var(--muted); }
 .cchan-name { font-weight: 800; color: var(--fg); }
 .cchan-line.is-mine .cchan-name { color: var(--accent); }
 .cchan-name a { color: inherit; text-decoration: none; }
@@ -244,7 +245,8 @@ textarea.cx-field { display: block; height: 36px; max-height: 40vh; overflow-y: 
 .cx-thread-parent .cchan-line { padding-right: 0; }
 .cx-thread-count { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
 /* The panel is narrow: a hovered line's time sits on its own at the right, never over the name. */
-.cx-thread .cchan-line:hover > time { position: static; float: right; margin: 0 0 0 6px; }
+.cx-thread .cchan-line { padding-right: 64px; }
+.cx-thread .cchan-line:hover > time { position: static; float: right; width: auto; margin: 0 0 0 6px; line-height: inherit; }
 
 /* Board topics in the Chats list's rows */
 .cthread-list { gap: 2px; }
