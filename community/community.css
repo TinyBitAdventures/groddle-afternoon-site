@@ -470,6 +470,11 @@ button.cchip:hover { border-color: var(--muted); }
   .site-nav-app[data-menu] .site-nav-panel, .site-nav-app[data-menu] .site-nav-panel[hidden] { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; min-width: 0; margin: 0 0 4px; padding: 2px 0 6px 14px; border: 0; border-radius: 0; background: none; box-shadow: none; }
   .site-nav-app[data-menu] .site-nav-panel::before { display: none; }
   .site-nav-app[data-menu] .site-nav-links .site-nav-panel a { padding: 8px 4px; font-size: 14px; color: var(--muted); border-bottom: 0; }
+  /* A panel with groups (site/site-nav.css): each group under its heading, two links to a row, then its footer links. */
+  .site-nav-app[data-menu] .site-nav-panel-groups, .site-nav-app[data-menu] .site-nav-panel-groups[hidden] { display: block; max-height: none; overflow: visible; padding: 0 0 6px 14px; }
+  .site-nav-app[data-menu] .site-nav-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+  .site-nav-app[data-menu] .site-nav-head { grid-column: 1 / -1; padding: 8px 4px 0; }
+  .site-nav-app[data-menu] .site-nav-panel-foot { justify-content: flex-start; margin-top: 4px; padding-top: 2px; }
   .notif-panel { position: fixed; top: calc(var(--site-nav-h) + env(safe-area-inset-top) + 6px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--site-nav-h) - env(safe-area-inset-top) - 16px); }
 }
 @media (max-width: 440px) {

@@ -15,12 +15,17 @@ use Minn\Html;
  * Navigation. `ref` names the menu; 0 takes the newest published one. Each
  * link is a core/navigation-link; its className rides along (site-nav-play
  * makes Play the button). A core/navigation-submenu is a link with a
- * dropdown of the links inside it (one level; deeper ones join that list):
- * the link, a toggle button and a hidden panel, all on one line, which
- * site/theme.js opens. The link whose section holds the path being read
- * is marked aria-current, as the built pages mark theirs; a link in
- * SECTIONS, or a submenu through its links, also stands for the pages it
- * gathers, and the panel marks its own link to the page too. The sync writes
+ * dropdown of the links inside it: the link, a toggle button and a hidden
+ * panel, all on one line, which site/theme.js opens. A submenu inside that
+ * submenu is a headed group of the panel (its label the heading, a link
+ * when it has a url; deeper submenus' links join the group), the groups
+ * side by side as columns, and the submenu's own plain links then make the
+ * panel's footer row (Austin 2026-11-05, the Encyclopedia's Things, World
+ * and Doing). A submenu of plain links only keeps its one list. The link
+ * whose section holds the path being read is marked aria-current, as the
+ * built pages mark theirs; a link in SECTIONS, or a submenu through its
+ * links (in its groups too), also stands for the pages it gathers, and the
+ * panel marks its own link to the page too. The sync writes
  * the same menu into the built pages (groddle-afternoon tools/site-nav/apply.mjs), so one
  * edit changes every page.
  */
@@ -77,9 +82,11 @@ final class SiteNav
 
     /**
      * The menu's top-level links as [label, href, class], a submenu's with
-     * its links as a fourth item, [[label, href, class], ...].
+     * its links as a fourth item, [[label, href, class], ...], where a group
+     * (a submenu inside it) is [heading, href or '', class, [[label, href,
+     * class], ...]].
      *
-     * @return list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>
+     * @return list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>}>
      */
     public static function links(Seams $minn, int $ref): array
     {
@@ -95,7 +102,7 @@ final class SiteNav
     /**
      * The top-level links of wp_navigation block markup (links() without the database).
      *
-     * @return list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>
+     * @return list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>}>
      */
     public static function parse(string $markup): array
     {
@@ -105,16 +112,51 @@ final class SiteNav
             if ($link === null) {
                 continue;
             }
-            $children = [];
-            foreach (self::inner($block) as $inner) {
-                $child = self::link($inner);
-                if ($child !== null) {
-                    $children[] = $child;
-                }
-            }
+            $children = self::children($block);
             $links[] = $children === [] ? $link : [...$link, $children];
         }
         return $links;
+    }
+
+    /**
+     * A submenu's panel: its links, and each submenu inside it with links of
+     * its own as a group, [heading, href or '', class, links]. A group's
+     * deeper submenus' links join it; an empty one is a plain link, and one
+     * without a label gives its links to the panel.
+     *
+     * @return list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>
+     */
+    private static function children(Block $block): array
+    {
+        if ($block->name !== 'core/navigation-submenu') {
+            return [];
+        }
+        $out = [];
+        foreach ($block->innerBlocks as $inner) {
+            if ($inner->name === 'core/navigation-submenu') {
+                $links = [];
+                foreach (self::inner($inner) as $deeper) {
+                    $link = self::link($deeper);
+                    if ($link !== null) {
+                        $links[] = $link;
+                    }
+                }
+                $head = self::link($inner, false);
+                if ($links !== [] && $head !== null) {
+                    $out[] = [...$head, $links];
+                    continue;
+                }
+                if ($links !== []) {
+                    $out = [...$out, ...$links];
+                    continue;
+                }
+            }
+            $link = self::link($inner);
+            if ($link !== null) {
+                $out[] = $link;
+            }
+        }
+        return $out;
     }
 
     /** @return list<Block> A submenu's blocks, deeper submenus' links in their place after them. */
@@ -130,15 +172,15 @@ final class SiteNav
         return $out;
     }
 
-    /** @return array{0: string, 1: string, 2: string}|null */
-    private static function link(Block $block): ?array
+    /** @return array{0: string, 1: string, 2: string}|null A link, or with $needsUrl false a group's heading (its url may be ''). */
+    private static function link(Block $block, bool $needsUrl = true): ?array
     {
         if ($block->name !== 'core/navigation-link' && $block->name !== 'core/navigation-submenu') {
             return null;
         }
         $label = trim(html_entity_decode(strip_tags((string) $block->attr('label', '')), ENT_QUOTES | ENT_HTML5));
         $href = trim((string) $block->attr('url', ''));
-        return $label === '' || $href === '' ? null : [$label, $href, trim((string) $block->attr('className', ''))];
+        return $label === '' || ($href === '' && $needsUrl) ? null : [$label, $href, trim((string) $block->attr('className', ''))];
     }
 
     /**
@@ -149,7 +191,7 @@ final class SiteNav
      * (community.js). site/site-nav.css names the header, its mark and name, the links and the theme
      * button for the page-to-page View Transition, so the centred header stretches into this one and back.
      *
-     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $links
+     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>}> $links
      * @param array<string, int> $badges href => a count its link shows (badges())
      * @param array{bell?: int|null}|null $app
      */
@@ -197,7 +239,7 @@ final class SiteNav
      * per item): a link, or a submenu's link, toggle and panel. The same
      * markup as renderItem in groddle-afternoon tools/site-nav/apply.mjs.
      *
-     * @param array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>} $link
+     * @param array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>} $link
      */
     public static function item(array $link, int $index, bool $current, string $path): string
     {
@@ -209,13 +251,97 @@ final class SiteNav
         }
         $id = 'site-nav-sub-' . $index;
         $child = $current ? self::currentChild($children, $path) : null;
-        $panel = '';
-        foreach ($children as $j => [$childLabel, $childHref, $childClass]) {
-            $panel .= self::anchor($childLabel, $childHref, $childClass, $j === $child);
-        }
         return '<div class="site-nav-sub">' . $a
             . '<button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="' . $id . '" aria-label="' . Html::attr('More in ' . $label) . '"></button>'
-            . '<div class="site-nav-panel" id="' . $id . '" hidden>' . $panel . '</div></div>';
+            . self::panel($children, $id, $child) . '</div>';
+    }
+
+    /**
+     * A submenu's panel. Plain links: one list. With groups: the groups side
+     * by side (.site-nav-groups; site-nav.css stacks them on a phone), each a
+     * labelled group under its heading, then the panel's own links in the
+     * footer row (.site-nav-panel-foot). $child counts the links in
+     * panelLinks() order.
+     *
+     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $children
+     */
+    private static function panel(array $children, string $id, ?int $child): string
+    {
+        $k = 0;
+        $mark = static function () use (&$k, $child): bool {
+            return $k++ === $child;
+        };
+        $loose = static function () use ($children, $mark): string {
+            $out = '';
+            foreach ($children as $c) {
+                if (!isset($c[3])) {
+                    $out .= self::anchor($c[0], $c[1], $c[2], $mark());
+                }
+            }
+            return $out;
+        };
+        if (!self::grouped($children)) {
+            return '<div class="site-nav-panel" id="' . $id . '" hidden>' . $loose() . '</div>';
+        }
+        $groups = '';
+        $g = 0;
+        foreach ($children as $c) {
+            if (!isset($c[3])) {
+                continue;
+            }
+            [$head, $headHref, $class, $links] = $c;
+            $hid = $id . '-h' . $g++;
+            $groups .= '<div class="site-nav-group' . ($class === '' ? '' : ' ' . Html::attr($class)) . '" role="group" aria-labelledby="' . $hid . '">'
+                . '<span class="site-nav-head" id="' . $hid . '">' . ($headHref === '' ? Html::esc($head) : self::anchor($head, $headHref, '', $mark())) . '</span>';
+            foreach ($links as [$l, $h, $cl]) {
+                $groups .= self::anchor($l, $h, $cl, $mark());
+            }
+            $groups .= '</div>';
+        }
+        $foot = $loose();
+        return '<div class="site-nav-panel site-nav-panel-groups" id="' . $id . '" hidden><div class="site-nav-groups">' . $groups . '</div>'
+            . ($foot === '' ? '' : '<div class="site-nav-panel-foot">' . $foot . '</div>') . '</div>';
+    }
+
+    /** @param list<array<int, mixed>> $children Whether a panel holds a group. */
+    private static function grouped(array $children): bool
+    {
+        foreach ($children as $c) {
+            if (isset($c[3])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A panel's links in the order it draws them: a plain panel's list, or
+     * each group's heading link (when it has a url) and links, then the
+     * footer row's.
+     *
+     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $children
+     * @return list<array{0: string, 1: string, 2: string}>
+     */
+    public static function panelLinks(array $children): array
+    {
+        if (!self::grouped($children)) {
+            return $children;
+        }
+        $out = [];
+        foreach ($children as $c) {
+            if (isset($c[3])) {
+                if ($c[1] !== '') {
+                    $out[] = [$c[0], $c[1], ''];
+                }
+                $out = [...$out, ...$c[3]];
+            }
+        }
+        foreach ($children as $c) {
+            if (!isset($c[3])) {
+                $out[] = $c;
+            }
+        }
+        return $out;
     }
 
     /** A link's count badge: the number shown, ", N new" for a screen reader. */
@@ -235,7 +361,7 @@ final class SiteNav
      * submenu's links; the others lose a tie to a link's own), never the
      * home page or the play button.
      *
-     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $links
+     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>}> $links
      */
     public static function current(array $links, string $path): ?int
     {
@@ -249,7 +375,7 @@ final class SiteNav
             }
             $own = rtrim($href, '/') . '/';
             $sections = [$own, ...(self::SECTIONS[$own] ?? [])];
-            foreach ($link[3] ?? [] as [, $childHref]) {
+            foreach (self::panelLinks($link[3] ?? []) as [, $childHref]) {
                 if (self::sitePath($childHref)) {
                     $sections[] = rtrim($childHref, '/') . '/';
                 }
@@ -266,16 +392,17 @@ final class SiteNav
     }
 
     /**
-     * The submenu link whose path holds the page (the longest), or none.
+     * The submenu link whose path holds the page (the longest), or none: an
+     * index into panelLinks(), so a link inside a group counts too.
      *
-     * @param list<array{0: string, 1: string, 2: string}> $children
+     * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $children
      */
     public static function currentChild(array $children, string $path): ?int
     {
         $best = null;
         $length = 0;
         $page = rtrim($path, '/') . '/';
-        foreach ($children as $j => [, $href]) {
+        foreach (self::panelLinks($children) as $j => [, $href]) {
             $own = rtrim($href, '/') . '/';
             if (self::sitePath($href) && str_starts_with($page, $own) && strlen($own) > $length) {
                 $best = $j;
