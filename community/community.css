@@ -9,13 +9,14 @@
 
 @font-face { font-family: Nunito; font-style: normal; font-weight: 200 1000; font-display: swap; src: url("/assets/fonts/nunito/nunito-roman-latin.woff2") format("woff2"); }
 
-.cx {
+/* The drawer's palette for the whole page: the app and its header share it, so they read as one. */
+.community-page, .cx {
   --bg: #fffdf8; --surface: #fbf5ea; --fg: #33241a; --muted: #6a5442; --lead: #4a3a2c; --border: #e2d2b4; --accent: #6b4c9e;
   --track: #f4e9d6; --row-line: #efe4cf; --chip-solid: #fffdf8; --play-bg: #6b4c9e; --play-fg: #fffdf8; --play-hover: #5b3f8a; --sun: #d39a26; --moss: #276b2c;
   --cx-parchment: #f4e9d6; --cx-strong: #cdb792; --cx-soft: #eee6f8; --cx-good: #276b2c; --cx-danger: #bf3127; --cx-inverse: #fffdf8;
   --cx-hue-0: #5b4f6b; --cx-hue-1: #2e5a20; --cx-hue-2: #9b1c1f; --cx-hue-3: #175070; --cx-hue-4: #674879; --cx-hue-5: #664d37; --cx-hue-6: #19587e; --cx-hue-7: #6a4f17;
 }
-:root[data-theme="dark"] .cx {
+:root[data-theme="dark"] .community-page, :root[data-theme="dark"] .cx {
   --bg: #1d1813; --surface: #231d17; --fg: #f1e7d8; --muted: #b8a48c; --lead: #d9ccb8; --border: #3e3328; --accent: #b49ae0;
   --track: #2e261e; --row-line: #2a231c; --chip-solid: #2a231c; --play-bg: #b49ae0; --play-fg: #1b1426; --play-hover: #c6b0ec; --sun: #e3b04a; --moss: #6cc070;
   --cx-parchment: #2e261e; --cx-strong: #5a4a38; --cx-soft: #352b45; --cx-good: #6cc070; --cx-danger: #e8776c; --cx-inverse: #fffdf8;
@@ -57,14 +58,26 @@ body.community-page { display: flex; flex-direction: column; height: 100vh; heig
    designed header just for this page"): the site's header and menu, full width and compact, over the
    app's columns: the wordmark over the left rail at its width, its mark centred over the rail's
    avatars and its words over their names; the menu's links, the bell and the theme button at the
-   right; the header's own hairline to the app. Its colour and tokens are the header's. site/site-nav.css
-   names the same parts for the View Transition, so the centred header stretches into this one. */
-.community-page { --site-nav-h: 52px; --cx-rail-w: 300px; --cx-side-w: 300px; }
-.community-page .site-nav { z-index: 30; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
-.site-nav-app .site-nav-row { gap: 16px; min-height: var(--site-nav-h); padding: 0 16px 0 0; }
-.site-nav-app .wordmark { box-sizing: border-box; align-self: stretch; width: var(--cx-rail-w); gap: 14px; padding: 0 16px 0 20px; font-size: 19px; border-right: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
-.site-nav-app .site-nav-links { gap: 18px; }
-.site-nav-app .site-nav-play { min-height: 32px; }
+   right; one hairline under it to the app. site/site-nav.css names the same parts for the View
+   Transition, so the centred header stretches into this one.
+   Minimal and integrated (Austin 2026-11-04): it wears the app's palette (the page's tokens above) and
+   the rail's surface, with no backdrop blur, a compact 48 px row, the app's type for the links, and the
+   page being read as a quiet soft pill (the rail's selected row) rather than the site's underline. */
+.community-page { --site-nav-h: 48px; --cx-rail-w: 300px; --cx-side-w: 300px; }
+.community-page .site-nav.site-nav-app { position: relative; z-index: 30; padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; border-bottom: 1px solid var(--border); }
+.site-nav-app .site-nav-row { gap: 12px; min-height: var(--site-nav-h); padding: 0 12px 0 0; }
+.site-nav-app .wordmark { box-sizing: border-box; align-self: stretch; width: var(--cx-rail-w); gap: 10px; padding: 0 16px 0 20px; font-size: 18px; }
+.site-nav-app .wordmark img { width: 26px; height: 26px; margin: 0 1px; }
+.site-nav-app .site-nav-links { gap: 2px; font-family: Nunito, ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; }
+.site-nav-app .site-nav-links a:not(.site-nav-play) { padding: 5px 10px; border: 0; border-radius: 999px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+.site-nav-app .site-nav-links a:not(.site-nav-play):hover { background: color-mix(in srgb, var(--cx-soft) 60%, transparent); }
+.site-nav-app .site-nav-links a[aria-current="page"] { color: var(--fg); background: var(--cx-soft); }
+.site-nav-app .site-nav-sub { gap: 0; }
+.site-nav-app .site-nav-sub > a:not(.site-nav-play) { padding-right: 4px; }
+.site-nav-app .site-nav-play { min-height: 30px; margin-left: 8px; padding: 0 14px; background: var(--play-bg); color: var(--play-fg); font-size: 14px; }
+.site-nav-app .site-nav-play:hover { filter: none; background: var(--play-hover); }
+:root[data-theme-mode] .site-nav-app .site-nav-theme, .site-nav-app .site-nav-bell-btn { width: 32px; height: 32px; }
+.site-nav-app .site-nav-badge, .site-nav-app .site-nav-bell-n { background: var(--play-bg); color: var(--play-fg); }
 .site-nav-menu { display: none; }
 
 /* The bell (community/notifications.js) and its count: the theme button's size and line, the Community count's colours. */
@@ -77,7 +90,7 @@ body.community-page { display: flex; flex-direction: column; height: 100vh; heig
 .site-nav-bell-btn { --nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9.5a6 6 0 0 1 12 0c0 4.5 1.6 6.3 2.4 7H3.6c.8-.7 2.4-2.5 2.4-7z'/%3E%3Cpath d='M10 20a2.2 2.2 0 0 0 4 0'/%3E%3C/svg%3E"); }
 .site-nav-bell-btn:hover, .site-nav-bell-btn[aria-expanded="true"] { color: var(--fg); border-color: var(--muted); }
 .site-nav-bell-btn:focus-visible, .site-nav-menu:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-.site-nav-bell-n { position: absolute; top: -5px; right: -6px; display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 999px; background: var(--accent); color: #1f1407; box-shadow: 0 0 0 2px var(--bg); font-size: 11px; font-weight: 800; line-height: 1; }
+.site-nav-bell-n { position: absolute; top: -5px; right: -6px; display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 999px; background: var(--accent); color: #1f1407; box-shadow: 0 0 0 2px var(--surface); font-size: 11px; font-weight: 800; line-height: 1; }
 .site-nav-bell-n[hidden] { display: none; }
 
 /* Its panel: under the bell, the header's dropdown look (the submenus' .site-nav-panel). */
@@ -408,6 +421,12 @@ button.cchip:hover { border-color: var(--muted); }
 @media (min-width: 1181px) {
   .cx [data-cx-around-open][aria-expanded="true"] { background: var(--cx-soft); }
 }
+/* Between a phone and a wide window the menu keeps one row: the mark alone over the rail. */
+@media (min-width: 721px) and (max-width: 960px) {
+  .site-nav-app .wordmark { width: auto; padding-right: 4px; }
+  .site-nav-app .wordmark span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .site-nav-app .site-nav-links { margin-left: auto; }
+}
 /* Phones: the list is one screen, a conversation another (the drawer's "‹ Chats") */
 @media (max-width: 720px) {
   .cx, .cx[data-signed="0"], .cx[data-cx-around="off"]:not([data-cx-threaded]) { grid-template-columns: minmax(0, 1fr); }
@@ -426,16 +445,18 @@ button.cchip:hover { border-color: var(--muted); }
 /* The chat app's header on a phone: one compact bar, the mark, the bell, the theme button and a menu
    button (community.js; data-menu once it runs) that drops the menu's links down under the bar. */
 @media (max-width: 720px) {
-  .community-page { --site-nav-h: 48px; }
+  .community-page { --site-nav-h: 46px; }
   .site-nav-app .site-nav-row { gap: 8px; padding: 0 10px 0 0; }
   .site-nav-app .wordmark { width: auto; padding: 0 4px 0 12px; border-right: 0; font-size: 17px; }
-  .site-nav-app[data-menu] .site-nav-bell { order: 1; margin-left: auto; }
+  .site-nav-app[data-menu] .wordmark { margin-right: auto; }
+  .site-nav-app[data-menu] .site-nav-bell { order: 1; }
   .site-nav-app[data-menu] .site-nav-theme { order: 2; }
   .site-nav-app[data-menu] .site-nav-menu { order: 3; display: inline-grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; --nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M4 7h16M4 12h16M4 17h16'/%3E%3C/svg%3E"); }
   .site-nav-app[data-menu="open"] .site-nav-menu { color: var(--fg); border-color: var(--muted); --nav-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6 6 18'/%3E%3C/svg%3E"); }
-  .site-nav-app[data-menu] .site-nav-links { position: absolute; top: 100%; left: 0; right: 0; display: none; flex-direction: column; align-items: stretch; gap: 0; margin: 0; padding: 4px 16px 14px; overflow: visible; background: var(--bg); border-bottom: 1px solid var(--border); box-shadow: 0 16px 28px -20px rgba(0, 0, 0, 0.5); }
+  .site-nav-app[data-menu] .site-nav-links { position: absolute; top: 100%; left: 0; right: 0; display: none; flex-direction: column; align-items: stretch; gap: 0; margin: 0; padding: 4px 16px 14px; overflow: visible; background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: 0 16px 28px -20px rgba(0, 0, 0, 0.5); }
   .site-nav-app[data-menu="open"] .site-nav-links { display: flex; }
   .site-nav-app[data-menu] .site-nav-links a:not(.site-nav-play) { padding: 11px 2px; font-size: 16px; border-bottom: 1px solid var(--row-line); white-space: normal; }
+  .site-nav-app[data-menu] .site-nav-links a:not(.site-nav-play) { border-radius: 0; background: none; }
   .site-nav-app[data-menu] .site-nav-links a[aria-current="page"] { border-bottom-color: var(--row-line); box-shadow: inset 3px 0 0 var(--accent); padding-left: 12px; }
   .site-nav-app[data-menu] .site-nav-links .site-nav-play { position: static; align-self: flex-start; margin-top: 12px; box-shadow: none; padding: 0 18px; font-size: 15px; min-height: 36px; }
   .site-nav-app[data-menu] .site-nav-sub { display: block; }
