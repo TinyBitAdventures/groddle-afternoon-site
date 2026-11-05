@@ -49,10 +49,11 @@ function el(tag, attrs = {}, text = '') {
 }
 
 /**
- * Starts the bell. call: community.js's groddle/v1 call. Returns the panel's API, or null without
- * a bell on the page.
+ * Starts the bell. call: community.js's groddle/v1 call; nav: the moves inside /chat/ (chat-nav.js),
+ * so a row's topic or conversation opens in place, without a reload. Returns the panel's API, or
+ * null without a bell on the page.
  */
-export function startNotifications({ call }) {
+export function startNotifications({ call, nav = null }) {
   const box = document.querySelector('[data-notif]');
   const bell = box?.querySelector('[data-notif-open]');
   if (!box || !bell) return null;
@@ -261,6 +262,11 @@ export function startNotifications({ call }) {
     // Only a board topic or a conversation on /chat/ is opened from the row; anything else (a buddy add's
     // profile) is just read, and its own small action buttons go further.
     if (typeof item.url !== 'string' || !item.url.startsWith('/chat/')) return;
+    if (nav) {
+      closePanel();
+      nav.go(item.url);
+      return;
+    }
     await Promise.race([wait, new Promise((r) => setTimeout(r, 600))]);
     location.href = item.url;
   });
@@ -281,6 +287,7 @@ export function startNotifications({ call }) {
     const id = b.dataset.notifIm;
     if (key) read(key);
     if (app.open?.({ conv: `im:${id}` })) { closePanel(); return; }
+    if (nav) { closePanel(); nav.go(`/chat/?im=${encodeURIComponent(id)}`); return; }
     location.href = `/chat/?im=${encodeURIComponent(id)}`;
   });
 

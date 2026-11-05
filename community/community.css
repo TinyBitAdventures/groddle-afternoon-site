@@ -179,6 +179,8 @@ a.cx-who:hover .cx-label { text-decoration: underline; }
 
 /* The conversation */
 .cx-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+/* A board or a topic on its way in (community/chat-nav.js): dimmed only when it takes a moment. */
+.cx-pane[aria-busy="true"] { opacity: .6; transition: opacity .15s ease .2s; }
 .cx-conv { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 .cx-head { display: flex; flex: none; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--cx-parchment); }
 .cx-head-txt { display: grid; flex: 1 1 auto; min-width: 0; }

@@ -9,7 +9,10 @@
  * - a link to another site asks first (the game's own js/chat-links.js, as in its chat);
  * - a sign-in panel can sign you in here (groddle/v1/session), then the page reloads;
  * - the chat app's header (src/SiteNav.php app layout): its links fold behind a menu button on a
- *   phone; for a signed-in player the bell (notifications.js) starts first and is handed to the app.
+ *   phone; for a signed-in player the bell (notifications.js) starts first and is handed to the app;
+ * - moving around /chat/ never reloads (chat-nav.js): a board, a topic or a conversation comes in
+ *   place with pushState, so the forms and the topic's poll below are wired again for each view
+ *   (wirePage), and the chat app's live socket stays connected.
  *
  * The REST nonce is the one the page drew (main[data-nonce]); a stale one is swapped for a fresh one
  * from admin-ajax.php?action=rest-nonce, as players/buddy.js does.
@@ -33,6 +36,8 @@ const SAID = {
 };
 
 let nonce = main?.dataset.nonce || '';
+/** Whether the chat app's socket is up (chat-app.js sets it): the topic's poll waits while it is. */
+export const live = { on: false };
 export { main, call, fromHtml, say, grow, sendKey, REACTIONS, SAID, openPicker, closePicker };
 
 async function freshNonce() {
@@ -105,146 +110,231 @@ if (main) {
 
 // —— Sign in here ——
 
-for (const box of document.querySelectorAll('[data-community-signin]')) {
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'cbutton cbutton-quiet';
-  toggle.textContent = SAID.signIn;
-  toggle.setAttribute('aria-expanded', 'false');
-  const form = document.createElement('form');
-  form.className = 'csignin-form';
-  form.hidden = true;
-  form.innerHTML = '<label class="clabel" for="csignin-email">Email</label><input class="cinput" id="csignin-email" name="email" type="email" autocomplete="email" required />'
-    + '<label class="clabel" for="csignin-pass">Password</label><input class="cinput" id="csignin-pass" name="password" type="password" autocomplete="current-password" required />'
-    + '<div class="cform-row"><button class="cbutton" type="submit">Sign in</button><a class="cquoting-off" href="/play/online/">Forgot your password?</a></div><p class="csaid" role="status" aria-live="polite"></p>';
-  box.querySelector('.cbutton')?.replaceWith(toggle);
-  box.after(form);
-  toggle.addEventListener('click', () => {
-    form.hidden = !form.hidden;
-    toggle.setAttribute('aria-expanded', String(!form.hidden));
-    if (!form.hidden) form.querySelector('input')?.focus();
-  });
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const note = form.querySelector('.csaid');
-    const button = form.querySelector('button[type="submit"]');
-    button.disabled = true;
-    nonce = '';
-    const r = await call('session', { method: 'POST', body: { email: form.email.value, password: form.password.value, remember: true } });
-    button.disabled = false;
-    if (r.ok && r.data?.signedIn) {
-      location.reload();
-      return;
-    }
-    say(note, r.data?.message || SAID.failed, true);
-  });
-}
-
-// —— A new thread ——
-
-const newForm = document.querySelector('form[data-community-new]');
-if (newForm) {
-  const board = newForm.dataset.communityNew;
-  const note = newForm.querySelector('.csaid');
-  newForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const button = newForm.querySelector('button[type="submit"]');
-    button.disabled = true;
-    const r = await call(`community/boards/${board}/threads`, { method: 'POST', body: { title: newForm.title.value, body: newForm.body.value } });
-    if (r.ok && r.data?.url) {
-      location.href = r.data.url;
-      return;
-    }
-    button.disabled = false;
-    say(note, r.data?.message || SAID.failed, true);
-  });
-}
-
-// —— A thread ——
-
-const list = document.querySelector('[data-community-posts]');
-const threadId = Number(main?.dataset.thread) || 0;
-let after = Number(main?.dataset.after) || 0;
-let since = Number(main?.dataset.since) || 0;
-const lastPage = main?.dataset.lastPage === '1';
-const replyForm = document.querySelector('form[data-community-reply]');
-/** chat-app.js calls this when the server says this topic has a new post. */
-export const topicNow = { fn: null, thread: threadId };
-
-function placePost(html, { fresh = false } = {}) {
-  const li = fromHtml(html);
-  if (!li || !list) return null;
-  const old = document.getElementById(li.id);
-  if (old) {
-    // A post being edited keeps its editor until it is saved or cancelled.
-    if (old.querySelector('.cedit')) return old;
-    old.replaceWith(li);
-  } else {
-    if (fresh) li.dataset.fresh = '';
-    list.append(li);
-  }
-  return li;
-}
-
-if (replyForm && list) {
-  const field = replyForm.querySelector('textarea');
-  const note = replyForm.querySelector('.csaid');
-  const quoteField = replyForm.querySelector('[data-quote-field]');
-  const quoting = replyForm.querySelector('[data-quoting]');
-  const hint = replyForm.querySelector('[data-reply-hint]');
-  if (hint) hint.textContent = `${SAID.enterHint} ${hint.textContent}`;
-  const fit = grow(field);
-  let busy = false;
-  field.addEventListener('keydown', (e) => {
-    if (sendKey(e)) {
+function wireSignIn(root) {
+  for (const box of root.querySelectorAll('[data-community-signin]:not([data-signin-wired])')) {
+    box.dataset.signinWired = '';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'cbutton cbutton-quiet';
+    toggle.textContent = SAID.signIn;
+    toggle.setAttribute('aria-expanded', 'false');
+    const form = document.createElement('form');
+    form.className = 'csignin-form';
+    form.hidden = true;
+    form.innerHTML = '<label class="clabel" for="csignin-email">Email</label><input class="cinput" id="csignin-email" name="email" type="email" autocomplete="email" required />'
+      + '<label class="clabel" for="csignin-pass">Password</label><input class="cinput" id="csignin-pass" name="password" type="password" autocomplete="current-password" required />'
+      + '<div class="cform-row"><button class="cbutton" type="submit">Sign in</button><a class="cquoting-off" href="/play/online/">Forgot your password?</a></div><p class="csaid" role="status" aria-live="polite"></p>';
+    box.querySelector('.cbutton')?.replaceWith(toggle);
+    box.after(form);
+    toggle.addEventListener('click', () => {
+      form.hidden = !form.hidden;
+      toggle.setAttribute('aria-expanded', String(!form.hidden));
+      if (!form.hidden) form.querySelector('input')?.focus();
+    });
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      replyForm.requestSubmit();
-    }
-  });
-  replyForm.querySelector('[data-unquote]')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    quoteField.value = '';
-    quoting.hidden = true;
-    field.focus();
-  });
-  replyForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (busy || !field.value.trim()) return;
-    busy = true;
-    const button = replyForm.querySelector('button[type="submit"]');
-    button.disabled = true;
-    const r = await call(`community/threads/${threadId}/posts`, { method: 'POST', body: { body: field.value, quote: Number(quoteField.value) || 0 } });
-    busy = false;
-    button.disabled = false;
-    if (!r.ok) {
+      const note = form.querySelector('.csaid');
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      nonce = '';
+      const r = await call('session', { method: 'POST', body: { email: form.email.value, password: form.password.value, remember: true } });
+      button.disabled = false;
+      if (r.ok && r.data?.signedIn) {
+        location.reload();
+        return;
+      }
       say(note, r.data?.message || SAID.failed, true);
-      return;
-    }
-    if (!lastPage) {
-      location.href = r.data.url;
-      return;
-    }
-    const li = placePost(r.data.html, { fresh: true });
-    after = Math.max(after, Number(r.data.post?.id) || 0);
-    field.value = '';
-    quoteField.value = '';
-    quoting.hidden = true;
-    fit();
-    say(note, '');
-    li?.scrollIntoView({ block: 'nearest' });
-  });
+    });
+  }
+}
+wireSignIn(document);
 
-  list.addEventListener('click', (e) => {
-    const q = e.target.closest('[data-quote]');
-    if (!q) return;
-    e.preventDefault();
-    const li = q.closest('.cpost');
-    quoteField.value = q.dataset.quote;
-    quoting.querySelector('[data-quoting-text]').textContent = `Quoting ${q.dataset.quoteName}: ${li?.dataset.quoteText || ''}`;
-    quoting.hidden = false;
-    field.focus();
-    replyForm.scrollIntoView({ block: 'nearest' });
-  });
+// —— The parts of the view in the pane: a new thread's form, a topic's posts, its reply box and poll ——
+
+/** chat-app.js calls this when the server says this topic has a new post. */
+export const topicNow = { fn: null, thread: 0 };
+/** Stops what the last view started (its poll, its listeners). */
+let unwire = () => {};
+
+/** The moves inside /chat/ (chat-nav.js), once it has loaded; until then (and without the app's frame) a link loads as usual. */
+const v = new URL(import.meta.url).search;
+let nav = null;
+const navReady = main?.matches('.cx')
+  ? import(`./chat-nav.js${v}`)
+    .then((m) => { nav = m.startNav({ main, hooks: { leave: () => unwire(), enter: (root) => { wireSignIn(root); wirePage(); } } }); return nav; })
+    .catch((e) => { console.warn('chat nav', e); return null; })
+  : Promise.resolve(null);
+const go = (url, opts) => (nav ? nav.go(url, opts) : location.assign(url));
+
+function wirePage() {
+  unwire();
+  const stops = [];
+  const newForm = document.querySelector('form[data-community-new]');
+  if (newForm) {
+    const board = newForm.dataset.communityNew;
+    const note = newForm.querySelector('.csaid');
+    newForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const button = newForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      const r = await call(`community/boards/${board}/threads`, { method: 'POST', body: { title: newForm.title.value, body: newForm.body.value } });
+      if (r.ok && r.data?.url) {
+        // The new topic, in place of the form (as the form's own 303 without JavaScript).
+        go(r.data.url, { replace: true });
+        return;
+      }
+      button.disabled = false;
+      say(note, r.data?.message || SAID.failed, true);
+    });
+  }
+
+  // —— A thread ——
+
+  const list = document.querySelector('[data-community-posts]');
+  const threadId = Number(main?.dataset.thread) || 0;
+  let after = Number(main?.dataset.after) || 0;
+  let since = Number(main?.dataset.since) || 0;
+  const lastPage = main?.dataset.lastPage === '1';
+  const replyForm = document.querySelector('form[data-community-reply]');
+  topicNow.thread = list ? threadId : 0;
+
+  function placePost(html, { fresh = false } = {}) {
+    const li = fromHtml(html);
+    if (!li || !list) return null;
+    const old = document.getElementById(li.id);
+    if (old) {
+      // A post being edited keeps its editor until it is saved or cancelled.
+      if (old.querySelector('.cedit')) return old;
+      old.replaceWith(li);
+    } else {
+      if (fresh) li.dataset.fresh = '';
+      list.append(li);
+    }
+    return li;
+  }
+
+  if (replyForm && list) {
+    const field = replyForm.querySelector('textarea');
+    const note = replyForm.querySelector('.csaid');
+    const quoteField = replyForm.querySelector('[data-quote-field]');
+    const quoting = replyForm.querySelector('[data-quoting]');
+    const hint = replyForm.querySelector('[data-reply-hint]');
+    if (hint) hint.textContent = `${SAID.enterHint} ${hint.textContent}`;
+    const fit = grow(field);
+    let busy = false;
+    field.addEventListener('keydown', (e) => {
+      if (sendKey(e)) {
+        e.preventDefault();
+        replyForm.requestSubmit();
+      }
+    });
+    replyForm.querySelector('[data-unquote]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      quoteField.value = '';
+      quoting.hidden = true;
+      field.focus();
+    });
+    replyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (busy || !field.value.trim()) return;
+      busy = true;
+      const button = replyForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      const r = await call(`community/threads/${threadId}/posts`, { method: 'POST', body: { body: field.value, quote: Number(quoteField.value) || 0 } });
+      busy = false;
+      button.disabled = false;
+      if (!r.ok) {
+        say(note, r.data?.message || SAID.failed, true);
+        return;
+      }
+      if (!lastPage) {
+        go(r.data.url);
+        return;
+      }
+      const li = placePost(r.data.html, { fresh: true });
+      after = Math.max(after, Number(r.data.post?.id) || 0);
+      field.value = '';
+      quoteField.value = '';
+      quoting.hidden = true;
+      fit();
+      say(note, '');
+      li?.scrollIntoView({ block: 'nearest' });
+    });
+
+    list.addEventListener('click', (e) => {
+      const q = e.target.closest('[data-quote]');
+      if (!q) return;
+      e.preventDefault();
+      const li = q.closest('.cpost');
+      quoteField.value = q.dataset.quote;
+      quoting.querySelector('[data-quoting-text]').textContent = `Quoting ${q.dataset.quoteName}: ${li?.dataset.quoteText || ''}`;
+      quoting.hidden = false;
+      field.focus();
+      replyForm.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  if (list) {
+    list.addEventListener('click', (e) => {
+      const li = e.target.closest('.cpost');
+      if (!li) return;
+      const chip = e.target.closest('button[data-react]');
+      if (chip) return void react(li, chip.dataset.react, chip.getAttribute('aria-pressed') !== 'true');
+      const open = e.target.closest('[data-react-open]');
+      if (open) return void (pickerFor === li && !picker?.hidden ? closePicker() : openPicker(li, open));
+      if (e.target.closest('[data-edit]')) return void editPost(li);
+      if (e.target.closest('[data-delete]')) return void deletePost(li);
+      if (e.target.closest('[data-report]')) return void reportPost(li);
+    });
+  }
+
+  // —— What changed while the thread is open ——
+
+  if (list && threadId) {
+    const notice = document.querySelector('[data-community-new-posts]');
+    let waiting = 0;
+    let polling = false;
+    async function poll(forced = false) {
+      if (polling || document.hidden || (live.on && forced !== true)) return;
+      polling = true;
+      const r = await call(`community/threads/${threadId}/updates?after=${after}&since=${since}`);
+      polling = false;
+      if (!r.ok || !r.data) return;
+      since = Number(r.data.now) || since;
+      for (const p of r.data.posts || []) {
+        if (p.new && !lastPage) {
+          waiting += 1;
+          after = Math.max(after, p.id);
+          continue;
+        }
+        if (!p.new && !document.getElementById(`post-${p.id}`)) continue;
+        placePost(p.html, { fresh: p.new });
+        if (p.new) after = Math.max(after, p.id);
+      }
+      if (waiting && notice) {
+        notice.hidden = false;
+        notice.innerHTML = '';
+        const a = document.createElement('a');
+        a.href = `${location.pathname}?page=0#reply`;
+        a.textContent = SAID.newPosts(waiting);
+        notice.append(a);
+      }
+      // Too much changed to bring in: the view again, from the server.
+      if (r.data.more) go(location.href, { replace: true, focus: false });
+    }
+    const timer = setInterval(poll, POLL_MS);
+    const seen = () => { if (!document.hidden) poll(true); };
+    document.addEventListener('visibilitychange', seen);
+    stops.push(() => { clearInterval(timer); document.removeEventListener('visibilitychange', seen); });
+    // chat-app.js: a new post in this topic, said by the realtime server (board_post).
+    topicNow.fn = () => poll(true);
+  }
+
+  unwire = () => {
+    for (const stop of stops) stop();
+    topicNow.fn = null;
+    topicNow.thread = 0;
+  };
 }
 
 // Reactions: the chips toggle yours; React opens the set.
@@ -388,7 +478,7 @@ async function deletePost(li) {
     return;
   }
   if (r.data?.thread?.status === 'deleted') {
-    location.href = `/chat/${main.dataset.board}/`;
+    go(`/chat/${main.dataset.board}/`, { replace: true });
     return;
   }
   li.replaceWith(fromHtml(r.data.html));
@@ -415,69 +505,16 @@ function reportPost(li) {
   });
 }
 
-if (list) {
-  list.addEventListener('click', (e) => {
-    const li = e.target.closest('.cpost');
-    if (!li) return;
-    const chip = e.target.closest('button[data-react]');
-    if (chip) return void react(li, chip.dataset.react, chip.getAttribute('aria-pressed') !== 'true');
-    const open = e.target.closest('[data-react-open]');
-    if (open) return void (pickerFor === li && !picker?.hidden ? closePicker() : openPicker(li, open));
-    if (e.target.closest('[data-edit]')) return void editPost(li);
-    if (e.target.closest('[data-delete]')) return void deletePost(li);
-    if (e.target.closest('[data-report]')) return void reportPost(li);
-  });
-}
-
-// —— What changed while the thread is open ——
-
-if (list && threadId) {
-  const notice = document.querySelector('[data-community-new-posts]');
-  let waiting = 0;
-  let polling = false;
-  async function poll(forced = false) {
-    if (polling || document.hidden || (live.on && forced !== true)) return;
-    polling = true;
-    const r = await call(`community/threads/${threadId}/updates?after=${after}&since=${since}`);
-    polling = false;
-    if (!r.ok || !r.data) return;
-    since = Number(r.data.now) || since;
-    for (const p of r.data.posts || []) {
-      if (p.new && !lastPage) {
-        waiting += 1;
-        after = Math.max(after, p.id);
-        continue;
-      }
-      if (!p.new && !document.getElementById(`post-${p.id}`)) continue;
-      placePost(p.html, { fresh: p.new });
-      if (p.new) after = Math.max(after, p.id);
-    }
-    if (waiting && notice) {
-      notice.hidden = false;
-      notice.innerHTML = '';
-      const a = document.createElement('a');
-      a.href = `${location.pathname}?page=0#reply`;
-      a.textContent = SAID.newPosts(waiting);
-      notice.append(a);
-    }
-    if (r.data.more) location.reload();
-  }
-  setInterval(poll, POLL_MS);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
-  // chat-app.js: a new post in this topic, said by the realtime server (board_post).
-  topicNow.fn = () => poll(true);
-}
+wirePage();
 
 // —— The chat app for signed-in players (community/chat-app.js): channels, IMs, buddies, threads, Who's around ——
 
-export const live = { on: false };
 if (main?.matches('.cx[data-signed="1"]')) {
-  const v = new URL(import.meta.url).search;
-  // The bell first (src/Notifications.php), so the app can tell it when something happens.
-  import(`./notifications.js${v}`)
-    .then((n) => n.startNotifications({ call }))
+  // The moves first, then the bell (src/Notifications.php), so the app can tell it when something happens.
+  navReady.then(() => import(`./notifications.js${v}`))
+    .then((n) => n.startNotifications({ call, nav }))
     .catch((e) => { console.warn('notifications', e); return null; })
-    .then((notif) => import(`./chat-app.js${v}`).then((m) => m.start({ main, call, say, SAID, openPicker, live, lineReact, topicNow, notif })))
+    .then((notif) => import(`./chat-app.js${v}`).then((m) => m.start({ main, call, say, SAID, openPicker, live, lineReact, topicNow, notif, nav })))
     .catch((e) => console.warn('chat app', e));
 }
 

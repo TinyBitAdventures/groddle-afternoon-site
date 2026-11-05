@@ -25,13 +25,18 @@
  * - Right-click menus (chat-menus.js) through menuApi(); Mute keeps a channel's or chat's count quiet
  *   on this browser; the players you block are listed last under Buddies, so Unblock stays in reach.
  *
+ * - Moving around (chat-nav.js): every view is a real address. A conversation, a thread opened or
+ *   closed, and the boards' pages come in place with pushState, the socket staying connected; Back
+ *   and Forward bring each back (nav.app.show), and a conversation you come back to keeps its place
+ *   (c.scroll) while a new one starts at its newest line.
+ *
  * Phones: the rail is one screen and a conversation another (main[data-cx-view]); "‹ Chats" goes back.
  * QA: main[data-cx-live] ("on" | "off"), [data-cx-conv] on the open conversation, window.groddleChat.
  */
-import { MUTED_KEY, lineHash, readMuted } from './chat-pure.js';
+import { MUTED_KEY, convPath, lineHash, readMuted } from './chat-pure.js';
 
 // community.js hands over its helpers (start()): one copy of them and of its state.
-let main; let call; let say; let SAID; let openPicker; let live; let lineReact; let topicNow; let notif;
+let main; let call; let say; let SAID; let openPicker; let live; let lineReact; let topicNow; let notif; let nav;
 
 const POLL_MS = 3000;
 const WATCH_MS = 30 * 60 * 1000;
@@ -122,14 +127,13 @@ let off = false;
 let pane;
 let aroundBox;
 let threadBox;
-let onIndex = false;
 
 function convOf(key) {
   let c = convs.get(key);
   if (!c) {
     const [kind, rawId] = key.split(':');
     const id = kind === 'im' ? Number(rawId) : rawId;
-    c = { key, kind, id, label: kind === 'chan' ? CHANNELS[id] || id : nameOf(id), lines: new Map(), more: false, oldest: 0, newest: 0, since: 0, unread: 0, loaded: false };
+    c = { key, kind, id, label: kind === 'chan' ? CHANNELS[id] || id : nameOf(id), lines: new Map(), more: false, oldest: 0, newest: 0, since: 0, unread: 0, loaded: false, scroll: null };
     convs.set(key, c);
   }
   return c;
@@ -324,14 +328,21 @@ async function load(c) {
     say($('[data-chan-said]', pane), 'You can\'t IM this player.', true);
     return;
   }
-  c.lines.clear();
-  c.oldest = 0;
-  c.newest = 0;
+  // Again (back to it, the socket back): what came is added, so its place and its earlier lines stay,
+  // unless more came than one answer holds (a gap), when it starts again from the newest.
+  const was = c.loaded;
+  const ids = (r.data.lines || []).map((raw) => lineId(c, raw)).filter((n) => n > 0);
+  const gap = was && Boolean(r.data.more) && ids.length > 0 && Math.min(...ids) > Math.max(0, ...c.lines.keys());
+  if (!was || gap) {
+    c.lines.clear();
+    c.oldest = 0;
+    c.newest = 0;
+    c.more = Boolean(r.data.more);
+  }
   keep(c, r.data.lines);
-  c.more = Boolean(r.data.more);
   c.since = Number(r.data.now) || Date.now();
   c.loaded = true;
-  if (open === c.key) redraw(c, { toEnd: true });
+  if (open === c.key) redraw(c, { toEnd: !was || gap });
   if (wanted && wanted.key === c.key) {
     const want = wanted;
     wanted = null;
@@ -345,7 +356,7 @@ let wanted = null;
 /** Goes to a line (earlier messages are brought in until it shows, or there are none) or opens its thread. */
 async function seek(c, want) {
   if (want.thread) {
-    openThread(c.key, want.thread);
+    openThread(c.key, want.thread, { note: false });
     return;
   }
   if (!want.line) return;
@@ -439,25 +450,40 @@ async function earlier(c) {
   log.scrollTop += log.scrollHeight - height;
 }
 
-function openConv(key, { push = true, focus = false } = {}) {
+/** Opens a conversation: its address is pushed (chat-nav.js), and it is drawn in place. focus: its box. */
+function openConv(key, { focus = false } = {}) {
+  if (nav) nav.go(convPath(key), { focus: focus ? 'input' : 'heading' });
+  else showConv(key, { focus });
+}
+
+/** Where a conversation's lines were, kept for when you come back to it. */
+function keepPlace(key) {
+  const log = pane.querySelector(`[data-cx-conv="${CSS.escape(key)}"] [data-cx-log]`);
+  if (log) convOf(key).scroll = { top: log.scrollTop, atEnd: log.scrollHeight - log.scrollTop - log.clientHeight < 40 };
+}
+
+/** Draws a conversation in the pane (the address is chat-nav.js's). */
+function showConv(key, { focus = false } = {}) {
   const c = convOf(key);
   if (c.kind === 'im') c.label = nameOf(c.id);
-  if (!onIndex) {
-    location.href = c.kind === 'chan' ? `/chat/?c=${c.id}` : `/chat/?im=${c.id}`;
-    return;
-  }
+  if (open) keepPlace(open);
   open = key;
   c.unread = 0;
   pane.replaceChildren(convSection(c));
   main.dataset.cxView = 'main';
-  if (push) history.pushState({ cx: key }, '', c.kind === 'chan' ? `/chat/?c=${c.id}` : `/chat/?im=${c.id}`);
   for (const [k, row] of rows) {
     if (k === key) row.setAttribute('aria-current', 'true');
     else row.removeAttribute('aria-current');
   }
+  document.title = `${c.label} – Community – Groddle Afternoon`;
   markRail(c);
   wireConv(c);
-  if (c.loaded) redraw(c, { toEnd: true });
+  if (c.loaded) {
+    // Back to it: where it was, or its newest line when that is where you were.
+    const place = c.scroll;
+    redraw(c, { toEnd: !place || place.atEnd });
+    if (place && !place.atEnd) $('[data-cx-log]', pane).scrollTop = place.top;
+  }
   load(c);
   if (c.kind === 'im') {
     send('im_read', { with: c.id });
@@ -465,6 +491,45 @@ function openConv(key, { push = true, focus = false } = {}) {
   }
   if (focus) $('#cchan-text', pane)?.focus();
   closeThread();
+}
+
+/**
+ * chat-nav.js: shows a conversation's address (/chat/, ?c=, ?im=, #t<line>, #l<line>), or says it
+ * can't (no channels to show) so the page is drawn instead. The same conversation again only opens
+ * or closes the thread, or goes to the line.
+ */
+function showRoute(to, { focus = false } = {}) {
+  const first = main.querySelector('[data-cx-open^="chan:"]')?.dataset.cxOpen || '';
+  let key = to.view === 'home' ? first : to.key;
+  if (to.view === 'chan' && !rows.has(key)) key = first;
+  if (!key) return false;
+  const want = lineHash(to.hash);
+  const view = to.view === 'home' ? 'list' : 'main';
+  if (open === key && pane.querySelector(`[data-cx-conv="${CSS.escape(key)}"]`)) {
+    if (want.thread) {
+      if (!thread || thread.key !== key || thread.parent !== want.thread) openThread(key, want.thread, { note: false });
+    } else {
+      closeThread();
+      if (want.line) seek(convOf(key), want);
+    }
+    main.dataset.cxView = view;
+    return true;
+  }
+  wanted = want.line || want.thread ? { key, ...want } : null;
+  showConv(key, { focus: focus === 'input' });
+  // A phone shows the list for /chat/ (the server's 'list'), a conversation for its own address.
+  main.dataset.cxView = view;
+  if (to.view === 'home') document.title = 'Community – Groddle Afternoon';
+  return true;
+}
+
+/** chat-nav.js: a board's page takes the pane; the open conversation keeps its place for later. */
+function leaveConv() {
+  if (!open) return;
+  keepPlace(open);
+  open = '';
+  closeThread();
+  for (const row of rows.values()) row.removeAttribute('aria-current');
 }
 
 function wireConv(c) {
@@ -543,16 +608,20 @@ function toast() {
 
 // —— Threads ——
 
-function closeThread() {
+/** Closes the thread panel; note: the address goes back to the conversation's (you closed it). */
+function closeThread({ note = false } = {}) {
   if (!threadBox) return;
+  if (note && thread && nav) nav.note(convPath(thread.key));
   thread = null;
   threadBox.hidden = true;
   threadBox.replaceChildren();
   delete main.dataset.cxThreaded;
 }
 
-async function openThread(key, parentId) {
+/** Opens a line's thread beside the conversation; note: the address says so (#t<line>), for a link and Back. */
+async function openThread(key, parentId, { note: noteIt = true } = {}) {
   if (!threadBox) return;
+  if (noteIt && nav && open === key) nav.note(`${convPath(key)}#t${parentId}`);
   const c = convOf(key);
   const parent = c.lines.get(parentId);
   thread = { key, parent: parentId, lines: [] };
@@ -563,7 +632,7 @@ async function openThread(key, parentId) {
   head.append(el('h2', { class: 'cx-side-title', id: 'cx-thread-title' }, 'Thread'), el('small', { class: 'cx-note' }, c.label));
   const x = el('button', { type: 'button', class: 'cx-x', 'aria-label': 'Close the thread', title: 'Close (Esc)' });
   x.innerHTML = ICON.back;
-  x.addEventListener('click', () => closeThread());
+  x.addEventListener('click', () => closeThread({ note: true }));
   head.append(x);
   const log = el('div', { class: 'cx-log', 'data-cx-thread-log': '' });
   const top = el('ol', { class: 'cchan-lines cx-thread-parent' });
@@ -701,6 +770,7 @@ function drawIms() {
   if (c && head && head.textContent !== nameOf(c.id)) {
     c.label = nameOf(c.id);
     head.textContent = c.label;
+    document.title = `${c.label} – Community – Groddle Afternoon`;
     const av = head.closest('.cx-head').querySelector('.cx-av');
     if (av) {
       av.textContent = [...c.label][0].toUpperCase();
@@ -1077,13 +1147,12 @@ function boardNews() {
 // —— Wiring ——
 
 export function start(helpers) {
-  ({ main, call, say, SAID, openPicker, live, lineReact, topicNow, notif } = helpers);
+  ({ main, call, say, SAID, openPicker, live, lineReact, topicNow, notif, nav } = helpers);
   ME = Number(main.dataset.me) || 0;
   try { muted = readMuted(localStorage.getItem(MUTED_KEY)); } catch { muted = new Set(); }
   pane = $('[data-cx-pane]', main);
   aroundBox = $('[data-cx-around]', main);
   threadBox = $('[data-cx-thread]', main);
-  onIndex = main.dataset.cxActive === 'chan';
   lineReact.fn = reactLine;
   try {
     for (const r of JSON.parse(main.dataset.reactions || '[]')) REACT_DEFS.set(r.key, { glyph: r.glyph, label: r.label, art: r.art });
@@ -1091,16 +1160,11 @@ export function start(helpers) {
   // The channels the page drew in the rail.
   for (const a of main.querySelectorAll('[data-cx-open^="chan:"]')) rows.set(a.dataset.cxOpen, a);
   main.addEventListener('click', (e) => {
+    // A rail row: in place (Cmd, Ctrl, Shift, Alt and the middle button keep the link's new tab).
     const row = e.target.closest('[data-cx-open]');
-    if (row && onIndex && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+    if (row && !e.defaultPrevented && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0) {
       e.preventDefault();
       openConv(row.dataset.cxOpen, { focus: false });
-      return;
-    }
-    const back = e.target.closest('[data-cx-back]');
-    if (back && onIndex) {
-      e.preventDefault();
-      main.dataset.cxView = 'list';
       return;
     }
     const th = e.target.closest('[data-cx-thread-open], [data-cx-replies]');
@@ -1125,7 +1189,7 @@ export function start(helpers) {
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (thread) closeThread();
+    if (thread) closeThread({ note: true });
     else if (main.dataset.cxAround === 'on' && !matchMedia('(min-width: 1181px)').matches) aroundToggle(false);
   });
   $('[data-cx-offline]', main)?.addEventListener('change', (e) => setOffline(e.target.checked));
@@ -1142,12 +1206,11 @@ export function start(helpers) {
     if (send('active')) activeAt = now;
   };
   for (const k of ['keydown', 'pointerdown', 'wheel']) document.addEventListener(k, active, { passive: true });
-  window.addEventListener('popstate', () => {
-    const q = new URLSearchParams(location.search);
-    const key = q.get('im') ? `im:${Number(q.get('im'))}` : q.get('c') ? `chan:${q.get('c')}` : '';
-    if (key && onIndex) openConv(key, { push: false });
-    else main.dataset.cxView = 'list';
-  });
+  // Back and Forward, and every move inside /chat/, come through chat-nav.js.
+  if (nav) {
+    nav.app.show = showRoute;
+    nav.app.leave = leaveConv;
+  }
 
   loadIms();
   call('account/presence').then((r) => {
@@ -1161,14 +1224,14 @@ export function start(helpers) {
   });
   setLive(false);
   connect();
-  if (onIndex) {
+  if (main.dataset.cxActive === 'chan') {
     const q = new URLSearchParams(location.search);
     const first = main.querySelector('[data-cx-open^="chan:"]')?.dataset.cxOpen || '';
     const key = q.get('im') ? `im:${Number(q.get('im'))}` : q.get('c') && rows.has(`chan:${q.get('c')}`) ? `chan:${q.get('c')}` : first;
     if (key) {
       // A link to a line (#l<id>, Copy link to this line) or to its thread (#t<id>).
       wanted = { key, ...lineHash(location.hash) };
-      openConv(key, { push: false });
+      showConv(key);
       // A phone opens on the list unless a conversation was asked for.
       if (!q.get('im') && !q.get('c')) main.dataset.cxView = 'list';
     }
@@ -1180,10 +1243,10 @@ export function start(helpers) {
       ...(thread && thread.key.startsWith('chan:') ? [`th:${thread.key.slice(5)}:${thread.parent}`] : []),
     ];
     notif.app.open = ({ conv, thread: lid }) => {
-      if (!onIndex || !/^(?:chan:(?:global|help|trade)|im:\d+)$/.test(conv) || (conv.startsWith('chan:') && !rows.has(conv))) return false;
-      if (open !== conv) openConv(conv);
-      else main.dataset.cxView = 'main';
-      if (lid) openThread(conv, Number(lid));
+      if (!/^(?:chan:(?:global|help|trade)|im:\d+)$/.test(conv) || (conv.startsWith('chan:') && !rows.has(conv))) return false;
+      const url = `${convPath(conv)}${lid ? `#t${Number(lid)}` : ''}`;
+      if (nav) nav.go(url);
+      else showRoute({ view: conv.startsWith('im:') ? 'im' : 'chan', key: conv, hash: lid ? `#t${Number(lid)}` : '' });
       return true;
     };
   }

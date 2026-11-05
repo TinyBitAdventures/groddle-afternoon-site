@@ -1,8 +1,8 @@
 /**
  * The /chat/ app's pure parts (no page, no network), so the game's tests can run them: the rows of
  * the right-click menus (community/chat-menus.js), the notifications panel's order, counts and
- * sample set (community/notifications.js, src/Notifications.php), the link to a line and the
- * local-only preview flag.
+ * sample set (community/notifications.js, src/Notifications.php), the link to a line, the
+ * local-only preview flag, and what an address inside /chat/ shows (community/chat-nav.js).
  */
 
 /** The menus' rows. Labels are the drawer's words; `tip` is the footer line, `reason` why a row can't be done. */
@@ -135,4 +135,65 @@ export function demoNotifications(now) {
     { key: 'bud:900007', kind: 'buddy', at: now - 3 * 24 * h, unread: false, from: { id: 900007, name: 'Wren Hollow' }, count: 1, text: 'Added you: Wren Hollow', snippet: 'You are buddies now.', url: '/players/' },
   ];
   return sortNotifications(list.map((i) => ({ ...i, sample: true })));
+}
+
+// —— Moving around /chat/ without a reload (community/chat-nav.js) ——
+
+/** The boards' slugs as the routes take them (src/CommunityPages.php {board:[a-z-]+}). */
+const BOARD = /^[a-z-]+$/;
+const CHANNEL_KEY = /^[a-z0-9-]{1,40}$/;
+
+/**
+ * What an address shows in the /chat/ app, or null when it is not one of the app's views (another
+ * page, a form's post address, another site): the browser loads those itself.
+ *   /chat/                 { view: 'home' }
+ *   /chat/?c=<key>         { view: 'chan', key: 'chan:<key>' }
+ *   /chat/?im=<id>         { view: 'im', key: 'im:<id>' }
+ *   /chat/<board>/         { view: 'board', board, page }
+ *   /chat/<board>/new/     { view: 'new', board }
+ *   /chat/<board>/<id>-<slug>/  { view: 'thread', board, thread }
+ * Each also carries path (path and query, the view's address without the hash) and hash.
+ */
+export function chatRoute(href, origin) {
+  let u;
+  try { u = new URL(String(href || ''), origin); } catch { return null; }
+  if (u.origin !== new URL(origin).origin || !u.pathname.startsWith('/chat/')) return null;
+  const base = { path: u.pathname + u.search, hash: u.hash };
+  const rest = u.pathname.slice('/chat/'.length);
+  if (rest === '') {
+    const im = u.searchParams.get('im');
+    const c = u.searchParams.get('c');
+    if (im !== null && /^[1-9]\d{0,18}$/.test(im)) return { ...base, view: 'im', key: `im:${im}` };
+    if (c !== null && CHANNEL_KEY.test(c)) return { ...base, view: 'chan', key: `chan:${c}` };
+    return { ...base, view: 'home' };
+  }
+  const parts = rest.split('/');
+  if (parts.at(-1) !== '' || !BOARD.test(parts[0])) return null;
+  if (parts.length === 2) return { ...base, view: 'board', board: parts[0], page: Math.max(1, Number(u.searchParams.get('page')) || 1) };
+  if (parts.length === 3 && parts[1] === 'new') return { ...base, view: 'new', board: parts[0] };
+  const m = parts.length === 3 ? /^([1-9]\d{0,18})(?:-[a-z0-9-]+)?$/.exec(parts[1]) : null;
+  if (m) return { ...base, view: 'thread', board: parts[0], thread: Number(m[1]) };
+  return null;
+}
+
+/** The address of a conversation: /chat/?c=<channel> or /chat/?im=<player>. */
+export function convPath(key) {
+  const [kind, id] = String(key || '').split(':');
+  return kind === 'im' ? `/chat/?im=${Number(id) || 0}` : `/chat/?c=${encodeURIComponent(id || '')}`;
+}
+
+/**
+ * Whether a click on a link is the plain kind the app takes over: the main button, no modifier
+ * (Cmd, Ctrl, Shift and Alt keep their new tab, new window and download), not already handled, and
+ * a link meant for this tab.
+ */
+export function plainClick(e, link = {}) {
+  if (!e || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+  const target = String(link.target || '');
+  return (target === '' || target === '_self') && !link.download;
+}
+
+/** Whether going from one address to another only moves to a place on the same view (#post-3, #reply). */
+export function sameView(from, to) {
+  return Boolean(from && to && from.path === to.path);
 }

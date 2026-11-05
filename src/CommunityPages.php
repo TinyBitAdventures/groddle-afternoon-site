@@ -79,7 +79,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-6';
+    public const ASSET_KEY = 'community-7';
 
     /** The words the pages share. */
     public const COPY = [
@@ -114,12 +114,14 @@ final readonly class CommunityPages
     {
         $community = new Community($this->minn);
         $viewer = $community->viewer();
-        // A signed-in player opens on a channel (?c=<key>, ?im=<id> are the app's own); a visitor on the boards.
-        // On a phone both start on the list screen: the rail, with the boards, signing in and the credit row.
+        // A signed-in player opens on a channel (?c=<key> the one asked for, else the first; ?im=<id> is the
+        // app's own); a visitor on the boards. On a phone both start on the list screen: the rail, with the
+        // boards, signing in and the credit row. community/chat-nav.js shows each of these in place.
+        $asked = $request->query('c');
         $channels = $viewer['id'] > 0
-            ? $this->channelsPanel($viewer)
+            ? $this->channelsPanel($viewer, is_string($asked) ? $asked : '')
             : self::signedOutPanel() . $this->boardsList($community);
-        $body = $this->shell($community, $viewer, $viewer['id'] > 0 ? 'chan' : 'boards', $channels, 'list');
+        $body = $this->shell($community, $viewer, $viewer['id'] > 0 ? 'chan' : 'boards', $channels, 'list', [], is_string($asked) ? $asked : '');
         return $this->page('Community', 'The Groddle Afternoon community boards: talk with other players about the game, ideas, trades and anything else.', $body, $viewer, '/chat/');
     }
 
@@ -372,15 +374,16 @@ final readonly class CommunityPages
      * live, switches tabs and brings earlier lines. Never drawn for a visitor (index()).
      *
      * @param array<string, mixed> $viewer
+     * @param string $asked the channel the address asked for (?c=), drawn when the reader may read it
      */
-    private function channelsPanel(array $viewer): string
+    private function channelsPanel(array $viewer, string $asked = ''): string
     {
         $history = new ChatHistory($this->minn);
         $open = $history->open((int) $viewer['id']);
         if ($open === []) {
             return '<aside class="cchannels cchannels-out cx-signin" aria-labelledby="cchannels-title"><h2 id="cchannels-title">In the game now</h2><p>' . Html::esc(self::COPY['notPlayer']) . '</p></aside>';
         }
-        $first = array_key_first($open);
+        $first = isset($open[$asked]) ? $asked : array_key_first($open);
         [$lines, $more] = $history->latest((int) $viewer['id'], $open[$first][1], null, self::CHANNEL_LINES);
         $items = '';
         foreach (array_reverse($lines) as $l) {
@@ -571,20 +574,22 @@ final readonly class CommunityPages
     /**
      * The whole app: the rail (Channels, Chats and Buddies for a signed-in player, the Boards for
      * everyone), the conversation, and for a signed-in player the thread panel and Who's around.
-     * $active: what the rail marks (chan, boards, board:<slug>); $view: what a phone shows (list|main).
+     * $active: what the rail marks (chan, boards, board:<slug>); $view: what a phone shows (list|main);
+     * $channel: the channel asked for (?c=), marked when it is one the reader may read, else the first.
      *
      * @param array<string, mixed> $viewer
      * @param array<string, int|string> $extra main's data attributes
      */
-    private function shell(Community $community, array $viewer, string $active, string $main, string $view, array $extra = []): string
+    private function shell(Community $community, array $viewer, string $active, string $main, string $view, array $extra = [], string $channel = ''): string
     {
         $signed = ($viewer['id'] ?? 0) > 0;
         $rail = '';
         if ($signed) {
             $open = (new ChatHistory($this->minn))->open((int) $viewer['id']);
+            $marked = isset($open[$channel]) ? $channel : array_key_first($open);
             $chans = '';
             foreach ($open as $key => [$label]) {
-                $chans .= '<li><a class="cx-row" href="/chat/?c=' . $key . '" data-cx-open="chan:' . $key . '"' . ($active === 'chan' && $key === array_key_first($open) ? ' aria-current="true"' : '') . '>'
+                $chans .= '<li><a class="cx-row" href="/chat/?c=' . $key . '" data-cx-open="chan:' . $key . '"' . ($active === 'chan' && $key === $marked ? ' aria-current="true"' : '') . '>'
                     . '<span class="cx-av cx-av-lg" data-hue="' . self::hue($label) . '" aria-hidden="true">' . ($key === 'help' ? '?' : '#') . '</span>'
                     . '<span class="cx-txt"><span class="cx-name"><span class="cx-label">' . Html::esc($label) . '</span><small class="cx-note">Everyone</small></span><span class="cx-last" data-cx-last></span></span>'
                     . '<span class="cx-badge" data-cx-unread hidden></span></a></li>';
