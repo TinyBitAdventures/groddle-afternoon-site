@@ -109,6 +109,7 @@ final readonly class LedgerBoxes
     public const TEXT_NO_KEY = 'Only the owner and their key-holders can open this.';    // ours: isOwner hides the verb
     public const TEXT_CANT = "That can't go in there.";                                  // ours: canContain's drop just fails
     public const TEXT_TOOLS = 'Only the owner can move tools in and out of a cabinet.';  // ours
+    public const TEXT_BAGS = 'Only the owner can move a bag with things in it in or out of a cabinet.'; // ours (#108)
     public const TEXT_SHORT = "You don't have that many.";                               // ours
 
     public function __construct(private Seams $minn)
@@ -374,6 +375,10 @@ final readonly class LedgerBoxes
             return $refuse('tool', self::TEXT_TOOLS);
         }
         $max = (int) ($pack['classes'][$class][0] ?? 0);
+        // #108: a bag the owner stored whole (what it holds, its name) moves only by the owner's hand.
+        if ($kind === 'take' && self::holdsBag($row, $class, $slot)) {
+            return $refuse('bag', self::TEXT_BAGS);
+        }
         $contents = self::cabinetNow($db, $owner, $row, $uid);
         $n = min($n, self::MOVE_MAX);
         if ($kind === 'take') {
@@ -560,6 +565,23 @@ final readonly class LedgerBoxes
         return $slots;
     }
 
+    /**
+     * #108: whether a take of $class would reach a stored bag that holds something or has a
+     * name (js/home-storage.js slotHoldsBag): the slot named, or any slot of the class.
+     */
+    public static function holdsBag(object $row, string $class, ?int $slot): bool
+    {
+        foreach (is_array($row->contents ?? null) ? $row->contents : [] as $i => $s) {
+            if (!is_object($s) || (string) ($s->classTsid ?? '') !== $class || ($slot !== null && $slot !== $i)) {
+                continue;
+            }
+            if ((is_array($s->contents ?? null) && $s->contents !== []) || (is_string($s->name ?? null) && trim($s->name) !== '')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Whether a placed row holds anything (a box's display, a cabinet's slots): canSell. */
     public static function holdsSomething(object $row): bool
     {
@@ -739,6 +761,15 @@ final readonly class LedgerBoxes
                 // ... and each copy's own words (a Cubimal's name ...: the game's js/home-storage.js tags).
                 if ($was !== null && ($was['classTsid'] ?? null) === $s['classTsid'] && is_array($was['tags'] ?? null)) {
                     $out->tags = array_slice($was['tags'], 0, $s['count']);
+                }
+                // #108: a stored bag keeps what it holds and its name.
+                if ($was !== null && ($was['classTsid'] ?? null) === $s['classTsid'] && $s['count'] === 1) {
+                    if (is_array($was['contents'] ?? null) && $was['contents'] !== []) {
+                        $out->contents = json_decode((string) json_encode($was['contents']), false);
+                    }
+                    if (is_string($was['name'] ?? null) && $was['name'] !== '') {
+                        $out->name = $was['name'];
+                    }
                 }
                 return $out;
             }, $slots, array_keys($slots));

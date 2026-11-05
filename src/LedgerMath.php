@@ -134,6 +134,12 @@ final class LedgerMath
                         foreach (is_array($row['contents'] ?? null) ? $row['contents'] : [] as $slot) {
                             if (is_array($slot)) {
                                 $add($slot['classTsid'] ?? null, $slot['count'] ?? 0);
+                                // #108: a bag stored whole is the bag and what it holds, as a dropped one.
+                                foreach (is_array($slot['contents'] ?? null) ? $slot['contents'] : [] as $it) {
+                                    if (is_array($it)) {
+                                        $add($it['classTsid'] ?? null, $it['count'] ?? 0);
+                                    }
+                                }
                             }
                         }
                     }
@@ -693,6 +699,26 @@ final class LedgerMath
                     if ($slots !== null) {
                         for ($i = count($slots) - 1; $i >= 0; $i--) {
                             $slot = $slots[$i];
+                            // #108: what a stored bag holds first, as a dropped bag's.
+                            if ($slot instanceof \stdClass && is_array($slot->contents ?? null)) {
+                                $inside = [];
+                                foreach ($slot->contents as $it) {
+                                    $ic = $it instanceof \stdClass ? ($it->classTsid ?? null) : null;
+                                    if (is_string($ic) && ($want[$ic] ?? 0) > 0) {
+                                        $n = min(self::count($it->count ?? 0), $want[$ic]);
+                                        $want[$ic] -= $n;
+                                        $it->count = self::count($it->count ?? 0) - $n;
+                                        if (is_array($it->points ?? null)) {
+                                            $it->points = array_slice($it->points, 0, $it->count);
+                                        }
+                                        if ($it->count <= 0) {
+                                            continue;
+                                        }
+                                    }
+                                    $inside[] = $it;
+                                }
+                                $slot->contents = $inside;
+                            }
                             $sc = $slot instanceof \stdClass ? ($slot->classTsid ?? null) : null;
                             if (!is_string($sc) || ($want[$sc] ?? 0) <= 0) {
                                 continue;
@@ -704,6 +730,8 @@ final class LedgerMath
                                 $slot->points = array_slice($slot->points, 0, $slot->count);
                             }
                             if ($slot->count <= 0) {
+                                // A stored bag taken away leaves what it held in the pack.
+                                self::spill($state, $slot->contents ?? null);
                                 $slots[$i] = null;
                             }
                         }
@@ -728,6 +756,7 @@ final class LedgerMath
                                     $state->inventory = new \stdClass();
                                 }
                                 $state->inventory->{$sc} = self::count($state->inventory->{$sc} ?? 0) + self::count($slot->count ?? 0);
+                                self::spill($state, $slot->contents ?? null);
                             }
                         }
                         continue;
@@ -744,6 +773,24 @@ final class LedgerMath
             $entries['droppedItems'] = self::encode($dropped);
         }
         return $entries;
+    }
+
+    /** #108: what a stored bag held goes into the pack (the bag or its cabinet was taken away). */
+    private static function spill(\stdClass $state, mixed $contents): void
+    {
+        if (!is_array($contents)) {
+            return;
+        }
+        foreach ($contents as $it) {
+            $ic = $it instanceof \stdClass ? ($it->classTsid ?? null) : null;
+            if (!is_string($ic) || self::count($it->count ?? 0) <= 0) {
+                continue;
+            }
+            if (!($state->inventory ?? null) instanceof \stdClass) {
+                $state->inventory = new \stdClass();
+            }
+            $state->inventory->{$ic} = self::count($state->inventory->{$ic} ?? 0) + self::count($it->count ?? 0);
+        }
     }
 
     /**
