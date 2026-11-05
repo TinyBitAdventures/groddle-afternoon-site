@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.40",
+  "version": "0.5.41",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -815,6 +815,14 @@
       "KEY pair_parent (a_id,b_id,parent_id)",
       "KEY pair_at (a_id,b_id,at_ms)",
       "KEY from_id (from_id)"
+    ],
+    "groddle_play_batches": [
+      "id varchar(40) NOT NULL",
+      "players int(10) unsigned NOT NULL DEFAULT 0",
+      "seconds bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY created_at (created_at)"
     ]
   }
 }
