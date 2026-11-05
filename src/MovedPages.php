@@ -16,7 +16,8 @@ use Minn\Http\RouteMiss;
  * Built pages that moved keep their old addresses: the Item catalog went from
  * /items/ into the encyclopedia at /encyclopedia/items/ (Austin 2026-11-02),
  * so /items/, /items/<id>/ and the files under it answer a 301 to the same
- * path at the new place, query kept. Registered before StaticPages, so it
+ * path at the new place, query kept. The Giants page went the same way, from
+ * /giants/ to the encyclopedia's Giants section (Austin 2026-11-05). Registered before StaticPages, so it
  * answers first. On groddle.localhost every folder address reaches PHP (Caddy
  * serves files, not folder indexes); on Kinsta nginx serves a folder's
  * index.html itself, so this only answers there once the old folder is gone
@@ -27,6 +28,7 @@ final readonly class MovedPages
     /** Old first path segment => where its pages are now. */
     public const MOVED = [
         'items' => '/encyclopedia/items',
+        'giants' => '/encyclopedia/giants',
     ];
 
     /** /items, /items/ and everything under it. */
@@ -34,6 +36,13 @@ final readonly class MovedPages
     public function items(Request $request, string $rest = ''): Response
     {
         return Response::redirect(self::target('items', $rest, $request->query), 301);
+    }
+
+    /** /giants, /giants/ and everything under it (a Giant's page: /giants/ti/). */
+    #[Route(Method::Get, '/giants{rest:(?:/[A-Za-z0-9_.@-]*)*}', policy: new Policy(Access::Public))]
+    public function giants(Request $request, string $rest = ''): Response
+    {
+        return Response::redirect(self::target('giants', $rest, $request->query), 301);
     }
 
     /**
