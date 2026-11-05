@@ -17,7 +17,10 @@
 import { agoLabel, countLabel, demoAllowed, demoNotifications, markRead, sortNotifications, unreadCount } from './chat-pure.js';
 
 const POLL_MS = 60 * 1000;
-const SOON_MS = 1500;
+/** The realtime server hands its lines to the site every 3 s (chatstore.go): ask after one batch, and again after the next. */
+const SOON_MS = 3500;
+/** How long a socket's item waits for the site before the site's answer stands alone. */
+const HINT_MS = 20 * 1000;
 const WORDS = {
   title: 'Notifications',
   all: 'Mark all read',
@@ -58,6 +61,9 @@ export function startNotifications({ call }) {
   let loaded = demo;
   let busy = false;
   let timer = null;
+  let later = null;
+  /** key -> { item, at, when }: items the socket brought before the site kept them. */
+  const hinted = new Map();
   /** Rows opened in place (a report's answer): key -> the box under the row, kept across redraws. */
   const expanded = new Map();
   /** The chat app's: the keys being looked at now (an open IM, an open thread), and opening one in place. */
@@ -133,7 +139,17 @@ export function startNotifications({ call }) {
     const r = await call('notifications');
     busy = false;
     if (!r.ok || !Array.isArray(r.data?.items)) return;
-    items = sortNotifications(r.data.items);
+    // What the socket said and the site has not kept yet stays as the socket said it.
+    const now0 = Date.now();
+    const fresh = r.data.items.slice();
+    for (const [key, h] of hinted) {
+      const got = fresh.find((i) => i.key === key);
+      if (got && Number(got.at) >= Number(h.at)) hinted.delete(key);
+      else if (now0 - h.when > HINT_MS) hinted.delete(key);
+      else if (got) fresh.splice(fresh.indexOf(got), 1, { ...got, ...h.item });
+      else fresh.push(h.item);
+    }
+    items = sortNotifications(fresh);
     loaded = true;
     // What you are looking at now is read.
     const looking = new Set(document.hidden ? [] : app.looking());
@@ -144,11 +160,30 @@ export function startNotifications({ call }) {
 
   function soon() {
     clearTimeout(timer);
+    clearTimeout(later);
     timer = setTimeout(refresh, SOON_MS);
+    later = setTimeout(refresh, SOON_MS * 2.5);
+  }
+
+  /**
+   * What the socket just said (an IM, a reply under your line), shown at once: the site keeps it a few
+   * seconds later, and the next refresh() draws the same item from there.
+   */
+  function hint(next) {
+    if (demo || !next?.key) return;
+    const was = items.find((i) => i.key === next.key);
+    const count = (was?.unread ? was.count : 0) + 1;
+    const merged = { ...(was || {}), ...next, count, unread: true, text: next.textFor ? next.textFor(count) : next.text };
+    delete merged.textFor;
+    hinted.set(next.key, { item: merged, at: merged.at, when: Date.now() });
+    items = sortNotifications([merged, ...items.filter((i) => i.key !== next.key)]);
+    draw();
+    soon();
   }
 
   async function read(key = null) {
     items = markRead(items, key);
+    for (const [k, h] of hinted) if (key === null || k === key) h.item = { ...h.item, unread: false };
     draw();
     if (demo) return true;
     const r = await call('notifications/read', { method: 'POST', body: key === null ? {} : { key } });
@@ -245,6 +280,7 @@ export function startNotifications({ call }) {
   const api = {
     refresh,
     soon,
+    hint,
     read,
     app,
     items: () => items.map((i) => ({ ...i })),

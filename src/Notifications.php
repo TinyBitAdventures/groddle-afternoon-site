@@ -108,6 +108,7 @@ final readonly class Notifications
         $db = $this->minn->db;
         $since = time() - self::DAYS * 86400;
         $sinceMs = $since * 1000;
+        $marks = self::marks((new Users($db))->meta($me, self::META));
         $items = [];
         foreach ((new Community($this->minn))->recentNotices($me, $since) as $x) {
             $title = '“' . $x['title'] . '”';
@@ -122,12 +123,20 @@ final readonly class Notifications
             $who = $x['last']['name'] . ($others > 0 ? ' and ' . CommunityText::count($others, 'other', 'others') : '');
             $items[] = ['key' => "th:{$x['key']}:{$x['lid']}", 'kind' => 'thread', 'at' => $x['at'], 'unread' => $x['mine'] < $x['at'], 'from' => $x['last'], 'count' => $x['n'], 'text' => "{$who} replied to your line in {$x['label']}", 'snippet' => CommunityText::snippet($x['text'], self::SNIPPET), 'url' => "/chat/?c={$x['key']}#t{$x['lid']}", 'open' => ['conv' => "chan:{$x['key']}", 'thread' => $x['lid']]];
         }
-        foreach ($chat->imNotices($me, $sinceMs) as $x) {
-            $text = $x['n'] > 1 ? "{$x['with']['name']} sent you {$x['n']} IMs" : "{$x['with']['name']} sent you an IM";
-            $items[] = ['key' => "im:{$x['with']['id']}", 'kind' => 'im', 'at' => $x['at'], 'from' => $x['with'], 'count' => $x['n'], 'text' => $text, 'snippet' => CommunityText::snippet($x['text'], self::SNIPPET), 'url' => "/chat/?im={$x['with']['id']}" . ($x['parent'] > 0 ? "#t{$x['parent']}" : ''), 'open' => ['conv' => "im:{$x['with']['id']}"] + ($x['parent'] > 0 ? ['thread' => $x['parent']] : [])];
+        // An IM's count is what came since you last read the conversation here (all that is unanswered, once read).
+        $seen = [];
+        foreach ($marks['k'] as $k => $at) {
+            if (str_starts_with($k, 'im:')) {
+                $seen[(int) substr($k, 3)] = $at;
+            }
+        }
+        foreach ($chat->imNotices($me, $sinceMs, 20, $seen, $marks['all']) as $x) {
+            $n = $x['fresh'] > 0 ? $x['fresh'] : $x['n'];
+            $text = $n > 1 ? "{$x['with']['name']} sent you {$n} IMs" : "{$x['with']['name']} sent you an IM";
+            $items[] = ['key' => "im:{$x['with']['id']}", 'kind' => 'im', 'at' => $x['at'], 'from' => $x['with'], 'count' => $n, 'text' => $text, 'snippet' => CommunityText::snippet($x['text'], self::SNIPPET), 'url' => "/chat/?im={$x['with']['id']}" . ($x['parent'] > 0 ? "#t{$x['parent']}" : ''), 'open' => ['conv' => "im:{$x['with']['id']}"] + ($x['parent'] > 0 ? ['thread' => $x['parent']] : [])];
         }
         $items = [...$items, ...$this->buddyItems($me, $since), ...$this->ticketItems($me, $since)];
-        return self::merge($items, self::marks((new Users($db))->meta($me, self::META)), self::SHOWN);
+        return self::merge($items, $marks, self::SHOWN);
     }
 
     /** Players who added the reader as a buddy since $since (not one either of them blocks). @return list<array<string, mixed>> */

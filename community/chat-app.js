@@ -977,6 +977,12 @@ function onMessage(m) {
     case 'thread_said': {
       const c = convOf(`chan:${m.channel}`);
       addReply(c, Number(m.parent), m.line, { n: Number(m.n) || 1, last: m.last });
+      // A reply under your own line, while that thread is not open: the bell has it at once.
+      const parent = c.lines.get(Number(m.parent));
+      const by = Number(m.line?.id);
+      if (parent?.from === ME && by !== ME && !blocked(by) && !(thread && thread.key === c.key && thread.parent === Number(m.parent))) {
+        notif?.hint({ key: `th:${m.channel}:${Number(m.parent)}`, kind: 'thread', at: Number(m.line?.at) || Date.now(), from: { id: by, name: String(m.line?.name || '') }, text: `${m.line?.name || 'Someone'} replied to your line in ${c.label}`, snippet: parent.text, url: `/chat/?c=${m.channel}#t${Number(m.parent)}`, open: { conv: c.key, thread: Number(m.parent) } });
+      }
       return;
     }
     case 'reacted':
@@ -1006,6 +1012,11 @@ function onMessage(m) {
         redraw(c);
         if (!mine) send('im_read', { with: w });
       } else if (!mine) c.unread += 1;
+      // An IM while you weren't looking (another conversation open, or the tab hidden): the bell has it at once.
+      if (!mine && (open !== c.key || document.hidden)) {
+        const name = c.label;
+        notif?.hint({ key: c.key, kind: 'im', at: Number(line.at) || Date.now(), from: { id: w, name }, textFor: (n) => (n > 1 ? `${name} sent you ${n} IMs` : `${name} sent you an IM`), snippet: String(line.text || ''), url: `/chat/?im=${w}`, open: { conv: c.key } });
+      }
       drawIms();
       return;
     }

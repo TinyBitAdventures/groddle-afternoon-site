@@ -714,12 +714,14 @@ final readonly class ChatHistory
      * IMs the reader has not answered (lines from the other player after the reader's own last line
      * in the conversation, thread replies too), since $sinceMs: one entry a conversation, newest
      * first, never with a player either of them blocks nor an account that is gone. Only the reader's
-     * own conversations are read, as every route here: [with {id, name}, n, text and parent of the
-     * newest, at].
+     * own conversations are read, as every route here: [with {id, name}, n, fresh (how many came
+     * after $seen[their id], the reader's last look), text and parent of the newest, at].
      *
-     * @return list<array{with: array{id: int, name: string}, n: int, text: string, parent: int, at: int}>
+     * @param array<int, int> $seen other player id => ms the reader last read the conversation
+     * @param int $seenAll ms the reader last read them all
+     * @return list<array{with: array{id: int, name: string}, n: int, fresh: int, text: string, parent: int, at: int}>
      */
-    public function imNotices(int $me, int $sinceMs, int $limit = 20): array
+    public function imNotices(int $me, int $sinceMs, int $limit = 20, array $seen = [], int $seenAll = 0): array
     {
         $db = $this->minn->db;
         $t = $db->table(self::IMS);
@@ -748,7 +750,11 @@ final readonly class ChatHistory
             if ($last === null || $n < 1) {
                 continue;
             }
-            $out[] = ['with' => ['id' => $other, 'name' => $names[$other]], 'n' => $n, 'text' => (string) $last['text'], 'parent' => (int) $last['parent_id'], 'at' => (int) $last['at_ms']];
+            $look = max($seen[$other] ?? 0, $seenAll);
+            $fresh = $look > $after
+                ? (int) $db->value("SELECT COUNT(*) FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? AND at_ms > ?", [(int) $r['a_id'], (int) $r['b_id'], $other, $look])
+                : $n;
+            $out[] = ['with' => ['id' => $other, 'name' => $names[$other]], 'n' => $n, 'fresh' => $fresh, 'text' => (string) $last['text'], 'parent' => (int) $last['parent_id'], 'at' => (int) $last['at_ms']];
         }
         return $out;
     }
