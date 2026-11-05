@@ -213,6 +213,8 @@ textarea.cx-field { display: block; height: 36px; max-height: 40vh; overflow-y: 
 .cx-thread-parent { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .cx-thread-parent .cchan-line { padding-right: 0; }
 .cx-thread-count { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+/* The panel is narrow: a hovered line's time sits on its own at the right, never over the name. */
+.cx-thread .cchan-line:hover > time { position: static; float: right; margin: 0 0 0 6px; }
 
 /* Board topics in the Chats list's rows */
 .cthread-list { gap: 2px; }
