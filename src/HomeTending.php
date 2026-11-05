@@ -63,7 +63,6 @@ final readonly class HomeTending
     public const TEXT_NO_KEY = 'Only a key-holder can tend these gardens.';
     public const TEXT_NO_PLOT = 'No such plot.';
     public const TEXT_WET = 'That plot is already wet.';
-    public const TEXT_NOTHING = 'Nothing growing there to water.';
     public const TEXT_NOT_READY = 'That plot is not ready to plant.';
     public const TEXT_HERB_ONLY = 'Only herb seeds go in an herb garden.';
     public const TEXT_CROP_ONLY = 'Only crop seeds go in a crop garden.';
@@ -233,9 +232,7 @@ final readonly class HomeTending
         $state = (string) ($plot->state ?? 'clean');
         switch ($act['act']) {
             case 'water':
-                if ($state === 'clean' || $state === 'dirty') {
-                    return self::TEXT_NOTHING;
-                }
+                // G537: any dry plot takes water, an empty or picked one too (the game's plotNeedsWater).
                 return ($plot->wet ?? false) === true ? self::TEXT_WET : null;
             case 'plant':
                 if ($state !== 'clean') {
