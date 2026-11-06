@@ -39,6 +39,12 @@ final class Extension implements MinnExtension
         '/wp-content/themes/groddle/style.css',
     ];
 
+    /** The theme's own files, served from this repo through the theme folder. */
+    private const THEME_URL = '/wp-content/themes/groddle/';
+
+    /** The built game's folder (StaticRoot), for the keys of the files head() links; set in register(). */
+    private static string $staticDir = '';
+
     public function register(Seams $minn): void
     {
         $minn->head(static fn (): string => self::head());
@@ -52,6 +58,7 @@ final class Extension implements MinnExtension
         // The Notes list under month headings (the query loop draws one list).
         $minn->filterBlocks(static fn (Block $block, string $html): string => $block->name === 'core/post-template' && str_contains($html, 'note-cards') ? NoteMonths::group($html) : $html);
         $root = StaticRoot::fromSite($minn);
+        self::$staticDir = $root->dir;
         // Old addresses of built pages that moved (/items/ is /encyclopedia/items/ now), before the built folders.
         $minn->routes(new MovedPages());
         $minn->routes(new StaticPages($minn, $root));
@@ -82,16 +89,29 @@ final class Extension implements MinnExtension
         SiteNav::register($minn);
     }
 
+    /**
+     * `$href` with its file's content key (AssetKeys): the theme's own files from this repo, the
+     * rest from the built game; as it is when the file is not there. Report 95: the stylesheets
+     * went out with no version, so a browser kept an old style.css after a deploy and the
+     * Contribute page's new boards came out unstyled.
+     */
+    public static function keyed(string $href): string
+    {
+        return str_starts_with($href, self::THEME_URL)
+            ? AssetKeys::url($href, dirname(__DIR__), substr($href, strlen(self::THEME_URL)))
+            : AssetKeys::url($href, self::$staticDir, ltrim($href, '/'));
+    }
+
     /** The stylesheets, theme script and icons every page in the site's look carries (PlayerPages draws its own pages with it). */
     public static function head(): string
     {
         $out = '';
         foreach (self::STYLESHEETS as $href) {
-            $out .= '<link rel="stylesheet" href="' . $href . '" />' . "\n";
+            $out .= '<link rel="stylesheet" href="' . self::keyed($href) . '" />' . "\n";
         }
         return $out
             // The colour theme before anything paints, and the header's theme button (/site/theme.js).
-            . '<script src="/site/theme.js"></script>' . "\n"
+            . '<script src="' . self::keyed('/site/theme.js') . '"></script>' . "\n"
             . '<link rel="icon" href="/favicon.svg?v=arch" type="image/svg+xml" />' . "\n"
             . '<link rel="icon" href="/favicon.ico?v=arch" sizes="32x32" />' . "\n"
             . '<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=arch" />' . "\n"
