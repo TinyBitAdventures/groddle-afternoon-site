@@ -257,10 +257,17 @@ final readonly class TicketStore
         return $out;
     }
 
-    /** A player's tickets, the newest news first. @return list<array<string, mixed>> */
+    /**
+     * A player's tickets as their Reports list orders them (ticket 115, Friendly 2026-11-06), the
+     * administrators' list turned to the player's side (listAll): a reply they have not read first,
+     * then answered, open, working, closed, the newest news first in each. The game sorts the same
+     * way (js/reports.js sortReports), so the LIST_MAX cut keeps the ones that need them.
+     * @return list<array<string, mixed>>
+     */
     public function listFor(int $player): array
     {
-        return $this->db->rows('SELECT * FROM ' . $this->db->table(self::TABLE) . ' WHERE player_user_id = ? ORDER BY updated_at DESC, id DESC LIMIT ' . self::LIST_MAX, [$player]);
+        $unread = "(last_author_role = 'admin' AND (player_read_at IS NULL OR player_read_at < last_message_at))";
+        return $this->db->rows('SELECT *, ' . $unread . ' AS player_unread FROM ' . $this->db->table(self::TABLE) . " WHERE player_user_id = ? ORDER BY player_unread DESC, FIELD(status, 'answered', 'open', 'working', 'closed'), updated_at DESC, id DESC LIMIT " . self::LIST_MAX, [$player]);
     }
 
     /** How many of a player's tickets have an administrator's reply they have not read. */
