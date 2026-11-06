@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.41",
+  "version": "0.5.42",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -185,6 +185,33 @@
       "PRIMARY KEY  (id)",
       "KEY owner_id (owner_id,taken_at)",
       "KEY from_id (from_id)"
+    ],
+    "groddle_butler_gift": [
+      "owner_id bigint(20) unsigned NOT NULL",
+      "class_tsid varchar(64) NOT NULL DEFAULT ''",
+      "count int(10) unsigned NOT NULL DEFAULT 0",
+      "adopted tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "updated_at datetime NOT NULL",
+      "PRIMARY KEY  (owner_id)"
+    ],
+    "groddle_butler_gifted": [
+      "owner_id bigint(20) unsigned NOT NULL",
+      "visitor_id bigint(20) unsigned NOT NULL",
+      "class_tsid varchar(64) NOT NULL DEFAULT ''",
+      "op varchar(40) NOT NULL DEFAULT ''",
+      "given_at datetime NOT NULL",
+      "PRIMARY KEY  (owner_id,visitor_id)",
+      "KEY visitor_id (visitor_id)"
+    ],
+    "groddle_butler_visits": [
+      "id varchar(40) NOT NULL",
+      "owner_id bigint(20) unsigned NOT NULL",
+      "visitor_id bigint(20) unsigned NOT NULL",
+      "at_ms bigint(20) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY owner_id (owner_id,at_ms)",
+      "KEY visitor_id (visitor_id)"
     ],
     "groddle_player_mail": [
       "id varchar(16) NOT NULL",

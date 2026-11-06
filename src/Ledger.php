@@ -299,6 +299,22 @@ final readonly class Ledger
         $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET budget = ?, budget_at = ? WHERE user_id = ?', [$budget, $now, $user]);
     }
 
+    /**
+     * Takes value out of a character's budget when it holds that much
+     * (ButlerGifts adopting a gift a save kept outside the ledger): true when
+     * taken, false (nothing changed) when the budget is short.
+     */
+    public function charge(int $user, float $value, int $now): bool
+    {
+        $state = $this->lock($user, $now);
+        $budget = $this->refilled($state['budget'], $state['budget_at'], $now);
+        if ($budget < max(0.0, $value)) {
+            return false;
+        }
+        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET budget = ?, budget_at = ? WHERE user_id = ?', [$budget - max(0.0, $value), $now, $user]);
+        return true;
+    }
+
     public function log(int $user, string $kind, array $detail, int $now): void
     {
         $this->db->execute('INSERT INTO ' . $this->db->table(self::LOG) . ' (user_id, at, kind, detail) VALUES (?, ?, ?, ?)', [$user, gmdate('Y-m-d H:i:s', $now), $kind, json_encode($detail, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
