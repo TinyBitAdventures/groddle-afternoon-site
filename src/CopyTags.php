@@ -7,7 +7,7 @@ namespace Groddle\Minn;
 /**
  * A copy's own words on the way between players (2026-11-04): a Cubimal's
  * name, a Draught of Giant Amicability's Giant, a Still's hopper and Hooch, a
- * lit pumpkin's phrases. The game keeps them beside each copy (js/tools.js
+ * lit pumpkin's phrases, a Teleportation Script's destination. The game keeps them beside each copy (js/tools.js
  * row.tags) and sends them as an item's "t", beside its wear "r", on a
  * one-copy stack: mail and auctions straight here, gifts and shared ground
  * drops through the realtime server (which checks them too, copytags.go).
@@ -25,6 +25,10 @@ namespace Groddle\Minn;
  *   - giant: one of the giants (potion_favor.js config.giants).
  *   - still: {hopper, hooch, workingSince} whole numbers, at most hopper and
  *     hooch, and a start no later than now (still.js 30-31).
+ *   - script: a Teleportation Script's {tsid, x, y, label, hubId, hubName,
+ *     imbued} (teleportation_script.js 298-319): tsid and hubId letters, digits,
+ *     _ and -, at most id; x and y whole numbers within coord (null when not
+ *     known); label and hubName as one phrase of len. No tsid is no words.
  *
  * Words a class does not keep, words on a stack of more than one, or words
  * that come out empty are none (null): the copy goes without them. Only the
@@ -97,6 +101,26 @@ final class CopyTags
                     'workingSince' => self::whole($value['workingSince'] ?? null, $nowMs),
                 ];
                 return $v['hopper'] > 0 || $v['hooch'] > 0 || $v['workingSince'] > 0 ? $v : null;
+            case 'script':
+                if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+                    return null;
+                }
+                $id = (int) ($rules['script']['id'] ?? 0);
+                $tsid = self::scriptId($value['tsid'] ?? null, $id);
+                if ($tsid === '') {
+                    return null;
+                }
+                $len = (int) ($rules['script']['len'] ?? 0);
+                $coord = (int) ($rules['script']['coord'] ?? 0);
+                return [
+                    'tsid' => $tsid,
+                    'x' => self::coord($value['x'] ?? null, $coord),
+                    'y' => self::coord($value['y'] ?? null, $coord),
+                    'label' => is_string($value['label'] ?? null) ? self::phrase($value['label'], $len) : '',
+                    'hubId' => self::scriptId($value['hubId'] ?? null, $id),
+                    'hubName' => is_string($value['hubName'] ?? null) ? self::phrase($value['hubName'], $len) : '',
+                    'imbued' => ($value['imbued'] ?? null) === true,
+                ];
         }
         return null;
     }
@@ -119,6 +143,21 @@ final class CopyTags
         $s = (string) preg_replace('/[\x{00}-\x{1F}\x{7F}-\x{9F}\x{2028}\x{2029}]/u', '', $s);
         $s = mb_substr(trim($s, ' '), 0, max(0, $len), 'UTF-8');
         return trim(WordFilter::text($s), ' ');
+    }
+
+    /** Letters, digits, _ and -, at most $max ('' for anything else). */
+    private static function scriptId(mixed $v, int $max): string
+    {
+        return is_string($v) && strlen($v) <= $max && preg_match('/^[A-Za-z0-9_-]+$/D', $v) === 1 ? $v : '';
+    }
+
+    /** A JSON number as a whole number within $max, toward zero (anything else, a numeric string too, is null). */
+    private static function coord(mixed $v, int $max): ?int
+    {
+        if (!(is_int($v) || (is_float($v) && is_finite($v)))) {
+            return null;
+        }
+        return $v >= $max ? $max : ($v <= -$max ? -$max : (int) $v);
     }
 
     /** A JSON number as a whole number from 0 to $max (anything else, a numeric string too, is 0). */
