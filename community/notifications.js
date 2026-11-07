@@ -14,7 +14,7 @@
  *
  * QA: window.groddleNotif (items, unread, open, refresh), the bell's [data-notif-n].
  */
-import { agoLabel, countLabel, demoAllowed, demoNotifications, markRead, sortNotifications, unreadCount } from './chat-pure.js';
+const { agoLabel, countLabel, demoAllowed, demoNotifications, markRead, sortNotifications, unreadCount } = await import(`./chat-pure.js${new URL(import.meta.url).search}`);
 
 const POLL_MS = 60 * 1000;
 /** The realtime server hands its lines to the site every 3 s (chatstore.go): ask after one batch, and again after the next. */

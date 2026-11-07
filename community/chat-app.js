@@ -33,7 +33,8 @@
  * Phones: the rail is one screen and a conversation another (main[data-cx-view]); "‹ Chats" goes back.
  * QA: main[data-cx-live] ("on" | "off"), [data-cx-conv] on the open conversation, window.groddleChat.
  */
-import { MUTED_KEY, convPath, lineHash, readMuted } from './chat-pure.js';
+// The page's key on this one too: a bare path sits in a browser's cache for a year and goes out of step with the rest.
+const { MUTED_KEY, convPath, lineHash, readMuted } = await import(`./chat-pure.js${new URL(import.meta.url).search}`);
 
 // community.js hands over its helpers (start()): one copy of them and of its state.
 let main; let call; let say; let SAID; let openPicker; let live; let lineReact; let topicNow; let notif; let nav;

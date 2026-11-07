@@ -19,7 +19,7 @@
  * QA: main[data-cx-menu] names what is open ("player:7", "line:chan:global#12", "rail:chan:help").
  */
 import { bindContextTrigger, createContextMenu } from '/js/ui/context-menu.js';
-import { lineLink, lineRows, playerRows, postRows, railRows } from './chat-pure.js';
+const { lineLink, lineRows, playerRows, postRows, railRows } = await import(`./chat-pure.js${new URL(import.meta.url).search}`);
 
 const WORDS = {
   copied: 'Copied.',
