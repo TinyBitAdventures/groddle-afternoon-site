@@ -32,7 +32,8 @@ use Minn\RestError;
  *
  * Ticket: base64url(JSON payload) "." base64url(HMAC-SHA256(secret, payload part)).
  *
- * Every ticket carries "off", the account's "Appear offline" (PresenceSetting).
+ * Every ticket carries "off", the account's "Appear offline" (PresenceSetting),
+ * and "cone" for a player under the chat cone of silence (Groups, G480).
  * A body {"via":"web"} asks for the website's ticket (the /chat/ page,
  * Austin 2026-11-04): "via":"web" opens a light socket beside the game's
  * (groddle-afternoon-server web.go), never replacing it.
@@ -78,6 +79,10 @@ final readonly class RealtimeTicket
         }
         if (PresenceSetting::off($this->minn->db, $user->id)) {
             $payload['off'] = true;
+        }
+        // The chat cone of silence holds in Local chat too (main.js doLocalChat 1708-1710), which needs no groups list.
+        if (in_array('chat', (new Groups($this->minn))->cones($user->id), true)) {
+            $payload['cone'] = true;
         }
         $answer = ['ticket' => self::sign($payload, $secret), 'expiresIn' => self::TTL, 'path' => '/ws'];
         $url = self::socketUrl();

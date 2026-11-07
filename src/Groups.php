@@ -391,13 +391,7 @@ final readonly class Groups
     public function channels(int $me): array
     {
         $level = Profiles::fromSave($this->minn->db, $me)['level'];
-        $silence = [];
-        $meta = (string) ((new Users($this->minn->db))->meta($me, self::SILENCE_META) ?? '');
-        foreach (['chat', 'help'] as $cone) {
-            if (in_array($cone, array_map('trim', explode(',', strtolower($meta))), true)) {
-                $silence[] = $cone;
-            }
-        }
+        $silence = $this->cones($me);
         return ['global' => true, 'help' => $level < self::NEWBIE_BELOW ? 'newbie' : 'help', 'trade' => $this->hasUpgrade($me, self::TRADE_UPGRADE), 'silenced' => $silence];
     }
 
@@ -422,6 +416,18 @@ final readonly class Groups
      * @param list<int> $ids
      * @return array{token: string, expiresIn: int}|null null when the site has no realtime secret
      */
+    /**
+     * The cones of silence on a player, from the user meta.
+     *
+     * @return list<string>
+     */
+    public function cones(int $me): array
+    {
+        $meta = (string) ((new Users($this->minn->db))->meta($me, self::SILENCE_META) ?? '');
+        $words = array_map('trim', explode(',', strtolower($meta)));
+        return array_values(array_filter(['chat', 'help'], static fn (string $cone): bool => in_array($cone, $words, true)));
+    }
+
     private function watch(array $ids, array $channels): ?array
     {
         $secret = (new RealtimeTicket($this->minn))->secret();
