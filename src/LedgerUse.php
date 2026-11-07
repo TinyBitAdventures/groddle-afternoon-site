@@ -113,6 +113,12 @@ final readonly class LedgerUse
      *     classProps; tool_base use(1), apiDelete when no longer working, 319-325);
      *     each Bestow (groddle-afternoon-server verbs.go). Its points are its
      *     copy's in the save's tool state; the slice key is never written.
+     *   potion_garden_water, _plant, _harvest, _clear, _fertilize (G368 slice 2):
+     *     points_remaining 5 (items/potion_garden_*.js 36; tool_base use(1), the fifth pour
+     *     consumes the bottle), each bottle's pours its copy's in the save's tool state
+     *     (js/master-garden.js usePotion); an older save's one count per class is
+     *     js/features/master-garden-feature.js's slice {uses}. A pour on a shared public
+     *     bed (groddle-afternoon-server gardens_potions.go).
      */
     public const CLASSES = [
         'fertilidust' => [5, 'powders', 'charges'],
@@ -123,6 +129,11 @@ final readonly class LedgerUse
         'sparkle_powder' => [5, 'powders', 'charges'],
         'potion_rook_balm' => [5, 'rook-attack', 'balmPoints', true],
         'random_kindness' => [20, 'player-verbs-mp', 'kindness'],
+        'potion_garden_water' => [5, 'master-garden', 'uses'],
+        'potion_garden_plant' => [5, 'master-garden', 'uses'],
+        'potion_garden_harvest' => [5, 'master-garden', 'uses'],
+        'potion_garden_clear' => [5, 'master-garden', 'uses'],
+        'potion_garden_fertilize' => [5, 'master-garden', 'uses'],
     ];
 
     private const NONE_JSON = '{"items":[],"currants":0}';
