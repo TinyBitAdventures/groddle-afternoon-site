@@ -29,11 +29,11 @@ use Minn\RestError;
  * data/garden-seeds.json "shared" (the game's js/shared-gardens.js
  * SHARED_GARDEN_STREETS: never a home, the tutorial's Doonboggle Trail, a
  * tower room or a party space), in one transaction per player:
- *   - every plot with seeds, shoots or a crop pays its crop at the player's
- *     own count (include/garden.js 474-484: produces_count, halved without
- *     Croppery I for a crop bed or Herbalism I for an herb bed), growing and
- *     dry plots alike (Austin 2026-11-07: crops, not seeds); wetness and empty
- *     plots simply go;
+ *   - every plot with seeds, shoots or a crop pays its crop's full
+ *     produces_count, whatever the player's skills (Austin 2026-11-07: no
+ *     Croppery I / Herbalism I halving here, though a pick by hand halves,
+ *     include/garden.js 474-484), growing and dry plots alike (crops, not
+ *     seeds); wetness and empty plots simply go;
  *   - the crops go by in-game mail (LedgerMail's letters, from nobody, id 0,
  *     signed LedgerMail::SYSTEM_NAME), one letter a crop, at most LedgerMail::COUNT_MAX a
  *     letter, delivered at once. Collecting one is the ordinary collect: the
@@ -59,8 +59,8 @@ final readonly class GardenPayout
     /** The letter (ours: Austin to approve). Plain, at most LedgerMail::TEXT_MAX characters. */
     public const TEXT = 'Good news: the public gardens have been upgraded from solo play to shared play! Everyone on a street now sees and tends the same plots. Your old plots there have been cleared, and here are the crops they held. Happy gardening!';
 
-    /** spawnGarden's beds: the crop bed 4 by 2, the herb bed 3 by 2, and the skill that gives a full pick. */
-    public const BEDS = ['default' => [4, 2, 'croppery_1'], 'herb' => [3, 2, 'herbalism_1']];
+    /** spawnGarden's beds: the crop bed 4 by 2, the herb bed 3 by 2. */
+    public const BEDS = ['default' => [4, 2], 'herb' => [3, 2]];
 
     public function __construct(private Seams $minn)
     {
@@ -133,7 +133,7 @@ final readonly class GardenPayout
         if ($streets === []) {
             return null;
         }
-        $items = self::totals(self::owed($state, $shared, $seeds, HomeYard::learned($state)));
+        $items = self::totals(self::owed($state, $shared, $seeds));
         $c = $db->table(Ledger::CREDITED);
         $before = $db->value("SELECT n FROM {$c} WHERE user_id = ? AND kind = ? AND ref = ? FOR UPDATE", [$user, self::KIND, self::REF]) !== null;
         $out = ['user' => $user, 'streets' => $streets, 'items' => (object) $items, 'paid' => !$before && $items !== [], 'before' => $before, 'letters' => 0];
@@ -192,10 +192,9 @@ final readonly class GardenPayout
      *
      * @param list<string> $shared
      * @param array<string, array{t?: string, c?: string, n?: int}> $seeds
-     * @param list<string> $learned
      * @return array<string, array<string, int>>
      */
-    public static function owed(mixed $state, array $shared, array $seeds, array $learned): array
+    public static function owed(mixed $state, array $shared, array $seeds): array
     {
         $out = [];
         $streets = is_object($state) ? ($state->world->streets ?? null) : null;
@@ -208,12 +207,11 @@ final readonly class GardenPayout
                 continue;
             }
             $items = [];
-            foreach (self::BEDS as $bed => [$cols, $rows, $skill]) {
+            foreach (self::BEDS as $bed => [$cols, $rows]) {
                 $plots = $gardens->{$bed}->plots ?? null;
                 if (!is_object($plots)) {
                     continue;
                 }
-                $full = in_array($skill, $learned, true);
                 foreach ($plots as $key => $plot) {
                     if (!preg_match('/^(\d{1,2})-(\d{1,2})$/', (string) $key, $m) || (int) $m[1] < 1 || (int) $m[1] > $cols || (int) $m[2] < 1 || (int) $m[2] > $rows) {
                         continue;
@@ -223,7 +221,8 @@ final readonly class GardenPayout
                     if (!in_array($s, ['seeds', 'shoots', 'crop'], true) || !is_array($seed) || ($seed['t'] ?? '') !== $bed || !is_string($seed['c'] ?? null) || !is_int($seed['n'] ?? null)) {
                         continue;
                     }
-                    $n = $full ? $seed['n'] : (int) round($seed['n'] / 2);
+                    // The full produces_count for everyone (Austin 2026-11-07): no Croppery I / Herbalism I halving here.
+                    $n = $seed['n'];
                     if ($n > 0 && Economy::shared()->tradeable($seed['c'])) {
                         $items[$seed['c']] = ($items[$seed['c']] ?? 0) + $n;
                     }
