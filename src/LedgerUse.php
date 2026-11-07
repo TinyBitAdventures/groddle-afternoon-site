@@ -109,6 +109,10 @@ final readonly class LedgerUse
      *     (2026-11-04); a save from before keeps the open one's points in
      *     js/features/rook-attack-feature.js's slice balmPoints, one number
      *     for the class (the fourth field), 0 meaning none open.
+     *   random_kindness (G432): points_capacity 20 (items/random_kindness.js
+     *     classProps; tool_base use(1), apiDelete when no longer working, 319-325);
+     *     each Bestow (groddle-afternoon-server verbs.go). Its points are its
+     *     copy's in the save's tool state; the slice key is never written.
      */
     public const CLASSES = [
         'fertilidust' => [5, 'powders', 'charges'],
@@ -118,6 +122,7 @@ final readonly class LedgerUse
         'sneezing_powder' => [5, 'powders', 'charges'],
         'sparkle_powder' => [5, 'powders', 'charges'],
         'potion_rook_balm' => [5, 'rook-attack', 'balmPoints', true],
+        'random_kindness' => [20, 'player-verbs-mp', 'kindness'],
     ];
 
     private const NONE_JSON = '{"items":[],"currants":0}';
