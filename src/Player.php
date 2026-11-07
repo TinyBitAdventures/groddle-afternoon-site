@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Groddle\Minn;
 
+use Minn\Auth\Capabilities;
 use Minn\Content\UserRecord;
+use Minn\Db;
 use Minn\Extension\Seams;
 use Minn\Http\Access;
 use Minn\Http\Method;
@@ -18,9 +20,19 @@ use Minn\Http\Route;
  * can ask before it knows: signed out (or a cookie sent without its REST
  * nonce) is {"signedIn": false}; signed in names the player and the
  * backup limits, and whether the account is suspended.
+ *
+ * "admin" (register G567, Austin 2026-11-07): whether the account holds
+ * manage_options, the capability every administrators' route checks. The
+ * game draws Delete line on a channel line for an administrator only; it is
+ * a hint for the interface and nothing more: the delete itself goes to
+ * ChatHistory::deleteLine, whose route checks the capability again, so a
+ * player who sets the flag in their own browser is still refused (403).
  */
 final readonly class Player
 {
+    /** The administrators' capability (AdminConsole, ChatHistory::deleteLine). */
+    public const ADMIN = 'manage_options';
+
     public function __construct(private Seams $minn)
     {
     }
@@ -41,7 +53,15 @@ final readonly class Player
             'account' => ['email' => $user->email],
             // A suspended account (AdminConsole bans): /play/online/ says so and does not load the game.
             'suspended' => AdminConsole::banned($this->minn->db, $user->id) !== null,
+            // An administrator: the game shows Delete line on channel lines (the route checks again).
+            'admin' => self::isAdmin($this->minn->db, $user->id),
         ]);
+    }
+
+    /** Whether an account is an administrator (manage_options); false for nobody (0). */
+    public static function isAdmin(Db $db, int $id): bool
+    {
+        return $id > 0 && Capabilities::fromDb($db)->can($id, self::ADMIN);
     }
 
     /** The player as the game shows them: the character's name (Characters), never the username underneath. */

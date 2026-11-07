@@ -377,7 +377,8 @@ export function logWords(line) {
       const title = d.title ? `“${d.title}”` : 'a note';
       return `removed ${title}${d.by ? ` by ${d.by}` : ''} from the board in ${street}${line.delivery === 'down' ? ' (realtime server down: players there see it until it is taken or the server restarts)' : ''}`;
     }
-    case 'chat_delete': return `deleted ${who}'s ${d.reply ? 'thread reply' : 'line'} in ${d.where || 'a channel'}: “${d.text || ''}”${line.delivery === 'down' ? ' (realtime server not answering: the game may show it until the server restarts)' : ''}`;
+    // G568: 30 days after a deletion the words are cleared (ChatHistory::clearDeletedText, cleared true).
+    case 'chat_delete': return `deleted ${who}'s ${d.reply ? 'thread reply' : 'line'} in ${d.where || 'a channel'}${d.cleared ? ' (its words were cleared after 30 days)' : `: “${d.text || ''}”`}${line.delivery === 'down' ? ' (realtime server not answering: the game may show it until the server restarts)' : ''}`;
     case 'comm_remove': return `removed ${who}'s ${d.first ? 'thread' : 'post in'} “${d.title || ''}” on the Community boards`;
     case 'comm_restore': return `restored ${who}'s ${d.first ? 'thread' : 'post in'} “${d.title || ''}” on the Community boards`;
     case 'comm_pin': return `pinned “${d.title || ''}” on the Community boards`;

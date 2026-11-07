@@ -75,6 +75,20 @@ use Minn\RestError;
  * polling with since= gets the deleted lids in "gone". A line said a moment
  * ago may not be kept here yet: the server holds it and marks the row when its
  * line arrives (ingest "delete").
+ *
+ * A deleted line's words go after 30 days (register G568, Austin 2026-11-07),
+ * as the realtime server's chat log keeps a day's file 30 days (chatlog.go,
+ * deleted.jsonl pruned the same): clearDeletedText empties the row's text,
+ * and the text of every reply hidden with it, once deleted_ms is 30 days old,
+ * and takes the words out of the console's record of the deletion
+ * (groddle_admin_actions chat_delete: text "", cleared true). What stays is
+ * the record: the row, who said it (author_id, name), when, which room, when
+ * it was deleted and by whom (deleted_ms, deleted_by), and the console's line
+ * naming the administrator, the player and the channel. The site has no
+ * scheduled job of its own (Minn gives an extension no cron seam), so it runs
+ * from the chat routes that run anyway, at most once an hour (option
+ * groddle_chat_clear_next): the realtime server's batches (ingest, every few
+ * seconds while anyone chats) and an administrator's delete.
  */
 final readonly class ChatHistory
 {
@@ -94,6 +108,12 @@ final readonly class ChatHistory
 
     /** Who may delete a channel line: the administrators, as the console (AdminConsole). */
     private const ADMIN = 'manage_options';
+
+    /** A deleted line keeps its words this long (the realtime server's chat log keeps 30 days: chatlog.go). */
+    public const DELETED_KEEP_DAYS = 30;
+    /** clearDeletedText runs at most this often (seconds); the option holds when it is next due (unix seconds). */
+    public const CLEAR_EVERY = 3600;
+    public const CLEAR_OPTION = 'groddle_chat_clear_next';
 
     public function __construct(private Seams $minn)
     {
@@ -119,7 +139,59 @@ final readonly class ChatHistory
                 $stored += self::store($db, is_array($e) ? $e : []);
             }
         });
+        // The words of lines deleted 30 days ago go (G568), at most once an hour.
+        self::clearWhenDue($this->minn->site, $db, Community::ms());
         return Response::json(['status' => 'ok', 'stored' => $stored]);
+    }
+
+    /**
+     * Runs clearDeletedText when it is due (CLEAR_OPTION, at most once every CLEAR_EVERY seconds) and
+     * says what it cleared; null when it was not due.
+     *
+     * @return array{lines: int, replies: int, actions: int}|null
+     */
+    public static function clearWhenDue(\Minn\Content\Site $site, \Minn\Db $db, int $nowMs): ?array
+    {
+        $now = intdiv($nowMs, 1000);
+        if ((int) ($site->option(self::CLEAR_OPTION) ?? 0) > $now) {
+            return null;
+        }
+        $site->setOption(self::CLEAR_OPTION, (string) ($now + self::CLEAR_EVERY));
+        return self::clearDeletedText($db, $nowMs);
+    }
+
+    /**
+     * The words of every line an administrator deleted DELETED_KEEP_DAYS ago or more, and of the
+     * replies hidden with it, cleared (text ""); the console's record of the deletion loses its copy of
+     * the words too. Everything else stays: the row, its author and time, deleted_ms and deleted_by, and
+     * the console's line. Idempotent: a cleared row is not touched again.
+     *
+     * @return array{lines: int, replies: int, actions: int} rows cleared now
+     */
+    public static function clearDeletedText(\Minn\Db $db, int $nowMs): array
+    {
+        $cutoff = $nowMs - self::DELETED_KEEP_DAYS * 86_400_000;
+        if ($cutoff <= 0) {
+            return ['lines' => 0, 'replies' => 0, 'actions' => 0];
+        }
+        $t = $db->table(self::LINES);
+        // The replies under a deleted line, hidden with it (they keep their own deleted_ms: the line above is the deleted one).
+        $replies = $db->execute("UPDATE {$t} r JOIN {$t} p ON p.room = r.room AND p.lid = r.parent_lid SET r.text = '' WHERE p.deleted_ms > 0 AND p.deleted_ms <= ? AND r.parent_lid > 0 AND r.text <> ''", [$cutoff]);
+        $lines = $db->execute("UPDATE {$t} SET text = '' WHERE deleted_ms > 0 AND deleted_ms <= ? AND text <> ''", [$cutoff]);
+        // The console's record of each deletion (deleteLine's recordAction) kept the first words.
+        $a = $db->table(AdminConsole::ACTIONS);
+        $actions = 0;
+        $rows = $db->rows("SELECT id, detail FROM {$a} WHERE kind = 'chat_delete' AND at <= ? AND detail NOT LIKE ? ORDER BY id LIMIT 1000", [gmdate('Y-m-d H:i:s', intdiv($cutoff, 1000)), '%"cleared":true%']);
+        foreach ($rows as $row) {
+            $d = json_decode((string) $row['detail'], true);
+            if (!is_array($d)) {
+                continue;
+            }
+            $d['text'] = '';
+            $d['cleared'] = true;
+            $actions += $db->execute("UPDATE {$a} SET detail = ? WHERE id = ?", [(string) json_encode($d, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), (int) $row['id']]);
+        }
+        return ['lines' => $lines, 'replies' => $replies, 'actions' => $actions];
     }
 
     /** One entry into the tables; 1 when it changed something. Bad entries are skipped (the batch still lands). @param array<string, mixed> $e */
@@ -568,6 +640,8 @@ final readonly class ChatHistory
         AdminConsole::recordAction($db, $admin->id, $author, 'chat_delete', [
             'where' => self::CHANNELS[$key], 'lid' => $id, 'reply' => $parent > 0, 'text' => mb_substr($text, 0, 200),
         ], $live ? 'live' : 'down');
+        // An administrator's chat route runs the 30-day clearing too (G568), at most once an hour.
+        self::clearWhenDue($this->minn->site, $db, Community::ms());
         return self::private(Response::json(['status' => 'deleted', 'lid' => $id, 'parent' => $parent, 'live' => $live]));
     }
 

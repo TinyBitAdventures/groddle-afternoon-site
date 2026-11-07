@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.43",
+  "version": "0.5.44",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -827,7 +827,8 @@
       "KEY room_lid (room,lid)",
       "KEY room_parent (room,parent_lid,lid)",
       "KEY room_changed (room,changed_ms)",
-      "KEY author_id (author_id)"
+      "KEY author_id (author_id)",
+      "KEY deleted_ms (deleted_ms)"
     ],
     "groddle_im_lines": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
