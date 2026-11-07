@@ -57,6 +57,8 @@ final readonly class GardenPayout
     public const REF = 'payout';
 
     /** The letter (ours: Austin to approve). Plain, at most LedgerMail::TEXT_MAX characters. */
+    /** Its subject in the mailbox (G570, ours: the original's letters had none). */
+    public const SUBJECT = 'Your garden crops';
     public const TEXT = 'Good news: the public gardens have been upgraded from solo play to shared play! Everyone on a street now sees and tends the same plots. Your old plots there have been cleared, and here are the crops they held. Happy gardening!';
 
     /** spawnGarden's beds: the crop bed 4 by 2, the herb bed 3 by 2. */

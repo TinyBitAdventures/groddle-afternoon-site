@@ -31,7 +31,8 @@ use Minn\RestError;
  *   POST groddle/v1/mail/{id}/collect      200 {"status":"collected"|"done","receipt":Receipt|null,"letter":Letter} | 409 refused ("early")
  *
  *   Letter: {"id","box":"in"|"returned"|"sent","from":{id,name},"to":{id,name},"text","item":{c,n,r?}|null,"currants",
- *            "postage","at" (arrives, ms),"sent" (ms),"collected":bool,"reply":{"text","from":{id,name}}|null,"why"?}
+ *            "postage","at" (arrives, ms),"sent" (ms),"collected":bool,"reply":{"text","from":{id,name}}|null,"why"?,
+ *            "subject"? (a letter from nobody, G570: LedgerMail::subject)}
  *   Receipt: {"op":"mail-<id>-s|c","gave":{"items":[{c,n}],"currants"},"got":{…}}, a settled trade with
  *   nobody (groddle_trades, b_id 0, as LedgerAuction records its moves): the save applies it once
  *   (the trade slice's applied list); until then a write is compared as if it had not happened, and a
@@ -104,6 +105,22 @@ final readonly class LedgerMail
     public const TELL_TTL = 120;
     /** A letter from nobody (from_id 0: the game itself, GardenPayout's crops) is signed so. */
     public const SYSTEM_NAME = 'Groddle Afternoon';
+
+    /**
+     * G570: a letter from nobody carries a subject the mailbox shows as its title. The table keeps
+     * no subject, so it is known by its words (every payout letter, sent or still to come, has
+     * GardenPayout::TEXT); a player's letter has none (the game titles it as before).
+     */
+    public static function subject(array $row): ?string
+    {
+        if ((int) ($row['from_id'] ?? -1) !== 0) {
+            return null;
+        }
+        return match ((string) ($row['text'] ?? '')) {
+            GardenPayout::TEXT => GardenPayout::SUBJECT,
+            default => null,
+        };
+    }
 
     public const TEXT_EMPTY = 'You need to put *something* in this message!'; // MailComposeUI.as:528
     public const TEXT_NOBODY = "There's nobody by that name.";
@@ -507,6 +524,9 @@ final readonly class LedgerMail
                 'reply' => $r['quote_from'] === null ? null : ['text' => (string) $r['quote'], 'from' => $who((int) $r['quote_from'])],
                 'replied' => $r['replied_at'] !== null,
             ];
+            if (($subject = self::subject($r)) !== null) {
+                $letter['subject'] = $subject;
+            }
             if ($returned) {
                 $letter['why'] = (string) $r['why'];
                 $letter['returned'] = sprintf((string) $r['why'] === 'gone' ? self::TEXT_RETURN_GONE : self::TEXT_RETURN_BLOCKED, $letter['to']['name']);
