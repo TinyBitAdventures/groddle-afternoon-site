@@ -21,8 +21,8 @@ use Minn\RestError;
  * (locations/inc_acl_keys.js acl_keys_player_has_key; the keyring's
  * "Roommate alert! Your friend will have access to everything in your house,
  * including your crops and cabinet.", view/ui/acl/ACLCreateKeyUI.as 81-82);
- * tending is the garden's plots: water, plant, clear (hoe) and harvest
- * (items/include/garden.js). Nobody else may touch them.
+ * tending is the garden's plots: water, plant, clear (hoe), harvest and
+ * Guano (items/include/garden.js). Nobody else may touch them.
  *
  * The owner's save is the owner's: a key-holder's act is checked here
  * against the owner's stored gardens (ticked as the game grows them, with
@@ -35,7 +35,7 @@ use Minn\RestError;
  * goes from the table. A visit (Neighbours) shows the gardens with the
  * waiting acts on them, so the next visitor sees them watered.
  *
- *   POST groddle/v1/homes/{owner}/tend  {"acts":[{"yard":"street"|"back","garden":"<item id>","plot":"1-2","act":"water|plant|clear|harvest","seed":"seed_carrot"}]}
+ *   POST groddle/v1/homes/{owner}/tend  {"acts":[{"yard":"street"|"back","garden":"<item id>","plot":"1-2","act":"water|plant|clear|harvest|guano","seed":"seed_carrot"}]}
  *        200 {"acts":[{"id":"tend-…","ok":true,…}|{"ok":false,"text":"…","plot":Plot}],"tell":"<proof>"}
  *   GET  groddle/v1/homes/tending        the signed-in owner's waiting acts, oldest first
  *
@@ -58,7 +58,7 @@ final readonly class HomeTending
 
     public const TELL_TTL = 120;
 
-    public const ACTS = ['water', 'plant', 'clear', 'harvest'];
+    public const ACTS = ['water', 'plant', 'clear', 'harvest', 'guano'];
 
     public const TEXT_NO_KEY = 'Only a key-holder can tend these gardens.';
     public const TEXT_NO_PLOT = 'No such plot.';
@@ -68,6 +68,11 @@ final readonly class HomeTending
     public const TEXT_CROP_ONLY = 'Only crop seeds go in a crop garden.';
     public const TEXT_CLEAR = 'That plot does not need clearing.';
     public const TEXT_HARVEST = 'Nothing ready to harvest.';
+    public const TEXT_FERTILIZE = 'Oops. There is nothing there to fertilize.';
+    public const TEXT_FERTILIZE_WATER = 'You need to water it more first!';
+
+    /** GardenManager.as FERTILIZE_PERC: how much of the watering must be left for Guano. */
+    public const FERTILIZE_PERC = 0.8;
     public const TEXT_BUSY = 'Their gardens have had a lot of help today. Try again later.';
 
     public function __construct(private Seams $minn)
@@ -177,7 +182,7 @@ final readonly class HomeTending
             }
             $at = (int) $r['at_ms'];
             self::tickPlot($plot, $at, $seeds);
-            self::applyAct($plot, (string) $r['act'], (string) $r['seed'], $at);
+            self::applyAct($plot, (string) $r['act'], (string) $r['seed'], $at, $seeds);
         }
         return $copy;
     }
@@ -250,12 +255,20 @@ final readonly class HomeTending
                 return $state === 'dirty' ? null : self::TEXT_CLEAR;
             case 'harvest':
                 return $state === 'crop' && is_string($plot->seed ?? null) ? null : self::TEXT_HARVEST;
+            case 'guano':
+                // G403: the game's fertilizeCheck (GardenPlotView.as 217-222); the Guano is the visitor's own client's.
+                if (($state !== 'seeds' && $state !== 'shoots') || !is_string($plot->seed ?? null) || ($plot->fertilized ?? false) === true) {
+                    return self::TEXT_FERTILIZE;
+                }
+                $water = (int) ($seeds['waterMs'] ?? 43200000);
+                $wetAt = is_numeric($plot->wetAt ?? null) ? (int) $plot->wetAt : $now;
+                return ($plot->wet ?? false) === true && 1 - ($now - $wetAt) / $water >= self::FERTILIZE_PERC ? null : self::TEXT_FERTILIZE_WATER;
         }
         return self::TEXT_NO_PLOT;
     }
 
     /** The act's change to a plot at time at (wetPlot; plant, clear and harvest each start a stage). */
-    public static function applyAct(object $plot, string $act, string $seed, int $at): void
+    public static function applyAct(object $plot, string $act, string $seed, int $at, array $seeds = []): void
     {
         if ($act === 'water') {
             if (($plot->wet ?? false) !== true) {
@@ -265,12 +278,39 @@ final readonly class HomeTending
             $plot->wetAt = $at;
             return;
         }
+        if ($act === 'guano') {
+            // The game's applyFertilizer (include/garden.js 625-639): seeds go to shoots; shoots keep a tenth of what is left.
+            $row = is_string($plot->seed ?? null) ? ($seeds['seeds'][$plot->seed] ?? null) : null;
+            if ($row === null) {
+                return;
+            }
+            $plot->guanoAt = $at;
+            if (($plot->state ?? '') === 'seeds') {
+                $plot->state = 'shoots';
+                $plot->stageStartedAt = $at;
+                $plot->growthMs = 0;
+            } elseif (($plot->state ?? '') === 'shoots') {
+                $mod = is_numeric($plot->growModifier ?? null) && (float) $plot->growModifier > 0 ? (float) $plot->growModifier : 1.0;
+                $need = $row['g2'] * $mod;
+                $started = is_numeric($plot->stageStartedAt ?? null) ? (int) $plot->stageStartedAt : $at;
+                $elapsed = max(0, (int) ($plot->growthMs ?? 0)) + (($plot->wet ?? false) === true ? max(0, $at - $started) : 0);
+                $plot->stageStartedAt = (int) ceil($at - ($need - 0.1 * max(0, $need - $elapsed)));
+                $plot->growthMs = 0;
+                $plot->fertilized = true;
+            }
+            return;
+        }
         $plot->state = match ($act) { 'plant' => 'seeds', 'clear' => 'clean', default => 'dirty' };
         $plot->seed = $act === 'plant' ? $seed : null;
         $plot->stageStartedAt = $at;
         $plot->growthMs = 0;
         if ($act === 'plant') {
             $plot->growModifier = 1;
+        }
+        if ($act !== 'clear' && (isset($plot->fertilized) || isset($plot->guanoAt))) {
+            // include/garden.js 553: picking ends the fertilizer with the crop.
+            $plot->fertilized = false;
+            $plot->guanoAt = null;
         }
     }
 
@@ -319,7 +359,7 @@ final readonly class HomeTending
         foreach ($waiting as $w) {
             if ($w['yard'] === $act['yard'] && $w['garden'] === $act['garden'] && $w['plot'] === $act['plot']) {
                 self::tickPlot($plot, (int) $w['at_ms'], $seeds);
-                self::applyAct($plot, (string) $w['act'], (string) $w['seed'], (int) $w['at_ms']);
+                self::applyAct($plot, (string) $w['act'], (string) $w['seed'], (int) $w['at_ms'], $seeds);
             }
         }
         self::tickPlot($plot, $now, $seeds);
