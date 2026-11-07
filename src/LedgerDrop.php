@@ -40,6 +40,20 @@ use Minn\RestError;
  *   answers as recorded; anyone else hears it is gone. A return is the
  *   dropper's own take of a stack nobody picked up (drops.go dropKeep).
  *
+ *   POST groddle/v1/ledger/drop/take  (signed) {"op":"drop-…","id":9,"why":"pickup","n":3,"from":10}
+ *        200 {"status":"settled","op":"drop-…-t10","item":{…,"n":3},"n":7}
+ *        | 409 {"status":"refused","why":"gone","by":9} | 409 {"status":"refused","why":"stale","n":7}
+ *
+ *   A part of the stack (G560, Pick up how many: main.js 3227-3240 splits
+ *   the stack, the rest stays on the ground): n of the from the realtime
+ *   server holds, with n < from. Its credit is <op>-t<from>: a stack's count
+ *   only ever falls (takes, bites), so each part taken has its own id, and
+ *   the server's retry of the same ask finds it recorded and answers as
+ *   recorded. A take on a count the stack no longer has (two at once, or an
+ *   answer the server missed) is refused as stale with the count there is,
+ *   so nobody takes more than lies there. The row keeps the rest; a whole
+ *   take or a return later moves what is left under <op>-t.
+ *
  *   POST groddle/v1/ledger/drop/eat   (signed) {"op":"drop-…","from":3}
  *        200 {"status":"settled","n":2} | 409 {"status":"refused","why":"gone|stale"}
  *
@@ -98,7 +112,8 @@ final readonly class LedgerDrop
         if ($drop === null) {
             throw new RestError('groddle_ledger_invalid', 'Not a drop.', 400);
         }
-        $out = Ledger::atomically($this->minn->db, fn () => $this->settle($drop, time()));
+        $db = $this->minn->db;
+        $out = Ledger::atomically($db, fn () => self::settle($db, Ledger::fromSeams($this->minn), $drop, time()));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
@@ -110,10 +125,13 @@ final readonly class LedgerDrop
         $op = is_array($body) ? ($body['op'] ?? null) : null;
         $id = is_array($body) ? ($body['id'] ?? null) : null;
         $why = is_array($body) ? ($body['why'] ?? null) : null;
-        if (!self::opId($op) || !is_int($id) || $id <= 0 || !in_array($why, ['pickup', 'return'], true)) {
+        $n = is_array($body) ? ($body['n'] ?? null) : null;
+        $from = is_array($body) ? ($body['from'] ?? null) : null;
+        if (!self::opId($op) || !is_int($id) || $id <= 0 || !in_array($why, ['pickup', 'return'], true) || !self::part($why, $n, $from)) {
             throw new RestError('groddle_ledger_invalid', 'Not a pickup.', 400);
         }
-        $out = Ledger::atomically($this->minn->db, fn () => $this->give($op, $id, $why, time()));
+        $db = $this->minn->db;
+        $out = Ledger::atomically($db, fn () => self::give($db, Ledger::fromSeams($this->minn), $op, $id, $why, time(), $n, $from));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
@@ -231,16 +249,30 @@ final readonly class LedgerDrop
         return ['op' => $op, 'id' => $id, 'street' => $street, 'x' => $x, 'y' => $y, 'c' => $c, 'n' => $n, 'r' => $r] + ($t !== null ? ['t' => $t] : []);
     }
 
-    /** @return array{status: string, why?: string, text?: string} */
-    private function settle(array $drop, int $now): array
+    /**
+     * Whether a take's n and from are none (the whole stack) or a part of it: a pickup of
+     * 1 <= n < from <= 9999.
+     */
+    public static function part(string $why, mixed $n, mixed $from): bool
     {
-        $db = $this->minn->db;
+        if ($n === null && $from === null) {
+            return true;
+        }
+        return $why === 'pickup' && is_int($n) && is_int($from) && $n >= 1 && $n < $from && $from <= 9999;
+    }
+
+    /**
+     * A drop settled once per op (the transaction is the caller's: Ledger::atomically).
+     *
+     * @return array{status: string, why?: string, text?: string}
+     */
+    public static function settle(Db $db, Ledger $ledger, array $drop, int $now): array
+    {
         $t = $db->table(Ledger::TRADES);
         $held = $db->row("SELECT status FROM {$t} WHERE trade_id = ? FOR UPDATE", [$drop['op']]);
         if ($held !== null) {
             return $held['status'] === 'settled' ? ['status' => 'settled'] : ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
         }
-        $ledger = Ledger::fromSeams($this->minn);
         $stamp = gmdate('Y-m-d H:i:s', $now);
         $gave = self::goodsJson($drop['c'], $drop['n']);
         if (!Economy::shared()->tradeable($drop['c'])) {
@@ -263,10 +295,14 @@ final readonly class LedgerDrop
         return ['status' => 'settled'];
     }
 
-    /** @return array{status: string, op?: string, item?: array, why?: string, by?: int} */
-    private function give(string $op, int $id, string $why, int $now): array
+    /**
+     * A take of a stack on the ground: the whole of it ($n null), or $n of the $from the realtime
+     * server holds (takePart). The transaction is the caller's (Ledger::atomically).
+     *
+     * @return array{status: string, op?: string, item?: array, why?: string, by?: int, n?: int}
+     */
+    public static function give(Db $db, Ledger $ledger, string $op, int $id, string $why, int $now, ?int $n = null, ?int $from = null): array
     {
-        $db = $this->minn->db;
         $drops = $db->table(self::TABLE);
         $row = $db->row("SELECT dropper_id, class_tsid, count, points, tag, status, taker_id FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
         if ($row === null) {
@@ -280,6 +316,9 @@ final readonly class LedgerDrop
         if (isset($row['tag']) && ($t = CopyTags::decode($row['tag'])) !== null && $item['n'] === 1) {
             $item['t'] = $t;
         }
+        if ($n !== null && $from !== null) {
+            return self::takePart($db, $ledger, $op, $row, $item, $id, $n, $from, $now);
+        }
         $credit = $op . '-t';
         if ($row['status'] !== 'ground') {
             return (int) $row['taker_id'] === $id ? ['status' => 'settled', 'op' => $credit, 'item' => $item] : ['status' => 'refused', 'why' => 'gone', 'by' => (int) $row['taker_id']];
@@ -287,7 +326,6 @@ final readonly class LedgerDrop
         if ($why === 'return' && (int) $row['dropper_id'] !== $id) {
             return ['status' => 'refused', 'why' => 'gone', 'by' => 0];
         }
-        $ledger = Ledger::fromSeams($this->minn);
         $state = $ledger->lock($id, $now);
         $stamp = gmdate('Y-m-d H:i:s', $now);
         self::move($db, $id, $state, $item['c'], $item['n'], $now);
@@ -297,36 +335,85 @@ final readonly class LedgerDrop
         return ['status' => 'settled', 'op' => $credit, 'item' => $item];
     }
 
+    /**
+     * $n of a stack the realtime server says holds $from (the row is locked). The credit
+     * <op>-t<from> is recorded once: asked again for the same taker it answers as recorded,
+     * for anyone else the count they saw is gone. $item is the stack's (class, wear).
+     *
+     * @return array{status: string, op?: string, item?: array, why?: string, by?: int, n?: int}
+     */
+    private static function takePart(Db $db, Ledger $ledger, string $op, array $row, array $item, int $id, int $n, int $from, int $now): array
+    {
+        $t = $db->table(Ledger::TRADES);
+        $credit = $op . '-t' . $from;
+        $left = $row['status'] === 'ground' ? (int) $row['count'] : 0;
+        unset($item['t']); // a copy's own words ride only with a stack of one, never a part
+        $held = $db->row("SELECT a_id, b_gave FROM {$t} WHERE trade_id = ? FOR UPDATE", [$credit]);
+        if ($held !== null) {
+            return (int) $held['a_id'] === $id
+                ? ['status' => 'settled', 'op' => $credit, 'item' => ['n' => self::movedCount((string) $held['b_gave'], $n)] + $item, 'n' => $left]
+                : ['status' => 'refused', 'why' => 'stale', 'n' => $left];
+        }
+        if ($row['status'] !== 'ground') {
+            return ['status' => 'refused', 'why' => 'gone', 'by' => (int) $row['taker_id']];
+        }
+        if ($left !== $from) {
+            return ['status' => 'refused', 'why' => 'stale', 'n' => $left];
+        }
+        $state = $ledger->lock($id, $now);
+        $stamp = gmdate('Y-m-d H:i:s', $now);
+        self::move($db, $id, $state, $item['c'], $n, $now);
+        $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$credit, $id, self::NONE, self::goodsJson($item['c'], $n), $stamp, $stamp]);
+        $db->execute('UPDATE ' . $db->table(self::TABLE) . ' SET count = ? WHERE id = ?', [$from - $n, $op]);
+        $ledger->log($id, 'pickup', ['drop' => $op, 'from' => (int) $row['dropper_id'], 'took' => [$item['c'] => $n], 'left' => $from - $n], $now);
+        return ['status' => 'settled', 'op' => $credit, 'item' => ['n' => $n] + $item, 'n' => $from - $n];
+    }
+
     // —— The player ——
 
     /** The signed-in player's drops and takes their save has not applied, oldest first (a missed answer). */
     #[Route(Method::Get, '/groddle/v1/drops', policy: new Policy(Access::SignedIn))]
     public function mine(Request $request): Response
     {
-        $db = $this->minn->db;
-        $me = $this->minn->reader->userId;
-        $since = gmdate('Y-m-d H:i:s', time() - Ledger::PENDING_FOR);
-        $rows = $db->rows('SELECT t.trade_id, t.a_gave, t.b_gave, d.id, d.class_tsid, d.count, d.points, d.tag, d.why FROM ' . $db->table(Ledger::TRADES) . ' t JOIN ' . $db->table(self::TABLE) . " d ON (t.trade_id = d.id OR t.trade_id = CONCAT(d.id, '-t'))
+        return Response::json(['drops' => self::unapplied($this->minn->db, $this->minn->reader->userId, time())]);
+    }
+
+    /**
+     * A character's settled drops and takes their save has not applied, oldest first: a drop's op
+     * is the stack's id, a take's that id and -t, a part's -t and the count it was taken from.
+     *
+     * @return list<array{op: string, side: string, id: string, item: array, why?: string}>
+     */
+    public static function unapplied(Db $db, int $me, int $now): array
+    {
+        $since = gmdate('Y-m-d H:i:s', $now - Ledger::PENDING_FOR);
+        $rows = $db->rows('SELECT t.trade_id, t.a_gave, t.b_gave, d.id, d.class_tsid, d.count, d.points, d.tag, d.why FROM ' . $db->table(Ledger::TRADES) . ' t JOIN ' . $db->table(self::TABLE) . " d ON d.id = LEFT(t.trade_id, 21)
             WHERE t.status = 'settled' AND t.a_id = ? AND t.a_applied_at IS NULL AND t.created_at >= ? AND t.trade_id LIKE 'drop-%'
             ORDER BY t.created_at, t.trade_id LIMIT 40", [$me, $since]);
         $out = [];
         foreach ($rows as $r) {
-            $took = str_ends_with((string) $r['trade_id'], '-t');
+            $trade = (string) $r['trade_id'];
+            $took = self::isTake($trade);
+            if (!$took && $trade !== (string) $r['id']) {
+                continue;
+            }
+            $part = $took && !str_ends_with($trade, '-t');
             // What moved is the trade's: a Piggy may have eaten some of a stack since it was dropped.
             $item = ['c' => (string) $r['class_tsid'], 'n' => self::movedCount((string) ($took ? $r['b_gave'] : $r['a_gave']), (int) $r['count'])];
             if ($r['points'] !== null) {
                 $item['r'] = (int) $r['points'];
             }
-            if (isset($r['tag']) && ($t = CopyTags::decode($r['tag'])) !== null && $item['n'] === 1) {
+            if (!$part && isset($r['tag']) && ($t = CopyTags::decode($r['tag'])) !== null && $item['n'] === 1) {
                 $item['t'] = $t;
             }
-            $entry = ['op' => (string) $r['trade_id'], 'side' => $took ? 'took' : 'dropped', 'id' => (string) $r['id'], 'item' => $item];
+            $entry = ['op' => $trade, 'side' => $took ? 'took' : 'dropped', 'id' => (string) $r['id'], 'item' => $item];
             if ($took) {
-                $entry['why'] = (string) $r['why'];
+                // A part is always a pickup, whatever later became of the rest of the stack.
+                $entry['why'] = $part ? 'pickup' : (string) $r['why'];
             }
             $out[] = $entry;
         }
-        return Response::json(['drops' => $out]);
+        return $out;
     }
 
     // —— Helpers ——
@@ -339,10 +426,13 @@ final readonly class LedgerDrop
         return is_int($n) && $n > 0 ? $n : $else;
     }
 
-    /** A take of a stack on the ground (drop-<16 hex>-t), as Ledger::catchUp sees its trade id. */
+    /**
+     * A take of a stack on the ground, as Ledger::catchUp sees its trade id: drop-<16 hex>-t for
+     * the whole of it, -t<from> for a part (takePart).
+     */
     public static function isTake(string $trade): bool
     {
-        return preg_match('/^drop-[0-9a-f]{16}-t$/', $trade) === 1;
+        return preg_match('/^drop-[0-9a-f]{16}-t(?:[1-9][0-9]{0,3})?$/', $trade) === 1;
     }
 
     /**
@@ -355,14 +445,14 @@ final readonly class LedgerDrop
      */
     public static function catchUp(Db $db, array $entries, int $user, array $p): array
     {
-        $row = $db->row('SELECT class_tsid, count, points, tag FROM ' . $db->table(self::TABLE) . ' WHERE id = ?', [substr($p['trade'], 0, -2)]);
+        $row = $db->row('SELECT class_tsid, count, points, tag FROM ' . $db->table(self::TABLE) . ' WHERE id = ?', [substr($p['trade'], 0, 21)]);
         $class = $row === null ? '' : (string) $row['class_tsid'];
         $had = self::packCount($entries, $class);
         $entries = LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']);
         if ($row === null || $row['points'] === null) {
             return $entries;
         }
-        $tag = (int) $row['count'] === 1 && isset($row['tag']) ? CopyTags::decode($row['tag']) : null;
+        $tag = (int) $row['count'] === 1 && isset($row['tag']) && str_ends_with($p['trade'], '-t') ? CopyTags::decode($row['tag']) : null;
         return self::withToolPoints($entries, $class, (int) $row['points'], $had, max(1, self::packCount($entries, $class) - $had), $tag);
     }
 
