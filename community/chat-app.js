@@ -22,6 +22,10 @@
  *   #t<id> opens a line's thread (Copy link to this line, the bell's thread replies).
  * - The bell (notifications.js): told when the socket brings something that may be a notification,
  *   asked what is being looked at (read at once), and opens a conversation or thread in place.
+ * - Deleted lines (Austin 2026-11-07): an administrator's Delete line (chat-menus.js, main[data-chat-admin])
+ *   asks groddle/v1/chat/channels/<key>/lines/<lid> (DELETE); the line, or the thread reply, goes at once
+ *   for everyone reading (the socket's chat_deleted; a page polling gets the lids in "gone"), and a thread
+ *   open on a deleted line closes.
  * - Right-click menus (chat-menus.js) through menuApi(); Mute keeps a channel's or chat's count quiet
  *   on this browser; the players you block are listed last under Buddies, so Unblock stays in reach.
  *
@@ -66,6 +70,7 @@ const WORDS = {
   blocked: 'Blocked. Right-click to unblock.',
   reactLive: 'Reactions need the live connection. Try again in a moment.',
   threadOld: 'That thread is not open to you.',
+  lineGone: 'That line was deleted.',
   replies: (n) => (n === 1 ? '1 reply' : `${n} replies`),
   earlier: 'Earlier messages',
   noEarlier: 'No earlier messages',
@@ -428,7 +433,45 @@ function menuApi() {
     },
     isMuted: (key) => muted.has(key),
     setMuted,
+    admin: main.dataset.chatAdmin === '1',
+    deleteLine: async (conv, id, parent = 0) => {
+      const key = /^chan:(global|help|trade)$/.exec(String(conv))?.[1];
+      if (!key) return { ok: false, message: '' };
+      const r = await call(`chat/channels/${key}/lines/${Number(id)}`, { method: 'DELETE' });
+      if (!r.ok) return { ok: false, message: r.data?.message || '' };
+      // The socket says so too (chat_deleted); here at once, for this tab.
+      dropLine(conv, Number(id), Number(r.data?.parent) || Number(parent) || 0);
+      return { ok: true };
+    },
   };
+}
+
+/**
+ * A line an administrator deleted: out of its conversation, or (a reply) out of its thread with the
+ * parent's count down (sum: the thread as the server counts it now, null for none, undefined to count
+ * one fewer). A thread open on a deleted line closes.
+ */
+function dropLine(key, lid, parent = 0, sum = undefined) {
+  const c = convs.get(key);
+  if (!c || !(lid > 0)) return;
+  if (parent > 0) {
+    if (thread && thread.key === key && thread.parent === parent && thread.lines.some((l) => l.id === lid)) {
+      thread.lines = thread.lines.filter((l) => l.id !== lid);
+      drawThread(c);
+    }
+    const p = c.lines.get(parent);
+    if (p) {
+      p.th = sum !== undefined ? sum : p.th && p.th.n > 1 ? { ...p.th, n: p.th.n - 1 } : null;
+      if (open === key) redraw(c);
+    }
+    return;
+  }
+  const had = c.lines.delete(lid);
+  if (had && open === key) redraw(c);
+  if (thread && thread.key === key && thread.parent === lid) {
+    closeThread({ note: true });
+    flash(WORDS.lineGone, false);
+  }
 }
 
 async function earlier(c) {
@@ -950,6 +993,8 @@ async function poll() {
   if (c.kind === 'chan') {
     const r = await call(`chat/channels/${c.id}?after=${c.newest}&since=${c.since}`);
     if (!r.ok || live.on) return;
+    // Deleted first: a reply's parent comes back in changed with its count as it is now.
+    for (const g of r.data.gone || []) dropLine(c.key, Number(g.lid), Number(g.parent) || 0);
     keep(c, [...(r.data.changed || []), ...(r.data.lines || [])]);
     c.since = Number(r.data.now) || c.since;
     redraw(c);
@@ -1054,6 +1099,11 @@ function onMessage(m) {
       if (parent?.from === ME && by !== ME && !blocked(by) && !(thread && thread.key === c.key && thread.parent === Number(m.parent))) {
         notif?.hint({ key: `th:${m.channel}:${Number(m.parent)}`, kind: 'thread', at: Number(m.line?.at) || Date.now(), from: { id: by, name: String(m.line?.name || '') }, text: `${m.line?.name || 'Someone'} replied to your line in ${c.label}`, snippet: parent.text, url: `/chat/?c=${m.channel}#t${Number(m.parent)}`, open: { conv: c.key, thread: Number(m.parent) } });
       }
+      return;
+    }
+    case 'chat_deleted': {
+      const sum = m.n === undefined ? undefined : Number(m.n) > 0 ? { n: Number(m.n), last: m.last } : null;
+      dropLine(`chan:${m.channel}`, Number(m.lid), Number(m.parent) || 0, sum);
       return;
     }
     case 'reacted':

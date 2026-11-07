@@ -46,7 +46,9 @@ use Minn\RestError;
  *   Rook: {"street":{tsid,label},"phase","angry","health","maxHealth","stun","maxStun","wingBeats","clock",
  *          "orbs","primed","scheduled","players":[{id,name}]}
  *   Chat: {"at","kind":"local"|"channel"|"party","where":{"id","label"},"player":{id,name},"text",
- *          "delivered":bool,"why":""|"slow_down"|"silenced","skipped":n,"to":[{id,name}]}
+ *          "delivered":bool,"why":""|"slow_down"|"silenced","skipped":n,"to":[{id,name}],
+ *          "deleted":null|{"at","by":{id,name}}}   deleted: an administrator deleted the line for everyone
+ *          (the website's Delete line); the log keeps it as it was said
  *
  * The chat log (Austin 2026-10-31, for spam and abuse moderation) lives on the
  * realtime server (groddle-afternoon-server chatlog.go: a JSON file a UTC day,
@@ -247,6 +249,7 @@ final readonly class AdminConsole
         $groups = [];
         foreach ($raw as $l) {
             $ids[] = (int) ($l['id'] ?? 0);
+            $ids[] = (int) ($l['deleted']['by'] ?? 0);
             foreach (is_array($l['to'] ?? null) ? $l['to'] : [] as $to) {
                 $ids[] = (int) $to;
             }
@@ -281,6 +284,7 @@ final readonly class AdminConsole
                 'why' => (string) ($l['why'] ?? ''),
                 'skipped' => max(0, (int) ($l['skipped'] ?? 0)),
                 'to' => array_map(fn (mixed $to): array => ['id' => (int) $to, 'name' => $this->nameOr($names, (int) $to)], is_array($l['to'] ?? null) ? $l['to'] : []),
+                'deleted' => $this->chatDeleted($l['deleted'] ?? null, $names),
             ];
         }
         return Response::json([
@@ -290,6 +294,22 @@ final readonly class AdminConsole
             'dropped' => max(0, (int) ($answer['dropped'] ?? 0)),
             'days' => max(0, (int) ($answer['days'] ?? 0)),
         ]);
+    }
+
+    /**
+     * A chat log line's deletion as the console shows it (groddle-afternoon-server chatdelete.go: an
+     * administrator deleted it for everyone): when, and who as the game names them now. Null when not deleted.
+     *
+     * @param array<int, string> $names
+     * @return array{at: string, by: array{id: int, name: string}}|null
+     */
+    private function chatDeleted(mixed $d, array $names): ?array
+    {
+        if (!is_array($d)) {
+            return null;
+        }
+        $by = (int) ($d['by'] ?? 0);
+        return ['at' => (string) ($d['at'] ?? ''), 'by' => ['id' => $by, 'name' => (string) ($names[$by] ?? ($d['by_name'] ?? "#{$by}"))]];
     }
 
     /**

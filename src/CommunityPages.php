@@ -61,7 +61,8 @@ use Minn\RestError;
  * community/notifications.js). On a phone its links fold behind a menu
  * button. ?notifdemo=1 fills the panel with samples on a .localhost site only
  * (notifDemo). Right-click menus on players, lines, posts and the rail are
- * community/chat-menus.js (the game's context menu).
+ * community/chat-menus.js (the game's context menu); an administrator's line
+ * menu also has Delete line (main data-chat-admin, ChatHistory::deleteLine).
  *
  * The frame (Austin 2026-11-04: "minimal and integrated with the chat UI ...
  * remove the footer for this chat UI"): the app is the whole window. The page
@@ -79,7 +80,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-8';
+    public const ASSET_KEY = 'community-9';
 
     /** The words the pages share. */
     public const COPY = [
@@ -657,7 +658,9 @@ final readonly class CommunityPages
     private static function data(array $viewer, array $extra): string
     {
         $out = 'data-community="" data-nonce="' . Html::attr($viewer['nonce']) . '" data-signed="' . (($viewer['id'] ?? 0) > 0 ? '1' : '0') . '"'
-            . ' data-can-post="' . (($viewer['player'] ?? false) || ($viewer['admin'] ?? false) ? '1' : '0') . '"';
+            . ' data-can-post="' . (($viewer['player'] ?? false) || ($viewer['admin'] ?? false) ? '1' : '0') . '"'
+            // An administrator's line menu has Delete line (chat-menus.js); ChatHistory::deleteLine checks it again.
+            . (($viewer['admin'] ?? false) ? ' data-chat-admin="1"' : '');
         if (($viewer['id'] ?? 0) > 0) {
             // The reaction picker's set (the chat's, data/reactions.json).
             $set = [];

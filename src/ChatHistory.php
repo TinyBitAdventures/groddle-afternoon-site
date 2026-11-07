@@ -31,6 +31,8 @@ use Minn\RestError;
  *   GET  chat/channels/{key}/threads/{lid}                  {"parent":Line|null,"lines":[Line…] oldest first,"now"}  a line's thread
  *   POST chat/channels/{key}/threads/{lid} {"text"}         a reply from the web (web_say with "parent"): 201 {"line":Line}
  *   GET  chat/ims/{with}/threads/{line}                     {"lines":[…] oldest first,"blocked"}  an IM line's thread, the two players only
+ *   DELETE chat/channels/{key}/lines/{lid}                  administrators only: the line (or thread reply) deleted for everyone,
+ *                                            {"status":"deleted","lid","parent","live":bool} | 404 groddle_chat_no_line
  *
  *   key: global, help (Live Help: the newbie room under level 11, as the
  *   game), trade (with the Trade Channelling upgrade), group-<id> (a group's
@@ -57,6 +59,22 @@ use Minn\RestError;
  * conversation with a player either of you blocks answers nothing. A removed
  * account's lines are left out at once (no user row), and its rows go with
  * the account, as every groddle_* row keyed to it does (author_id, from_id).
+ *
+ * Deleting a line (Austin 2026-11-07: "as an admin I should be able to delete
+ * mistakes like this"): an administrator (manage_options, as the console;
+ * the menu's Delete line on /chat/ is drawn for them only, and this route
+ * checks it) deletes a line of Global Chat, Live Help or the Trade Channel,
+ * or a reply in a line's thread, for everyone. The row stays, marked
+ * (deleted_ms, deleted_by), and every read here leaves it out: the lists,
+ * the threads (a deleted line takes its replies out of sight with it), the
+ * reply counts and the notifications. The realtime server's chat_delete
+ * (groddle-afternoon-server chatdelete.go) takes it out of its history and
+ * tells the game and the website's readers at once (chat_deleted); its chat
+ * log keeps the line with who deleted it and when, for moderation, and the
+ * console's log has one groddle_admin_actions line (kind chat_delete). A page
+ * polling with since= gets the deleted lids in "gone". A line said a moment
+ * ago may not be kept here yet: the server holds it and marks the row when its
+ * line arrives (ingest "delete").
  */
 final readonly class ChatHistory
 {
@@ -73,6 +91,9 @@ final readonly class ChatHistory
     public const CHANNELS = ['global' => 'Global Chat', 'help' => 'Live Help', 'trade' => 'Trade Channel'];
 
     private const ROOM = '/^(?:global|help|newbie|trade|group:[1-9]\d{0,18})$/';
+
+    /** Who may delete a channel line: the administrators, as the console (AdminConsole). */
+    private const ADMIN = 'manage_options';
 
     public function __construct(private Seams $minn)
     {
@@ -125,6 +146,13 @@ final readonly class ChatHistory
                     $db->execute('UPDATE ' . $db->table(self::LINES) . ' SET changed_ms = ? WHERE lid = ? AND room = ?', [$ms, $parent, $room]);
                 }
                 return $n;
+            case 'delete':
+                // An administrator deleted it (chatdelete.go; deleteLine marks it first when it can).
+                $lid = $int($e['lid'] ?? null);
+                if ($lid === 0) {
+                    return 0;
+                }
+                return self::markDeleted($db, $lid, $int($e['by'] ?? null), $int($e['at'] ?? null) ?: $ms);
             case 'react':
                 $lid = $int($e['lid'] ?? null);
                 $r = $react($e['r'] ?? null);
@@ -149,6 +177,23 @@ final readonly class ChatHistory
                 return $db->execute('UPDATE ' . $db->table(self::IMS) . ' SET reactions = ? WHERE a_id = ? AND b_id = ? AND line_id = ? AND at_ms = ?', [$r, $a, $b, $e['line'], $int($e['at'] ?? null)]);
         }
         return 0;
+    }
+
+    /** Marks a kept line deleted (once: the first deletion's time and administrator stay); 1 when it did. */
+    public static function markDeleted(\Minn\Db $db, int $lid, int $by, int $atMs): int
+    {
+        $t = $db->table(self::LINES);
+        $row = $db->row("SELECT room, parent_lid FROM {$t} WHERE lid = ? AND deleted_ms = 0", [$lid]);
+        if ($row === null) {
+            return 0;
+        }
+        $ms = Community::ms();
+        $n = $db->execute("UPDATE {$t} SET deleted_ms = ?, deleted_by = ?, changed_ms = ? WHERE lid = ? AND deleted_ms = 0", [max(1, $atMs), $by, $ms, $lid]);
+        if ($n > 0 && (int) $row['parent_lid'] > 0) {
+            // The parent's count moved: a reader polling with since= gets it again.
+            $db->execute("UPDATE {$t} SET changed_ms = ? WHERE lid = ? AND room = ?", [$ms, (int) $row['parent_lid'], (string) $row['room']]);
+        }
+        return $n;
     }
 
     /** A reaction set as kept: [{e, by:[ids]}], known reactions only, each player once; null when it is not a set. */
@@ -199,7 +244,7 @@ final readonly class ChatHistory
         $users = $db->table('users');
         $blocks = $this->blocks($me);
         $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
-        $from = "FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = 0{$notBlocked}";
+        $from = "FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = 0 AND l.deleted_ms = 0{$notBlocked}";
         $after = $request->query('after');
         // ?html=1: each line also drawn as the website's /chat/ shows it (CommunityPages::channelLineHtml).
         $hosts = CommunityText::homeHosts($this->minn->request->host);
@@ -212,9 +257,12 @@ final readonly class ChatHistory
             $changed = $since > 0 ? $db->rows("SELECT l.* {$from} AND l.changed_ms > ? AND l.lid <= ? ORDER BY l.lid DESC LIMIT 200", [$room, $since, max(0, (int) $after)]) : [];
             $names = $this->names([...$rows, ...$changed]);
             $th = $this->threadSums($room, array_map(static fn (array $r): int => (int) $r['lid'], [...$rows, ...$changed]), $blocks);
+            // Lines (and thread replies) an administrator deleted since the page last asked: it takes them away.
+            $gone = $since > 0 ? array_map(static fn (array $r): array => ['lid' => (int) $r['lid'], 'parent' => (int) $r['parent_lid']], $db->rows("SELECT lid, parent_lid FROM {$t} WHERE room = ? AND changed_ms > ? AND deleted_ms > 0 ORDER BY lid DESC LIMIT 200", [$room, $since])) : [];
             return self::private(Response::json([
                 'lines' => array_map(static fn (array $r): array => $draw(self::lineOut($r, $names, $blocks, $th)), $rows),
                 'changed' => array_map(static fn (array $r): array => $draw(self::lineOut($r, $names, $blocks, $th)), $changed),
+                'gone' => $gone,
                 'now' => Community::ms(),
             ]));
         }
@@ -235,7 +283,7 @@ final readonly class ChatHistory
         $db = $this->minn->db;
         $blocks = $this->blocks($me);
         $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
-        $from = 'FROM ' . $db->table(self::LINES) . ' l JOIN ' . $db->table('users') . " u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = 0{$notBlocked}";
+        $from = 'FROM ' . $db->table(self::LINES) . ' l JOIN ' . $db->table('users') . " u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = 0 AND l.deleted_ms = 0{$notBlocked}";
         $rows = $before !== null
             ? $db->rows("SELECT l.* {$from} AND l.lid < ? ORDER BY l.lid DESC LIMIT " . ($limit + 1), [$room, $before])
             : $db->rows("SELECT l.* {$from} ORDER BY l.lid DESC LIMIT " . ($limit + 1), [$room]);
@@ -448,8 +496,8 @@ final readonly class ChatHistory
         $users = $db->table('users');
         $blocks = $this->blocks($me);
         $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
-        $parent = $db->row("SELECT l.* FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.lid = ? AND l.parent_lid = 0{$notBlocked}", [$room, (int) $lid]);
-        $rows = $parent === null ? [] : $db->rows("SELECT l.* FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = ?{$notBlocked} ORDER BY l.lid ASC LIMIT 500", [$room, (int) $lid]);
+        $parent = $db->row("SELECT l.* FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.lid = ? AND l.parent_lid = 0 AND l.deleted_ms = 0{$notBlocked}", [$room, (int) $lid]);
+        $rows = $parent === null ? [] : $db->rows("SELECT l.* FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid = ? AND l.deleted_ms = 0{$notBlocked} ORDER BY l.lid ASC LIMIT 500", [$room, (int) $lid]);
         $names = $this->names($parent === null ? $rows : [$parent, ...$rows]);
         $hosts = CommunityText::homeHosts($this->minn->request->host);
         $draw = $request->query('html') === '1'
@@ -472,11 +520,55 @@ final readonly class ChatHistory
         $room = $this->readable($me, $key) ?? throw new RestError('groddle_chat_closed', 'That chat is not open to you.', 403);
         // A line said a moment ago may not be kept here yet (the server sends its batches every few
         // seconds): the server knows its own recent lines, and refuses one it has never had.
-        $row = $db->row('SELECT parent_lid FROM ' . $db->table(self::LINES) . ' WHERE room = ? AND lid = ?', [$room, (int) $lid]);
+        $row = $db->row('SELECT parent_lid, deleted_ms FROM ' . $db->table(self::LINES) . ' WHERE room = ? AND lid = ?', [$room, (int) $lid]);
         if ($row !== null && (int) $row['parent_lid'] !== 0) {
             throw new RestError('groddle_chat_no_line', 'A reply takes no thread of its own.', 404);
         }
+        if ($row !== null && (int) $row['deleted_ms'] > 0) {
+            throw new RestError('groddle_chat_no_line', 'That line is not there to reply to.', 404);
+        }
         return $this->sayFrom($request, $me, $key, (int) $lid, $row !== null);
+    }
+
+    /**
+     * An administrator deletes a channel line, or a reply in a line's thread, for everyone: the kept row
+     * is marked (it stays, out of every read here), and the realtime server takes it out of what it
+     * sends and tells everyone reading, in the game and here (chatdelete.go chat_delete). A line said a
+     * moment ago that is not kept yet is the server's to find; a line neither has answers 404.
+     */
+    #[Route(Method::Delete, '/groddle/v1/chat/channels/{key:global|help|trade}/lines/{lid:[1-9][0-9]{0,18}}', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function deleteLine(Request $request, string $key, string $lid): Response
+    {
+        $admin = $this->minn->user() ?? throw new RestError('rest_not_logged_in', 'You are not currently logged in.', 401);
+        $db = $this->minn->db;
+        $id = (int) $lid;
+        // Live Help is the newbie room under level 11 and the regular one above (Groups::channels): either.
+        $rooms = $key === 'help' ? ['help', 'newbie'] : [$key];
+        $row = $db->row('SELECT room, author_id, text, at_ms, parent_lid, deleted_ms FROM ' . $db->table(self::LINES) . ' WHERE lid = ? AND room IN (?)', [$id, $rooms]);
+        if ($row !== null && (int) $row['deleted_ms'] > 0) {
+            return self::private(Response::json(['status' => 'deleted', 'lid' => $id, 'parent' => (int) $row['parent_lid'], 'live' => false]));
+        }
+        if ($row !== null) {
+            self::markDeleted($db, $id, $admin->id, Community::ms());
+        }
+        $call = ['lid' => $id, 'rooms' => implode(',', $rooms), 'by' => $admin->id, 'by_name' => (new Characters($db))->namesOf([$admin->id])[$admin->id] ?? ''];
+        if ($row !== null) {
+            $call += ['room' => (string) $row['room'], 'parent' => (int) $row['parent_lid'], 'author' => (int) $row['author_id'], 'at' => (int) $row['at_ms'], 'text' => (string) $row['text']];
+        }
+        $answer = (new RealtimeCall($this->minn))->post('chat_delete', $call);
+        $live = ($answer['status'] ?? null) === 'deleted';
+        if ($row === null && !$live) {
+            throw ($answer === null
+                ? new RestError('groddle_chat_down', 'The game\'s chat is not answering. Try again in a moment.', 503)
+                : new RestError('groddle_chat_no_line', 'That line is not there any more.', 404));
+        }
+        $author = $row !== null ? (int) $row['author_id'] : max(0, (int) ($answer['author'] ?? 0));
+        $parent = $row !== null ? (int) $row['parent_lid'] : max(0, (int) ($answer['parent'] ?? 0));
+        $text = $row !== null ? (string) $row['text'] : (string) ($answer['text'] ?? '');
+        AdminConsole::recordAction($db, $admin->id, $author, 'chat_delete', [
+            'where' => self::CHANNELS[$key], 'lid' => $id, 'reply' => $parent > 0, 'text' => mb_substr($text, 0, 200),
+        ], $live ? 'live' : 'down');
+        return self::private(Response::json(['status' => 'deleted', 'lid' => $id, 'parent' => $parent, 'live' => $live]));
     }
 
     // —— Shared ——
@@ -628,7 +720,7 @@ final readonly class ChatHistory
         $users = $db->table('users');
         $notBlocked = $blocks === [] ? '' : ' AND l.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
         $in = implode(',', array_map('intval', $lids));
-        $groups = $db->rows("SELECT l.parent_lid, COUNT(*) AS n, MAX(l.lid) AS last_lid FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid IN ({$in}){$notBlocked} GROUP BY l.parent_lid", [$room]);
+        $groups = $db->rows("SELECT l.parent_lid, COUNT(*) AS n, MAX(l.lid) AS last_lid FROM {$t} l JOIN {$users} u ON u.ID = l.author_id WHERE l.room = ? AND l.parent_lid IN ({$in}) AND l.deleted_ms = 0{$notBlocked} GROUP BY l.parent_lid", [$room]);
         if ($groups === []) {
             return [];
         }
@@ -691,7 +783,7 @@ final readonly class ChatHistory
         $users = $db->table('users');
         $blocks = $this->blocks($me);
         $notBlocked = $blocks === [] ? '' : ' AND r.author_id NOT IN (' . implode(',', array_keys($blocks)) . ')';
-        $rows = $db->rows("SELECT p.lid, p.room, p.text, COUNT(*) AS n, COUNT(DISTINCT r.author_id) AS people, MAX(r.lid) AS last_lid, MAX(r.at_ms) AS last_at FROM {$t} p JOIN {$t} r ON r.room = p.room AND r.parent_lid = p.lid JOIN {$users} u ON u.ID = r.author_id WHERE p.author_id = ? AND p.parent_lid = 0 AND p.room IN (?) AND r.author_id <> ? AND r.at_ms >= ?{$notBlocked} GROUP BY p.lid, p.room ORDER BY last_at DESC LIMIT " . max(1, $limit), [$me, array_keys($rooms), $me, $sinceMs]);
+        $rows = $db->rows("SELECT p.lid, p.room, p.text, COUNT(*) AS n, COUNT(DISTINCT r.author_id) AS people, MAX(r.lid) AS last_lid, MAX(r.at_ms) AS last_at FROM {$t} p JOIN {$t} r ON r.room = p.room AND r.parent_lid = p.lid JOIN {$users} u ON u.ID = r.author_id WHERE p.author_id = ? AND p.parent_lid = 0 AND p.deleted_ms = 0 AND r.deleted_ms = 0 AND p.room IN (?) AND r.author_id <> ? AND r.at_ms >= ?{$notBlocked} GROUP BY p.lid, p.room ORDER BY last_at DESC LIMIT " . max(1, $limit), [$me, array_keys($rooms), $me, $sinceMs]);
         if ($rows === []) {
             return [];
         }
@@ -703,7 +795,7 @@ final readonly class ChatHistory
         $out = [];
         foreach ($rows as $r) {
             $who = $lastBy[(int) $r['last_lid']] ?? 0;
-            $mine = (int) ($db->value("SELECT MAX(at_ms) FROM {$t} WHERE room = ? AND parent_lid = ? AND author_id = ?", [$r['room'], (int) $r['lid'], $me]) ?? 0);
+            $mine = (int) ($db->value("SELECT MAX(at_ms) FROM {$t} WHERE room = ? AND parent_lid = ? AND author_id = ? AND deleted_ms = 0", [$r['room'], (int) $r['lid'], $me]) ?? 0);
             [$key, $label] = $rooms[(string) $r['room']];
             $out[] = ['key' => $key, 'label' => $label, 'lid' => (int) $r['lid'], 'text' => (string) $r['text'], 'n' => (int) $r['n'], 'people' => (int) $r['people'], 'last' => ['id' => $who, 'name' => (string) ($names[$who] ?? '')], 'at' => (int) $r['last_at'], 'mine' => $mine];
         }

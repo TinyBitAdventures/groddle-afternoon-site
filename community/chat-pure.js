@@ -21,14 +21,31 @@ export function playerRows({ me = 0, id = 0, profile = null, buddy = false, bloc
   ];
 }
 
-export function lineRows({ thread = true, react = true, mine = false, copy = true } = {}) {
+/** del: the reader is an administrator and the line is a channel's (src/ChatHistory.php deleteLine checks it again). */
+export function lineRows({ thread = true, react = true, mine = false, copy = true, del = false } = {}) {
   return [
     ...(thread ? [{ id: 'thread', label: 'Reply in thread', tip: 'Answer under this line.' }] : []),
     ...(react ? [{ id: 'react', label: 'React', tip: 'Add a reaction.' }] : []),
     ...(copy ? [{ id: 'copy', label: 'Copy text', tip: 'The words of this line.' }] : []),
     { id: 'link', label: 'Copy link to this line', tip: 'A link that opens the chat at this line.' },
     ...(mine ? [] : [{ id: 'report', label: 'Report', tip: 'Tell the team about this line.' }]),
+    ...(del ? [{ id: 'delete', label: 'Delete line', tip: 'Take it away for everyone. The team\'s chat log keeps it.', focusBack: false }] : []),
   ];
+}
+
+/** The confirm step after Delete line (the page has no window.confirm): Cancel is the one focused. */
+export const DELETE_CONFIRM = Object.freeze({ title: 'Delete this line for everyone?', focus: 1 });
+export function deleteConfirmRows() {
+  return [
+    { id: 'confirm', label: 'Delete for everyone', tip: 'It disappears from the game and this page, and does not come back.' },
+    { id: 'cancel', label: 'Cancel', tip: 'Keep the line.' },
+  ];
+}
+
+/** The channel key ('global', 'help', 'trade') of a conversation an administrator may delete lines in, or ''. */
+export function deletableKey(conv) {
+  const m = /^chan:(global|help|trade)$/.exec(String(conv || ''));
+  return m ? m[1] : '';
 }
 
 /** A board post's rows: its own actions (shown under it) and the copies. */

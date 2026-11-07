@@ -7,7 +7,9 @@
  *   the thread panel): View profile, Send IM, Add buddy / Remove buddy, Block / Unblock, Report;
  *   your own name has none (as the game's player menu);
  * - a line: Reply in thread, React, Copy text, Copy link to this line (/chat/?c=global#l123 opens
- *   the chat at it), Report (a ticket for the team, as Report on a post);
+ *   the chat at it), Report (a ticket for the team, as Report on a post); for an administrator, on a
+ *   channel's line or thread reply, Delete line, then a second menu to confirm it (Delete for
+ *   everyone, Cancel: the page has no window.confirm), through api.deleteLine;
  * - a board post: its own actions (Quote, React, Edit, Delete, Report) and Copy text, Copy link;
  * - a channel, a chat or a board in the rail: Open, Mark as read, and for channels and chats Mute
  *   (no count for new lines, kept on this browser: chat-pure.js MUTED_KEY).
@@ -19,7 +21,7 @@
  * QA: main[data-cx-menu] names what is open ("player:7", "line:chan:global#12", "rail:chan:help").
  */
 import { bindContextTrigger, createContextMenu } from '/js/ui/context-menu.js';
-const { lineLink, lineRows, playerRows, postRows, railRows } = await import(`./chat-pure.js${new URL(import.meta.url).search}`);
+const { DELETE_CONFIRM, deletableKey, deleteConfirmRows, lineLink, lineRows, playerRows, postRows, railRows } = await import(`./chat-pure.js${new URL(import.meta.url).search}`);
 
 const WORDS = {
   copied: 'Copied.',
@@ -35,6 +37,7 @@ const WORDS = {
   send: 'Send report',
   cancel: 'Cancel',
   reported: 'Thanks. The team will take a look.',
+  deleted: 'Line deleted for everyone.',
   failed: 'That didn\'t work. Try again in a moment.',
   looking: 'Looking for their page…',
 };
@@ -74,7 +77,8 @@ export function surfaceOf(target) {
 /**
  * api (chat-app.js): main, call, me, flash(text, bad), person(id), lookUp(id), isBuddy(id),
  * isBlocked(id), canIm, openIm(id), lineOf(li), openThread(conv, id), react(li), reloadBuddies(),
- * railUnread(key), markRailRead(key), isMuted(key), setMuted(key, on), notif.
+ * railUnread(key), markRailRead(key), isMuted(key), setMuted(key, on), notif, admin (the reader is an
+ * administrator), deleteLine(conv, id, parent) -> { ok, message }.
  */
 export function startMenus(api) {
   const { main, call } = api;
@@ -151,9 +155,10 @@ export function startMenus(api) {
 
   function openLine(li, at, keys) {
     const f = lineFacts(li);
+    const del = Boolean(api.admin) && deletableKey(f.conv) !== '';
     menu.open({
       title: f.from === api.me ? 'Your line' : `${f.name}'s line`,
-      rows: lineRows({ thread: !f.inThread && Boolean(li.querySelector('[data-cx-thread-open]')), react: Boolean(li.querySelector('[data-react-open]')), mine: f.from === api.me }),
+      rows: lineRows({ thread: !f.inThread && Boolean(li.querySelector('[data-cx-thread-open]')), react: Boolean(li.querySelector('[data-react-open]')), mine: f.from === api.me, del }),
       at,
       anchor: li,
       keys,
@@ -165,6 +170,27 @@ export function startMenus(api) {
         else if (row === 'copy') copy(f.text, WORDS.copied);
         else if (row === 'link') copy(f.link, WORDS.linkCopied);
         else if (row === 'report') report({ title: WORDS.reportLine, about: `${f.name} (player ${f.from})`, line: f });
+        else if (row === 'delete' && del) confirmDelete(li, f, at, keys);
+      },
+    });
+  }
+
+  /** Delete line's confirm step: a second menu in the same place, Cancel focused. */
+  function confirmDelete(li, f, at, keys) {
+    const parent = api.lineOf(li).parent || 0;
+    menu.open({
+      title: DELETE_CONFIRM.title,
+      rows: deleteConfirmRows(),
+      at,
+      anchor: li,
+      keys,
+      opener: li.querySelector('[data-react-open]') || li,
+      owner: `delete:${f.conv}#${f.id}`,
+      focusIndex: DELETE_CONFIRM.focus,
+      onPick: async (row) => {
+        if (row !== 'confirm') return;
+        const r = await api.deleteLine(f.conv, f.id, parent);
+        api.flash(r.ok ? WORDS.deleted : r.message || WORDS.failed, !r.ok);
       },
     });
   }

@@ -35,7 +35,8 @@
  *   days (the viewer's own days: chatlogParams), or refused lines only; Older pages back. Times
  *   show in the viewer's time zone. A player's menu has Chat history, which opens the tab
  *   filtered to them; a name in the log opens that player's menu. #chat opens it, #chat=<id>
- *   filtered to one player.
+ *   filtered to one player. A channel line an administrator deleted for everyone (Delete line on
+ *   /chat/) stays as it was said, marked Deleted, with who and when (chatDeleted).
  * - Credits (src/AdminReportCredits.php): the points each report earned for the Contribute page's
  *   testers board, the board as it stands and the closed and answered reports not scored yet (a click
  *   opens the report). A report's thread has a Credit box: its score (kind, points, reason, refs, who
@@ -376,6 +377,7 @@ export function logWords(line) {
       const title = d.title ? `“${d.title}”` : 'a note';
       return `removed ${title}${d.by ? ` by ${d.by}` : ''} from the board in ${street}${line.delivery === 'down' ? ' (realtime server down: players there see it until it is taken or the server restarts)' : ''}`;
     }
+    case 'chat_delete': return `deleted ${who}'s ${d.reply ? 'thread reply' : 'line'} in ${d.where || 'a channel'}: “${d.text || ''}”${line.delivery === 'down' ? ' (realtime server not answering: the game may show it until the server restarts)' : ''}`;
     case 'comm_remove': return `removed ${who}'s ${d.first ? 'thread' : 'post in'} “${d.title || ''}” on the Community boards`;
     case 'comm_restore': return `restored ${who}'s ${d.first ? 'thread' : 'post in'} “${d.title || ''}” on the Community boards`;
     case 'comm_pin': return `pinned “${d.title || ''}” on the Community boards`;
@@ -432,6 +434,14 @@ export function chatWhy(line) {
 export function chatFiltered(line) {
   if (!line?.filtered) return null;
   return { text: 'Filtered', title: `Players saw: ${line.shown || ''}` };
+}
+
+/** The chip on a line an administrator deleted for everyone: its title says who and when; null when it was not. */
+export function chatDeleted(line) {
+  const d = line?.deleted;
+  if (!d) return null;
+  const when = chatWhen(d.at);
+  return { text: 'Deleted', title: `Deleted for everyone by ${d.by?.name || 'an administrator'}${when ? `, ${when}` : ''}` };
 }
 
 /** A chat line's time in the viewer's time zone: "Oct 31, 2:03:05 PM" in their own format. */
@@ -862,8 +872,10 @@ function boot() {
     if (filtered) said.append(el('span', { class: 'console-tag console-tag-filtered', ...filtered }));
     const why = chatWhy(l);
     if (why) said.append(el('span', { class: 'console-tag console-tag-bad', text: why }));
+    const deleted = chatDeleted(l);
+    if (deleted) said.append(el('span', { class: 'console-tag console-tag-deleted', ...deleted }), el('span', { class: 'console-sub', text: ` ${deleted.title}` }));
     if (l.to?.length) said.append(el('span', { class: 'console-sub', text: ` To ${l.to.map((t) => t.name).join(', ')}` }));
-    return el('tr', { 'data-delivered': l.delivered ? null : 'false' },
+    return el('tr', { 'data-delivered': l.delivered ? null : 'false', 'data-deleted': l.deleted ? '' : null },
       el('td', { class: 'console-num' }, el('time', { datetime: l.at, text: chatWhen(l.at) })),
       el('td', {}, el('span', { class: `console-kind console-kind-chat-${l.kind}`, text: CHAT_KIND[l.kind] || l.kind }), el('span', { text: ` ${l.where?.label || ''}` })),
       el('td', { class: 'console-who' }, name, el('span', { class: 'console-sub', text: ` #${l.player.id}` })),

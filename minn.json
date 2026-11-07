@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.42",
+  "version": "0.5.43",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -821,6 +821,8 @@
       "reactions text NULL",
       "changed_ms bigint(20) unsigned NOT NULL DEFAULT 0",
       "parent_lid bigint(20) unsigned NOT NULL DEFAULT 0",
+      "deleted_ms bigint(20) unsigned NOT NULL DEFAULT 0",
+      "deleted_by bigint(20) unsigned NOT NULL DEFAULT 0",
       "PRIMARY KEY  (lid)",
       "KEY room_lid (room,lid)",
       "KEY room_parent (room,parent_lid,lid)",

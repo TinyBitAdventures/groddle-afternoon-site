@@ -38,6 +38,7 @@
 .console-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: var(--track); color: var(--fg); font-size: 11px; font-weight: 700; }
 .console-tag-bad { background: #c8553d; color: #fff; }
 .console-tag-filtered { background: #e8b04b; color: #2b2112; cursor: help; }
+.console-tag-deleted { background: var(--muted); color: var(--bg); cursor: help; }
 
 .console button { cursor: pointer; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-solid); color: var(--fg); padding: 5px 12px; font-weight: 600; }
 .console button:hover { border-color: var(--accent); }
@@ -224,6 +225,7 @@
 .console-chattable td { vertical-align: top; }
 .console-chattable td:first-child { width: 1%; color: var(--muted); font-size: 12px; }
 .console-chattable tbody tr[data-delivered="false"] { background: color-mix(in srgb, #c8553d 9%, transparent); }
+.console-chattable tbody tr[data-deleted] .console-said > span:first-child { text-decoration: line-through; text-decoration-color: var(--muted); }
 .console-said span:first-child { white-space: pre-wrap; }
 .console-said .console-tag { margin-left: 8px; }
 .console .console-link { padding: 0; border: 0; background: none; color: var(--fg); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
