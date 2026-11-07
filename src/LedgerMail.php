@@ -102,6 +102,8 @@ final readonly class LedgerMail
     public const LIST_MAX = 100;
     /** The realtime tell's life. */
     public const TELL_TTL = 120;
+    /** A letter from nobody (from_id 0: the game itself, GardenPayout's crops) is signed so. */
+    public const SYSTEM_NAME = 'Groddle Afternoon';
 
     public const TEXT_EMPTY = 'You need to put *something* in this message!'; // MailComposeUI.as:528
     public const TEXT_NOBODY = "There's nobody by that name.";
@@ -486,7 +488,7 @@ final readonly class LedgerMail
             }
         }
         $names = (new Characters($this->minn->db))->namesOf($ids);
-        $who = static fn (int $id): array => ['id' => $id, 'name' => $names[$id] ?? 'Someone'];
+        $who = static fn (int $id): array => ['id' => $id, 'name' => $id === 0 ? self::SYSTEM_NAME : ($names[$id] ?? 'Someone')];
         $out = [];
         foreach ($rows as $r) {
             $returned = (string) $r['status'] === 'returned';
