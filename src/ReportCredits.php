@@ -20,7 +20,7 @@ use Minn\RestError;
  *
  * The rubric: a fix that kept saves, accounts or security safe 5, a bug
  * fixed 3, an idea that shipped 2, a clue or a partial fix 1, nothing 0
- * (working as Glitch intended, a duplicate, withdrawn). A report with several
+ * (working as Glitch intended, the same player's repeat, withdrawn). A report with several
  * changes in it scores its best one plus 1 for each other, at most CAP.
  *
  * The Contribute page's board (ContributeCredits) ranks players by their
