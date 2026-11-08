@@ -487,7 +487,7 @@ final readonly class PlayerPages
         }
         $out .= '      <ul class="profile-badges">';
         foreach ($shown as [$badge, $label, $desc]) {
-            $out .= "\n        <li title=\"" . Html::attr($desc) . '"><img src="/assets/badges/' . Html::attr($badge) . '.png" width="72" height="72" alt="" loading="lazy" decoding="async" /><span>' . Html::esc($label) . '</span>'
+            $out .= "\n        <li title=\"" . Html::attr($desc) . '"><img src="/assets/badges/' . Html::attr($badge) . '.webp" width="72" height="72" alt="" loading="lazy" decoding="async" /><span>' . Html::esc($label) . '</span>'
                 . ($limit === null && $desc !== '' ? '<small class="profile-badge-desc">' . Html::esc($desc) . '</small>' : '') . '</li>';
         }
         return $out . "\n      </ul>\n    </section>\n";

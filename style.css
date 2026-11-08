@@ -376,11 +376,11 @@ a.cb-bar-label { color: var(--fg); }
 .cb-knot::before { content: ""; position: absolute; left: calc(var(--cb-seam-x) - var(--cb-knot-size) / 2); top: 50%; width: var(--cb-knot-size); height: var(--cb-knot-size); transform: translateY(-50%); border-radius: 50%; border: 2px solid var(--cb-thread, var(--accent)); background: var(--cb-knot-icon) center / 74% auto no-repeat, var(--surface); box-shadow: 0 0 0 3px var(--bg); }
 .cb-knot p { margin: 0; max-width: 44em; font-size: 15px; color: var(--muted); }
 .cb-knot strong { display: inline; margin-right: 0.35em; font-family: var(--font-display); font-size: 18px; color: var(--fg); }
-.cb-knot-fiber { --cb-knot-icon: url("/assets/sprites/icons/fiber@3x.png"); }
-.cb-knot-spindle { --cb-knot-icon: url("/assets/sprites/icons/spindle@3x.png"); }
-.cb-knot-thread { --cb-knot-icon: url("/assets/sprites/icons/thread@3x.png"); }
-.cb-knot-loomer { --cb-knot-icon: url("/assets/sprites/icons/loomer@3x.png"); }
-.cb-knot-general_fabric { --cb-knot-icon: url("/assets/sprites/icons/general_fabric@3x.png"); }
+.cb-knot-fiber { --cb-knot-icon: url("/assets/sprites/icons/fiber@3x.webp"); }
+.cb-knot-spindle { --cb-knot-icon: url("/assets/sprites/icons/spindle@3x.webp"); }
+.cb-knot-thread { --cb-knot-icon: url("/assets/sprites/icons/thread@3x.webp"); }
+.cb-knot-loomer { --cb-knot-icon: url("/assets/sprites/icons/loomer@3x.webp"); }
+.cb-knot-general_fabric { --cb-knot-icon: url("/assets/sprites/icons/general_fabric@3x.webp"); }
 /* Each repo's section is a fabric patch sewn on: a weave in its own tone with a running stitch inside the edge. Muted text leans toward the ink on it, so it keeps 4.5:1 on the weave in both themes. */
 .cb-patch { --cb-tone: var(--moss); --muted: color-mix(in srgb, var(--fg) 15%, var(--muted)); position: relative; padding: 34px 34px 30px; border: 1px solid color-mix(in srgb, var(--cb-tone) 40%, var(--border)); border-radius: 18px; outline: 2px dashed color-mix(in srgb, var(--cb-tone) 75%, var(--surface)); outline-offset: -11px; box-shadow: 0 14px 26px -22px rgba(0, 0, 0, 0.5);
   background-color: color-mix(in srgb, var(--cb-tone) 5%, var(--surface));
@@ -426,9 +426,9 @@ a.cb-bar-label { color: var(--fg); }
   background-color: color-mix(in srgb, var(--cb-tone) 6%, var(--surface));
   background-image: repeating-linear-gradient(0deg, color-mix(in srgb, var(--cb-tone) 8%, transparent) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, color-mix(in srgb, var(--fg) 4%, transparent) 0 1px, transparent 1px 5px); }
 .cb-rbadge::before { content: ""; flex: none; width: 68px; height: 68px; box-sizing: border-box; padding: 12px; border-radius: 50%; border: 2px solid var(--cb-tone); outline: 1.5px dashed color-mix(in srgb, var(--cb-tone) 60%, var(--surface)); outline-offset: -7px; background: var(--cb-rb-icon) center / contain no-repeat content-box, var(--surface); transition: transform 0.25s ease; }
-.cb-rbadge-game { --cb-rb-icon: url("/assets/sprites/icons/npc_cubimal_piggy@3x.png"); }
-.cb-rbadge-server { --cb-tone: var(--sky); --cb-rb-icon: url("/assets/sprites/icons/teleportation_script@3x.png"); }
-.cb-rbadge-site { --cb-tone: var(--plum); --cb-rb-icon: url("/assets/sprites/icons/furniture_door@3x.png"); }
+.cb-rbadge-game { --cb-rb-icon: url("/assets/sprites/icons/npc_cubimal_piggy@3x.webp"); }
+.cb-rbadge-server { --cb-tone: var(--sky); --cb-rb-icon: url("/assets/sprites/icons/teleportation_script@3x.webp"); }
+.cb-rbadge-site { --cb-tone: var(--plum); --cb-rb-icon: url("/assets/sprites/icons/furniture_door@3x.webp"); }
 .cb-rbadge > p { margin: 0; }
 .cb-rbadge-name { display: flex; flex-direction: column; gap: 2px; }
 .cb-rbadge-name strong { font-family: var(--font-display); font-size: 19px; line-height: 1.2; color: var(--fg); }
@@ -456,10 +456,10 @@ a.cb-bar-label { color: var(--fg); }
   background-color: color-mix(in srgb, var(--pj-tone) 6%, var(--surface));
   background-image: repeating-linear-gradient(0deg, color-mix(in srgb, var(--pj-tone) 8%, transparent) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, color-mix(in srgb, var(--fg) 4%, transparent) 0 1px, transparent 1px 5px); }
 .pj-card::before { content: ""; grid-row: 1 / span 2; width: 76px; height: 76px; box-sizing: border-box; padding: 12px; border-radius: 50%; border: 2px solid var(--pj-tone); outline: 1.5px dashed color-mix(in srgb, var(--pj-tone) 60%, var(--surface)); outline-offset: -7px; background: var(--pj-icon) center / contain no-repeat content-box, var(--pj-disc); transition: transform 0.25s ease; }
-.pj-card-compare { --pj-tone: var(--sky); --pj-icon: url("/assets/sprites/icons/artifact_mirror_with_scribbles@3x.png"); }
-.pj-card-restoration { --pj-icon: url("/assets/sprites/icons/tinkertool@3x.png"); }
-.pj-card-notes { --pj-tone: var(--sun); --pj-icon: url("/assets/sprites/icons/quill@3x.png"); }
-.pj-card-code { --pj-tone: var(--plum); --pj-icon: url("/assets/sprites/icons/loomer@3x.png"); }
+.pj-card-compare { --pj-tone: var(--sky); --pj-icon: url("/assets/sprites/icons/artifact_mirror_with_scribbles@3x.webp"); }
+.pj-card-restoration { --pj-icon: url("/assets/sprites/icons/tinkertool@3x.webp"); }
+.pj-card-notes { --pj-tone: var(--sun); --pj-icon: url("/assets/sprites/icons/quill@3x.webp"); }
+.pj-card-code { --pj-tone: var(--plum); --pj-icon: url("/assets/sprites/icons/loomer@3x.webp"); }
 .page-wide .pj-card > h2.pj-card-title { margin: 6px 0 6px; font-size: 26px; line-height: 1.2; }
 .pj-card-title a { color: var(--fg); text-decoration: none; }
 .pj-card-title a::after { content: ""; position: absolute; inset: 0; border-radius: 18px; }

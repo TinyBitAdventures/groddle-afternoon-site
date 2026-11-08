@@ -146,7 +146,7 @@ final class Restoration
                 <img src="/assets/decos/groddle/vendor.webp" alt="" style="width:104px" />
               </button>
               <button class="spot" data-spot="tree" style="left:322px; bottom:96px" aria-label="Trants and Wood Trees">
-                <img src="/assets/sprites/trants/frames/trant_fruit_m10.png" alt="" style="width:214px" />
+                <img src="/assets/sprites/trants/frames/trant_fruit_m10.webp" alt="" style="width:214px" />
               </button>
               <button class="spot" data-spot="butterfly" style="left:420px; bottom:258px" aria-label="Butterflies">
                 <span class="sheet sheet-butterfly"></span>
@@ -164,7 +164,7 @@ final class Restoration
                 <span class="piggy-walk"><span class="sheet sheet-piggy"></span></span>
               </button>
               <button class="spot" data-spot="garden" style="left:770px; bottom:88px" aria-label="Gardens and herbs">
-                <span class="d-garden"><img src="/assets/sprites/garden/garden_new__x1_1_png_1354833270.png" alt="" /><img src="/assets/sprites/garden/garden_new__x1_1_png_1354833270.png" alt="" /></span>
+                <span class="d-garden"><img src="/assets/sprites/garden/garden_new__x1_1_png_1354833270.webp" alt="" /><img src="/assets/sprites/garden/garden_new__x1_1_png_1354833270.webp" alt="" /></span>
               </button>
               <button class="spot" data-spot="rock" style="left:978px; bottom:96px" aria-label="Mining and metal">
                 <span class="sheet sheet-rock"></span>
@@ -176,10 +176,10 @@ final class Restoration
                 <span class="sheet sheet-shrine"></span>
               </button>
               <button class="spot" data-spot="mailbox" style="left:1166px; bottom:96px" aria-label="Your house and yard">
-                <img src="/assets/sprites/street-furniture/mailbox-left-idle.png" alt="" style="width:62px" />
+                <img src="/assets/sprites/street-furniture/mailbox-left-idle.webp" alt="" style="width:62px" />
               </button>
               <button class="spot" data-spot="rock-magic" style="left:84px; bottom:300px" aria-label="Story and skill quests">
-                <img class="d-float" src="/assets/sprites/icons/npc_cubimal_magicrock@3x.png" alt="" style="width:64px" />
+                <img class="d-float" src="/assets/sprites/icons/npc_cubimal_magicrock@3x.webp" alt="" style="width:64px" />
               </button>
               <p class="d-hint" aria-hidden="true">Click anything</p>
             </div>

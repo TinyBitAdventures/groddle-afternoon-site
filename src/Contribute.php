@@ -45,9 +45,9 @@ final class Contribute
 
     /** The art in front of the ground line. */
     private const FRONT = [
-        ['/assets/sprites/trants/frames/trant_fruit_m10.png', 120, 94, 230, ''],
+        ['/assets/sprites/trants/frames/trant_fruit_m10.webp', 120, 94, 230, ''],
         ['/assets/decos/groddle/groddle_bush1.webp', -30, 86, 170, ''],
-        ['/assets/sprites/street-furniture/mailbox-left-idle.png', 760, 96, 62, ''],
+        ['/assets/sprites/street-furniture/mailbox-left-idle.webp', 760, 96, 62, ''],
         ['/assets/decos/groddle/groddle_bush1.webp', 830, 86, 160, 'ct-flip'],
         ['/assets/decos/groddle/groddle_grass_2.webp', 380, 70, 70, 'ct-front'],
         ['/assets/decos/groddle/groddle_grass_2.webp', 590, 70, 64, 'ct-front ct-flip'],

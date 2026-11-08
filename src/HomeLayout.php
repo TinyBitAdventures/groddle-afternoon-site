@@ -623,7 +623,7 @@ final class HomeLayout
             }
             return '<img class="hd-art"' . $source($ctx['avatar'], '') . ' alt="" loading="lazy" decoding="async" style="' . Html::attr($place) . '" />';
         }
-        $file = $layout['art'][$d['a']];
+        $file = self::shippedArt($ctx['root'], $layout['art'][$d['a']]);
         $src = '/' . $file['p'];
         $srcset = $file['x2'] === null ? '' : "{$src} 1x, /{$file['x2'][0]} {$file['x2'][1]}";
         $tint = '';
@@ -650,6 +650,31 @@ final class HomeLayout
             return $crop('', '<img' . $source($src, $srcset) . ' alt="" loading="lazy" decoding="async" style="' . Html::attr($inner) . '" />');
         }
         return '<img class="hd-art"' . $source($src, $srcset) . ' alt="" loading="lazy" decoding="async" style="' . Html::attr($place . $tint) . '" />';
+    }
+
+    /**
+     * A kept art entry as the game ships it now: a layout saved before the game's
+     * pictures moved to lossless WebP (2026-11-07) names `.png`/`.jpg` files that
+     * are gone, so each path whose file is missing takes its `.webp` twin when
+     * that exists. Paths that still exist stay as they are.
+     *
+     * @param array{p: string, w: int, h: int, x2: ?array{0: string, 1: string}} $file
+     * @return array{p: string, w: int, h: int, x2: ?array{0: string, 1: string}}
+     */
+    private static function shippedArt(string $root, array $file): array
+    {
+        $now = static function (string $path) use ($root): string {
+            if (preg_match('/\.(png|jpe?g)$/', $path) !== 1 || is_file($root . '/' . $path)) {
+                return $path;
+            }
+            $webp = (string) preg_replace('/\.(png|jpe?g)$/', '.webp', $path);
+            return is_file($root . '/' . $webp) ? $webp : $path;
+        };
+        $file['p'] = $now($file['p']);
+        if ($file['x2'] !== null) {
+            $file['x2'][0] = $now($file['x2'][0]);
+        }
+        return $file;
     }
 
     /**
