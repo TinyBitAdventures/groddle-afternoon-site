@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.44",
+  "version": "0.5.45",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -179,6 +179,7 @@
       "class_tsid varchar(64) NOT NULL DEFAULT ''",
       "count int(10) unsigned NOT NULL DEFAULT 0",
       "message varchar(500) NOT NULL DEFAULT ''",
+      "box text NULL",
       "at_ms bigint(20) unsigned NOT NULL DEFAULT 0",
       "created_at datetime NOT NULL",
       "taken_at datetime NULL DEFAULT NULL",

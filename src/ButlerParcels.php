@@ -54,6 +54,15 @@ use Minn\RestError;
  * Economy); anything else gets the source's "Sorry, I'm not equipped to
  * carry that." A visitor the owner blocks is refused (the Butler's owner
  * would not have let them on the street: inc_pols.js:448-455).
+ *
+ * A wrapped Gift Box (G332, bag_butler.js:1013: leave_package lets
+ * bag_gift_box_wrapped through though it is no_trade) goes as a give's box
+ * does (LedgerGift): the server sends "box", the one to three stacks inside,
+ * and "gave" is the box and those stacks, all of which leave the visitor's
+ * ledger. The parcel row keeps the stacks (box); the owner's take credits
+ * the box and the stacks and hands over one bag_gift_box_wrapped with them
+ * inside ("item": {"c":"bag_gift_box_wrapped","n":1,"box":[…]}); a load that
+ * missed either side applies it as LedgerGift::apply applies a box.
  */
 final readonly class ButlerParcels
 {
@@ -81,6 +90,10 @@ final readonly class ButlerParcels
     public const TEXT_SHORT = "You don't have that any more.";
     public const TEXT_EMPTY = 'Leave a package or a message.';
 
+    /** A wrapped box (LedgerGift's classes and its three slots). */
+    public const WRAPPED = LedgerGift::WRAPPED;
+    public const BOX = LedgerGift::BOX;
+
     public function __construct(private Seams $minn)
     {
     }
@@ -100,14 +113,15 @@ final readonly class ButlerParcels
         $to = is_array($body) ? ($body['to'] ?? null) : null;
         $gave = is_array($body) && is_array($body['gave'] ?? null) ? LedgerMath::goods($body['gave']) : null;
         $text = is_array($body) ? self::cleanText($body['text'] ?? '') : null;
-        if (!self::opId($op) || !is_int($from) || $from <= 0 || !is_int($to) || $to <= 0 || $from === $to || $gave === null || $text === null
-            || $gave['currants'] !== 0 || count($gave['items']) > 1 || (int) (array_values($gave['items'])[0] ?? 1) > self::COUNT_MAX) {
+        $box = is_array($body) && array_key_exists('box', $body) ? self::boxOf($body['box'], $gave) : [];
+        if (!self::opId($op) || !is_int($from) || $from <= 0 || !is_int($to) || $to <= 0 || $from === $to || $gave === null || $text === null || $box === null
+            || $gave['currants'] !== 0 || ($box === [] && (count($gave['items']) > 1 || (int) (array_values($gave['items'])[0] ?? 1) > self::COUNT_MAX))) {
             throw new RestError('groddle_ledger_invalid', 'Not a parcel.', 400);
         }
         if ($gave['items'] === [] && $text === '') {
             throw new RestError('groddle_ledger_invalid', self::TEXT_EMPTY, 400);
         }
-        $out = Ledger::atomically($this->minn->db, fn () => $this->take($op, $from, $to, $gave, $text, time()));
+        $out = Ledger::atomically($this->minn->db, fn () => $this->take($op, $from, $to, $gave, $text, time(), $box));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
@@ -115,7 +129,7 @@ final readonly class ButlerParcels
      * @param array{items: array<string,int>, currants: int} $gave
      * @return array{status: string, why?: string, text?: string}
      */
-    private function take(string $op, int $from, int $to, array $gave, string $text, int $now): array
+    private function take(string $op, int $from, int $to, array $gave, string $text, int $now, array $box = []): array
     {
         $db = $this->minn->db;
         $trades = $db->table(Ledger::TRADES);
@@ -147,24 +161,31 @@ final readonly class ButlerParcels
         if ($room !== null) {
             return $refuse('full', $room);
         }
-        $class = (string) (array_key_first($gave['items']) ?? '');
-        $count = $class === '' ? 0 : (int) $gave['items'][$class];
+        // A wrapped box is one parcel of one bag_gift_box_wrapped; the ledger moves the box and what is inside.
+        $class = $box !== [] ? self::WRAPPED : (string) (array_key_first($gave['items']) ?? '');
+        $count = $class === '' ? 0 : ($box !== [] ? 1 : (int) $gave['items'][$class]);
         $stamp = gmdate('Y-m-d H:i:s', $now);
         if ($class !== '') {
-            if (!Economy::shared()->tradeable($class)) {
-                return $refuse('type', self::TEXT_TYPE_FAIL);
+            foreach (array_keys($gave['items']) as $c) {
+                if (!Economy::shared()->tradeable((string) $c)) {
+                    return $refuse('type', self::TEXT_TYPE_FAIL);
+                }
             }
             $ledger = Ledger::fromSeams($this->minn);
             $mine = $ledger->lock($from, $now);
-            if (($mine['items'][$class] ?? 0) < $count) {
-                $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'void', ?, 0, ?, '{\"items\":[],\"currants\":0}', ?, ?)", [$op, $from, self::goodsJson($gave), $stamp, $stamp]);
-                return $refuse('short', self::TEXT_SHORT);
+            foreach ($gave['items'] as $c => $n) {
+                if (($mine['items'][$c] ?? 0) < $n) {
+                    $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'void', ?, 0, ?, '{\"items\":[],\"currants\":0}', ?, ?)", [$op, $from, self::goodsJson($gave), $stamp, $stamp]);
+                    return $refuse('short', self::TEXT_SHORT);
+                }
             }
-            self::move($db, $from, $mine, $class, -$count, $now);
+            foreach ($gave['items'] as $c => $n) {
+                self::move($db, $from, $mine, (string) $c, -$n, $now);
+            }
             $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, '{\"items\":[],\"currants\":0}', ?, ?)", [$op, $from, self::goodsJson($gave), $stamp, $stamp]);
-            $ledger->log($from, 'butler', ['butler' => $op, 'to' => $to, 'gave' => ['items' => (object) $gave['items'], 'currants' => 0]], $now);
+            $ledger->log($from, 'butler', ['butler' => $op, 'to' => $to, 'gave' => ['items' => (object) $gave['items'], 'currants' => 0], 'box' => $box !== []], $now);
         }
-        $db->execute("INSERT INTO {$parcels} (id, owner_id, from_id, class_tsid, count, message, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [$op, $to, $from, $class, $count, $text, $now * 1000, $stamp]);
+        $db->execute("INSERT INTO {$parcels} (id, owner_id, from_id, class_tsid, count, message, box, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [$op, $to, $from, $class, $count, $text, $box === [] ? '' : (string) json_encode($box, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $now * 1000, $stamp]);
         return ['status' => 'settled'];
     }
 
@@ -246,7 +267,7 @@ final readonly class ButlerParcels
     {
         $db = $this->minn->db;
         $me = $this->minn->reader->userId;
-        $rows = $db->rows('SELECT id, from_id, class_tsid, count, message, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? AND taken_at IS NULL ORDER BY at_ms, id LIMIT 40', [$me]);
+        $rows = $db->rows('SELECT id, from_id, class_tsid, count, message, box, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? AND taken_at IS NULL ORDER BY at_ms, id LIMIT 40', [$me]);
         $names = (new Characters($db))->namesOf(array_map(static fn (array $r): int => (int) $r['from_id'], $rows));
         $out = [];
         foreach ($rows as $r) {
@@ -255,7 +276,7 @@ final readonly class ButlerParcels
             $out[] = [
                 'id' => (string) $r['id'],
                 'from' => ['id' => $from, 'name' => $names[$from] ?? 'Someone'],
-                'item' => $class === '' ? null : ['c' => $class, 'n' => (int) $r['count']],
+                'item' => $class === '' ? null : self::itemOf($class, (int) $r['count'], (string) ($r['box'] ?? '')),
                 'text' => (string) $r['message'],
                 'at' => (int) $r['at_ms'],
             ];
@@ -274,12 +295,12 @@ final readonly class ButlerParcels
         $out = Ledger::atomically($this->minn->db, function () use ($id, $me): ?array {
             $db = $this->minn->db;
             $parcels = $db->table(self::TABLE);
-            $row = $db->row("SELECT owner_id, class_tsid, count, taken_at FROM {$parcels} WHERE id = ? FOR UPDATE", [$id]);
+            $row = $db->row("SELECT owner_id, class_tsid, count, box, taken_at FROM {$parcels} WHERE id = ? FOR UPDATE", [$id]);
             if ($row === null || (int) $row['owner_id'] !== $me) {
                 return null;
             }
             $class = (string) $row['class_tsid'];
-            $item = $class === '' ? null : ['c' => $class, 'n' => (int) $row['count']];
+            $item = $class === '' ? null : self::itemOf($class, (int) $row['count'], (string) ($row['box'] ?? ''));
             $credit = $class === '' ? null : $id . '-in';
             if ($row['taken_at'] !== null) {
                 return ['status' => 'done', 'id' => $id, 'credit' => $credit, 'item' => $item];
@@ -289,10 +310,14 @@ final readonly class ButlerParcels
             if ($item !== null) {
                 $ledger = Ledger::fromSeams($this->minn);
                 $state = $ledger->lock($me, $now);
-                self::move($db, $me, $state, $class, $item['n'], $now);
-                $got = self::goodsJson(['items' => [$class => $item['n']], 'currants' => 0]);
+                // A wrapped box comes in as the box and what is inside (LedgerMath::holdings counts it so).
+                $counts = self::countsOf($item);
+                foreach ($counts as $c => $n) {
+                    self::move($db, $me, $state, (string) $c, $n, $now);
+                }
+                $got = self::goodsJson(['items' => $counts, 'currants' => 0]);
                 $db->execute('INSERT IGNORE INTO ' . $db->table(Ledger::TRADES) . " (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, '{\"items\":[],\"currants\":0}', ?, ?, ?)", [$credit, $me, $got, $stamp, $stamp]);
-                $ledger->log($me, 'butler', ['butler' => $id, 'took' => [$class => $item['n']]], $now);
+                $ledger->log($me, 'butler', ['butler' => $id, 'took' => (object) $counts], $now);
             }
             $db->execute("UPDATE {$parcels} SET taken_at = ? WHERE id = ?", [$stamp, $id]);
             return ['status' => 'taken', 'id' => $id, 'credit' => $credit, 'item' => $item];
@@ -301,6 +326,101 @@ final readonly class ButlerParcels
             throw new RestError('groddle_butler_parcel', 'The Butler has nothing like that for you.', 404);
         }
         return Response::json($out);
+    }
+
+    // —— A wrapped box (G332) ——
+
+    /**
+     * The stacks inside a wrapped box the realtime server sent ("box"),
+     * checked against "gave" (the box itself and those stacks, LedgerGift's
+     * shape): [] when there is no box, null when it is not one.
+     *
+     * @param array{items: array<string,int>, currants: int}|null $gave
+     * @return list<array{c: string, n: int, r?: int}>|null
+     */
+    public static function boxOf(mixed $box, ?array $gave): ?array
+    {
+        if ($box === null || $box === false || $box === []) {
+            return [];
+        }
+        if (!is_array($box) || $gave === null || !array_is_list($box) || count($box) < 1 || count($box) > LedgerGift::BOX_SLOTS) {
+            return null;
+        }
+        $out = [];
+        $want = [self::BOX => 1];
+        foreach ($box as $it) {
+            $c = is_array($it) ? ($it['c'] ?? null) : null;
+            $n = is_array($it) ? ($it['n'] ?? null) : null;
+            if (!is_string($c) || preg_match('/^[a-z0-9_]{1,64}$/', $c) !== 1 || in_array($c, [self::BOX, self::WRAPPED], true) || !is_int($n) || $n < 1 || $n > self::COUNT_MAX || isset($want[$c])) {
+                return null;
+            }
+            $row = ['c' => $c, 'n' => $n];
+            if (is_int($it['r'] ?? null) && $it['r'] >= 0 && $it['r'] <= 1000000) {
+                $row['r'] = $it['r'];
+            }
+            $want[$c] = $n;
+            $out[] = $row;
+        }
+        ksort($want);
+        return $want === $gave['items'] ? $out : null;
+    }
+
+    /** A parcel's item as the owner's game reads it: a wrapped box carries what is inside. */
+    public static function itemOf(string $class, int $count, string $box): array
+    {
+        $inside = $box === '' ? [] : json_decode($box, true);
+        if ($class === self::WRAPPED && is_array($inside) && $inside !== []) {
+            return ['c' => $class, 'n' => 1, 'box' => array_values($inside)];
+        }
+        return ['c' => $class, 'n' => $count];
+    }
+
+    /** What an item moves in a ledger: a wrapped box is the box and the stacks inside. @return array<string,int> */
+    public static function countsOf(array $item): array
+    {
+        if (!is_array($item['box'] ?? null)) {
+            return [(string) $item['c'] => (int) $item['n']];
+        }
+        $out = [self::BOX => 1];
+        foreach ($item['box'] as $it) {
+            $out[(string) $it['c']] = ($out[(string) $it['c']] ?? 0) + (int) $it['n'];
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /** A parcel's ledger records: butler-<16 hex> (the visitor's) and butler-<16 hex>-in (the owner's take). */
+    public static function isParcel(string $id): bool
+    {
+        return preg_match('/^butler-[0-9a-f]{16}(-in)?$/', $id) === 1;
+    }
+
+    /**
+     * Applies one pending parcel record to a stored save (Ledger::catchUp): a
+     * wrapped box leaves the visitor's gifts slice, or comes into the owner's,
+     * as LedgerGift::apply does a give's box; anything else is a count.
+     */
+    public static function catchUp(\Minn\Db $db, array $entries, int $user, array $p): array
+    {
+        $id = (string) preg_replace('/-in$/', '', $p['trade']);
+        $r = $db->row('SELECT owner_id, from_id, class_tsid, count, box, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE id = ?', [$id]);
+        $item = $r === null ? null : self::itemOf((string) $r['class_tsid'], (int) $r['count'], (string) ($r['box'] ?? ''));
+        if ($item === null || !is_array($item['box'] ?? null)) {
+            return LedgerMath::applyTrade($entries, $p['trade'], $p['gave'], $p['got']);
+        }
+        $from = (int) $r['from_id'];
+        $names = (new Characters($db))->namesOf([$from]);
+        return self::applyBox($entries, str_ends_with($p['trade'], '-in') ? 'got' : 'gave', $p['trade'], $item['box'], $from, (int) $r['owner_id'], (int) $r['at_ms'], $names[$from] ?? 'Someone');
+    }
+
+    /** The box side of catchUp, without the database (tests/g332-butler-box.test.js). */
+    public static function applyBox(array $entries, string $side, string $trade, array $inside, int $from, int $to, int $at, string $fromName): array
+    {
+        $items = [['c' => self::BOX, 'n' => 1]];
+        foreach ($inside as $it) {
+            $items[] = (array) $it;
+        }
+        return LedgerGift::apply($entries, $side, ['op' => $trade, 'from' => $from, 'to' => $to, 'items' => $items, 'box' => true, 'ref' => '', 'note' => null, 'at' => $at, 'fromName' => $fromName]);
     }
 
     // —— Helpers ——
