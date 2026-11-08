@@ -119,6 +119,12 @@ final readonly class LedgerUse
      *     (js/master-garden.js usePotion); an older save's one count per class is
      *     js/features/master-garden-feature.js's slice {uses}. A pour on a shared public
      *     bed (groddle-afternoon-server gardens_potions.go).
+     *   potion_trantsformation_fluid (G564 slice 2): points_capacity 3
+     *     (items/potion_trantsformation_fluid.js:25; tool_base use(1), the third pour
+     *     consumes the bottle), each bottle's pours its copy's in the save's tool state
+     *     (js/tools.js); an older save's one count per class is
+     *     js/features/potions-feature.js's slice {uses}. A pour on a tree in a shared
+     *     street Patch (groddle-afternoon-server patches_trees.go).
      */
     public const CLASSES = [
         'fertilidust' => [5, 'powders', 'charges'],
@@ -134,6 +140,7 @@ final readonly class LedgerUse
         'potion_garden_harvest' => [5, 'master-garden', 'uses'],
         'potion_garden_clear' => [5, 'master-garden', 'uses'],
         'potion_garden_fertilize' => [5, 'master-garden', 'uses'],
+        'potion_trantsformation_fluid' => [3, 'potions', 'uses'],
     ];
 
     private const NONE_JSON = '{"items":[],"currants":0}';
