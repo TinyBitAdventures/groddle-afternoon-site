@@ -18,7 +18,11 @@ namespace Groddle\Minn;
  *
  *   - name: the characters a Cubimal name keeps (letters, digits, spaces and
  *     the word filter's symbols), at most max of them, the word filter,
- *     spaces trimmed (npc_cubimal_chick.js onInputBoxResponse 41).
+ *     spaces trimmed (npc_cubimal_chick.js onInputBoxResponse 41). A figure
+ *     that has won a battle (G40) keeps {name, level, xp} (its instance props
+ *     level and xp): the name as above ('' for none), level a whole number
+ *     from 1 to levelMax, xp from 0 to xpMax; at level 1 with no xp it is
+ *     just the name again.
  *   - phrases: at most max; each one line with no control characters, angle
  *     brackets or U+FFFD, spaces trimmed, at most len characters, the word
  *     filter, trimmed; empty ones dropped (lit_pumpkin_base teach).
@@ -75,8 +79,21 @@ final class CopyTags
     {
         switch ($kind) {
             case 'name':
-                $name = is_string($value) ? self::name($value, (int) ($rules['name']['max'] ?? 0)) : '';
-                return $name === '' ? null : $name;
+                $max = (int) ($rules['name']['max'] ?? 0);
+                if (is_string($value)) {
+                    $name = self::name($value, $max);
+                    return $name === '' ? null : $name;
+                }
+                if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+                    return null;
+                }
+                $name = is_string($value['name'] ?? null) ? self::name($value['name'], $max) : '';
+                $level = max(1, self::whole($value['level'] ?? null, (int) ($rules['name']['levelMax'] ?? 1)));
+                $xp = self::whole($value['xp'] ?? null, (int) ($rules['name']['xpMax'] ?? 0));
+                if ($level <= 1 && $xp <= 0) {
+                    return $name === '' ? null : $name;
+                }
+                return ['name' => $name, 'level' => $level, 'xp' => $xp];
             case 'phrases':
                 if (!is_array($value) || !array_is_list($value)) {
                     return null;
