@@ -62,6 +62,13 @@ final class HomeLayout
     public const VERSIONS = [1, 2];
 
     /** The kinds of spot (the game's HOME_LAYOUT_KINDS). */
+    /**
+     * Kinds only the street's owner sees in the game, so a player's page leaves them out: the Mail
+     * Dispatcher (the game draws it on your own home street only, mail-courier-feature.js; Austin
+     * 2026-11-09: hide it from the home street previews). Layouts the game already sent keep the spot.
+     */
+    public const OWNER_ONLY = ['dispatcher'];
+
     public const KINDS = ['avatar', 'house', 'door', 'mailbox', 'signpost', 'dispatcher', 'tower', 'scaffolding', 'cultivation', 'proto', 'note_pole', 'item'];
 
     /** Fixed words the game paints on the street, by id (the game's HOME_LAYOUT_TEXTS). */
@@ -446,6 +453,9 @@ final class HomeLayout
         $filters = [];
         $outer = '';
         foreach ($layout['draw'] as $z => $d) {
+            if (self::ownerOnly($layout, $d)) {
+                continue;
+            }
             $spotIndex = isset($d['s'], $spots[$d['s']]) ? $d['s'] : null;
             // Inside a spot, boxes are in % of the spot's box; elsewhere of the stage.
             $html = self::drawHtml($d, $spotIndex === null ? [0, 0, $W, $H] : $spots[$spotIndex]['box'], $z + 1, $layout, $ctx, $filters, false);
@@ -497,6 +507,9 @@ final class HomeLayout
             }
             $outers[$li] = '';
             foreach ($layer['draw'] as $z => $d) {
+                if (self::ownerOnly($layout, $d)) {
+                    continue;
+                }
                 $spotIndex = $street && isset($d['s'], $spots[$d['s']]) ? $d['s'] : null;
                 if ($spotIndex !== null && !isset($home[$spotIndex])) {
                     $home[$spotIndex] = $li;
@@ -547,6 +560,9 @@ final class HomeLayout
         $names = self::itemNames($ctx['root']);
         $spots = [];
         foreach ($layout['spots'] as $i => $spot) {
+            if (in_array($spot['k'], self::OWNER_ONLY, true)) {
+                continue;
+            }
             if ($spot['k'] === 'avatar' && $ctx['avatar'] === null) {
                 continue;
             }
@@ -567,6 +583,13 @@ final class HomeLayout
             $spots[$i] = ['spot' => $spot, 'label' => $label, 'box' => [$x, $y, $w, $h], 'inner' => ''];
         }
         return $spots;
+    }
+
+    /** A draw entry of a thing only the street's owner sees in the game (OWNER_ONLY): left off the page. */
+    private static function ownerOnly(array $layout, array $d): bool
+    {
+        $k = isset($d['s']) ? ($layout['spots'][$d['s']]['k'] ?? null) : null;
+        return is_string($k) && in_array($k, self::OWNER_ONLY, true);
     }
 
     /** "On it: ..." for the caption: every named thing once, not the avatar. */
