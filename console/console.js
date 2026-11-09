@@ -12,6 +12,9 @@
  *   the click that ends selecting text leaves it shut (rowClickOpens). Arrow
  *   keys move in the menu, Enter or Space picks, Escape closes and gives focus
  *   back.
+ * - An administrator's menu (online) also has Go to the Interrogation room (admin/interrogation):
+ *   their game goes to the moderators' room no door leads into (game js/interrogation-room.js),
+ *   and the room's door takes them back where they were.
  * - Rook attacks: every street with a Rook over it now (admin/rooks, the realtime server's own
  *   list, polled with Online now), with its phase, health and wing beats and who is there, and
  *   End attack (a confirm step first; admin/rook_end): the Rook flies off as after its third wing
@@ -294,6 +297,9 @@ export function menuFor(player, { me = 0, online = false } = {}) {
     { id: 'refill', label: 'Refill mood and energy', enabled: online, reason: online ? '' : 'Only for a connected game.' },
     { id: 'boot', label: 'Sign out…', enabled: online && !self, reason: self ? 'Not yourself.' : online ? '' : 'Not online.' },
   ];
+  // The Interrogation room (G352, Austin 2026-11-08: a moderators' room opened from the console):
+  // only an administrator's row offers it, yourself included, and only while their game is connected.
+  if (player.admin) items.push({ id: 'interrogation', label: 'Go to the Interrogation room', enabled: online, reason: online ? '' : 'Only for a connected game.' });
   if (player.banned) items.push({ id: 'unban', label: 'Unban', enabled: true });
   else items.push({ id: 'ban', label: 'Ban…', enabled: !self && !player.admin, reason: self ? 'Not yourself.' : player.admin ? 'Administrators cannot be banned.' : '' });
   return items.map((i) => ({ reason: '', ...i }));
@@ -346,6 +352,7 @@ export function logWords(line) {
     case 'unban': return `unbanned ${who}`;
     case 'give': return `gave ${who} ${d.text || 'something'}${how}`;
     case 'refill': return `refilled ${who}'s mood and energy${how}`;
+    case 'interrogate': return `took ${who} to the Interrogation room${how}`;
     case 'reply': return `replied to ${who}'s report “${d.subject || ''}”${{ mailed: ' (emailed)', note: ' (a note, not emailed)', unread: ' (not emailed: an earlier reply is still unread)', busy: ' (not emailed: hourly email limit)', failed: ' (the email did not send)' }[line.delivery] ?? ''}`;
     case 'close': return `closed ${who}'s report “${d.subject || ''}”`;
     case 'reopen': return `reopened ${who}'s report “${d.subject || ''}”`;
@@ -848,6 +855,8 @@ function boot() {
       });
     } else if (kind === 'refill') {
       act('refill', p, {}).catch(failed);
+    } else if (kind === 'interrogation') {
+      act('interrogation', p, {}).catch(failed);
     } else if (kind === 'boot') {
       const reason = el('input', { type: 'text', name: 'reason', maxlength: String(REASON_MAX), placeholder: 'They see: An administrator signed you out: <reason>' });
       dialog(`Sign ${p.name} out`, [el('label', { text: 'Reason' }, reason), el('p', { class: 'console-sub', text: 'Their game stops reconnecting until they reload.' })], 'Sign out', async () => { await act('boot', p, { reason: reason.value }); }, { danger: true });

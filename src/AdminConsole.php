@@ -41,6 +41,7 @@ use Minn\RestError;
  *   POST admin/unban   {"player":id}
  *   POST admin/give    {"player":id,"items":[{"c","n"}],"currants":n}   through the ledger; delivery live | saved
  *   POST admin/refill  {"player":id}                          mood and energy to full; delivery live | offline | down
+ *   POST admin/interrogation {"player":id}                    an online administrator into the Interrogation room; delivery live | offline | down
  *   POST admin/rook_end {"street":tsid}                       the Rook flies off, nothing paid; delivery live | ending | none | down
  *   Row: {"id","name","level","street":{tsid,label}|null,"savedAt","banned":bool,"admin":bool}
  *   Rook: {"street":{tsid,label},"phase","angry","health","maxHealth","stun","maxStun","wingBeats","clock",
@@ -81,6 +82,16 @@ use Minn\RestError;
  * abandoned fight ends after its third wing beat, not as a defeat, so nobody
  * gets iMG or a badge; what it rooked stays rooked. One log line (kind
  * rook_end, player 0, the street and what the server said).
+ *
+ * The Interrogation room (Austin 2026-11-08: "build it as a moderators' room
+ * opened from the console"; game js/interrogation-room.js, register G352) is a
+ * street of the game's index that no door leads into. admin/interrogation sends
+ * an administrator's connected game there with the realtime server's teleport
+ * (teleport.go, the call AdminTeleport makes), landing in the booth
+ * (INTERROGATION_ARRIVE, the street's screen space). Only administrators
+ * (manage_options) go, themselves or another, and only while connected: the
+ * game keeps the street and spot they came from, and the room's door takes them
+ * back there. One log line (kind interrogate).
  *
  * A give is a settled trade from nobody (groddle_trades admin-give-<16 hex>:
  * a_id the player, a_gave nothing, b_id 0, b_gave the goods, b's side applied),
@@ -128,6 +139,10 @@ final readonly class AdminConsole
     public const ROOK_PHASES = ['herald', 'build_up', 'angry', 'stunned', 'dead', 'departed'];
 
     private const ADMIN = 'manage_options';
+
+    /** The Interrogation room (game js/interrogation-room.js INTERROGATION_TSID) and where a visitor lands, in its screen space (INTERROGATION_ARRIVE_SCREEN). */
+    public const INTERROGATION_TSID = 'GIFLFPPBUUT11SP';
+    public const INTERROGATION_ARRIVE = ['x' => 585, 'y' => 978];
 
     public function __construct(private Seams $minn)
     {
@@ -626,6 +641,33 @@ final readonly class AdminConsole
         return $this->done($player, $delivery, match ($delivery) {
             'live' => "Filled {$player['name']}'s mood and energy.",
             'offline' => "{$player['name']} is not online. Refill works on a connected game.",
+            default => 'The realtime server is not answering.',
+        });
+    }
+
+    #[Route(Method::Post, '/groddle/v1/admin/interrogation', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function interrogation(Request $request): Response
+    {
+        [$admin, $player] = $this->target($request);
+        if (!Capabilities::fromDb($this->minn->db)->can($player['id'], self::ADMIN)) {
+            throw new RestError('groddle_admin_not_admin', 'Only administrators go to the Interrogation room.', 409);
+        }
+        $tsid = self::INTERROGATION_TSID;
+        $index = $this->streetIndex();
+        if (!isset($index[$tsid])) {
+            throw new RestError('groddle_admin_no_room', 'The game on this site has no Interrogation room yet.', 404);
+        }
+        $answer = (new RealtimeCall($this->minn))->post('teleport', ['player' => $player['id'], 'street' => $tsid] + self::INTERROGATION_ARRIVE);
+        $delivery = match ($answer['status'] ?? null) {
+            'sent' => 'live',
+            'offline' => 'offline',
+            default => 'down',
+        };
+        $this->record($admin, $player['id'], 'interrogate', ['to' => ['tsid' => $tsid, 'label' => (string) ($index[$tsid]['label'] ?? $tsid)]], $delivery);
+        $self = $player['id'] === $admin->id;
+        return $this->done($player, $delivery, match ($delivery) {
+            'live' => $self ? 'Taking you to the Interrogation room.' : "Took {$player['name']} to the Interrogation room.",
+            'offline' => "{$player['name']} is not online. The Interrogation room opens for a connected game.",
             default => 'The realtime server is not answering.',
         });
     }
