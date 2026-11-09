@@ -925,17 +925,116 @@ final readonly class HomeYard
         return is_object($plot) ? $plot : null;
     }
 
-    /** The owner's animals on the home street (features/animal-husbandry-feature.js slot animals). */
+    /**
+     * The owner's animals on the home street (features/animal-husbandry-feature.js
+     * slot animals) as anyone else is shown them, and so the only ones a
+     * visitor's verb can reach (judge). HERDCAP (Austin 2026-11-09): the save
+     * is the owner's game's own (G335) and only that game keeps the crowding
+     * limit, so a save edited by hand could hold thousands of animals; no more
+     * of a class than capAnimals keeps.
+     */
     public static function animalRows(?object $state): array
     {
         $rows = $state?->world?->streets?->{self::STREET}?->features?->{'animal-husbandry'}?->animals ?? [];
+        $crowd = self::crowd();
+        $width = self::herdWidth($crowd, $state?->systems?->features?->homes?->cult ?? null);
+        $upgrades = self::upgrades($state);
+        $kept = self::capAnimals(is_array($rows) ? $rows : [], $crowd, static fn (string $classId): int => self::herdCap($crowd, $classId, $width, $upgrades));
+        return array_values(array_filter($kept, static fn (object $r): bool => isset(self::ANIMAL_VERBS[$r->classId])));
+    }
+
+    /**
+     * HERDCAP, the game's js/animal-crowding.js capYardAnimals: the first
+     * `scan` rows read, a row whose id was seen before skipped, and of each
+     * class the cap with the lowest ids (the oldest: the husbandry slot's ids
+     * count up), so the same save always shows the same animals; kept rows
+     * stay in their saved order. Rows without an a<n> id or a class go.
+     *
+     * @param list<mixed> $rows
+     * @param callable(string): int $capFor
+     * @return list<object>
+     */
+    public static function capAnimals(array $rows, array $crowd, callable $capFor): array
+    {
+        $seen = [];
+        $valid = [];
+        $byClass = [];
+        foreach (array_slice($rows, 0, max(0, (int) ($crowd['scan'] ?? 0))) as $r) {
+            if (!is_object($r) || !is_string($r->id ?? null) || preg_match('/^a(\d{1,6})$/', $r->id, $m) !== 1 || !is_string($r->classId ?? null) || $r->classId === '' || isset($seen[$r->id])) {
+                continue;
+            }
+            $seen[$r->id] = true;
+            $i = count($valid);
+            $valid[] = $r;
+            $byClass[$r->classId][] = [$i, (int) $m[1]];
+        }
+        $keep = [];
+        foreach ($byClass as $classId => $entries) {
+            usort($entries, static fn (array $a, array $b): int => $a[1] <=> $b[1] ?: $a[0] <=> $b[0]);
+            foreach (array_slice($entries, 0, max(0, $capFor((string) $classId))) as $e) {
+                $keep[$e[0]] = true;
+            }
+        }
         $out = [];
-        foreach (is_array($rows) ? $rows : [] as $r) {
-            if (is_object($r) && is_string($r->id ?? null) && preg_match('/^a\d{1,6}$/', $r->id) === 1 && isset(self::ANIMAL_VERBS[$r->classId ?? ''])) {
+        foreach ($valid as $i => $r) {
+            if (isset($keep[$i])) {
                 $out[] = $r;
             }
         }
         return $out;
+    }
+
+    /**
+     * HERDCAP: the most of a class anyone else is shown on the owner's home
+     * street, the game's js/animal-crowding.js yardClassCap: getSadnessMax
+     * (items/include/animal_sadness.js 126-151) for a POL, not halved, with
+     * the owner's best herdkeeping_animal_sadness card; our cap for a class
+     * the source never limits (Batterflies, the babies, anything else).
+     *
+     * @param list<string> $upgrades the owner's imagination cards
+     */
+    public static function herdCap(array $crowd, string $classId, float $width, array $upgrades): int
+    {
+        $c = $crowd['controls'][$classId] ?? null;
+        if (!is_array($c) || count($c) !== 3) {
+            return (int) ($crowd['ours'] ?? 0);
+        }
+        $max = (int) min(max((int) round($width / 1000) * (int) $c[0], (int) $c[1]), (int) $c[2]);
+        foreach ($crowd['cards'] ?? [] as $card) {
+            if (is_array($card) && in_array($card[0] ?? null, $upgrades, true)) {
+                $max += (int) round($max * (float) $card[1]);
+                break;
+            }
+        }
+        return $max;
+    }
+
+    /**
+     * The home street's width from the owner's street cultivation state, the
+     * game's js/yard-verbs-mp.js yardStreetWidth (js/home-cultivation.js
+     * homeStreetLayout: the left yard, the house lot, the right yard), each
+     * side's expansions held to what the owner's game allows
+     * (normalizeCultivationState: 0 up to most - start); a count that is not a
+     * number is none.
+     */
+    public static function herdWidth(array $crowd, mixed $cult): float
+    {
+        $st = is_array($crowd['street'] ?? null) ? $crowd['street'] : [];
+        $side = static function (mixed $parts, mixed $v): float {
+            [$start, $most] = is_array($parts) && count($parts) === 2 ? [(float) $parts[0], (float) $parts[1]] : [0.0, 0.0];
+            $f = (is_int($v) || is_float($v) || (is_string($v) && is_numeric($v))) ? (float) $v : 0.0;
+            return $start + (is_finite($f) ? floor(max(0.0, min($most - $start, $f))) : 0.0);
+        };
+        $left = $side($st['left'] ?? null, is_object($cult) ? ($cult->yardLeft ?? null) : null);
+        $right = $side($st['right'] ?? null, is_object($cult) ? ($cult->yardRight ?? null) : null);
+        return ($left + $right) * (float) ($st['segment'] ?? 0) + (float) ($st['lot'] ?? 0);
+    }
+
+    /** data/yard-verbs.json "crowd" (HERDCAP); without it every class at 40 and 300 rows read. */
+    public static function crowd(): array
+    {
+        $crowd = self::rules()['crowd'] ?? null;
+        return is_array($crowd) ? $crowd : ['controls' => [], 'cards' => [], 'ours' => 40, 'scan' => 300, 'street' => []];
     }
 
     /** The owner's placed Magic Sticks on the home street ({ classTsid, x, distance }): where the animals of each class stay. */
