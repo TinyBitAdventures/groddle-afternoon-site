@@ -352,7 +352,8 @@ export function logWords(line) {
     case 'unban': return `unbanned ${who}`;
     case 'give': return `gave ${who} ${d.text || 'something'}${how}`;
     case 'refill': return `refilled ${who}'s mood and energy${how}`;
-    case 'interrogate': return `took ${who} to the Interrogation room${how}`;
+    // An administrator who sent themselves went there (the room only takes administrators, so this is the usual line).
+    case 'interrogate': return line.by?.id != null && line.by.id === line.player?.id ? `went to the Interrogation room${how}` : `took ${who} to the Interrogation room${how}`;
     case 'reply': return `replied to ${who}'s report “${d.subject || ''}”${{ mailed: ' (emailed)', note: ' (a note, not emailed)', unread: ' (not emailed: an earlier reply is still unread)', busy: ' (not emailed: hourly email limit)', failed: ' (the email did not send)' }[line.delivery] ?? ''}`;
     case 'close': return `closed ${who}'s report “${d.subject || ''}”`;
     case 'reopen': return `reopened ${who}'s report “${d.subject || ''}”`;
