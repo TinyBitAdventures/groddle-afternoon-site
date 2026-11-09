@@ -73,6 +73,9 @@ final readonly class Groups
 
     public const DESCRIPTION_MAX = 300;
 
+    /** An inviter with no character name: "Someone", as LedgerBoard.php and the realtime server say (the game's js/player-names.js UNNAMED_PLAYER). Our own word: no fallback name survives in the original. */
+    public const UNNAMED_PLAYER = 'Someone';
+
     public const MODES = ['public', 'private'];
 
     /** Seconds a watch token is good for (the game asks for a fresh one well before). */
@@ -371,7 +374,7 @@ final readonly class Groups
         }
         foreach ($asked as $r) {
             $by = (int) $r['invited_by'];
-            $out['invites'][] = self::card($r) + ['invitedBy' => ['id' => $by, 'name' => $names[$by] ?? 'A Glitch'], 'invitedAt' => SaveShape::time((string) $r['invited_at'])];
+            $out['invites'][] = self::card($r) + ['invitedBy' => ['id' => $by, 'name' => $names[$by] ?? self::UNNAMED_PLAYER], 'invitedAt' => SaveShape::time((string) $r['invited_at'])];
         }
         $out['count'] = count($out['groups']);
         $out['channels'] = $this->channels($me);

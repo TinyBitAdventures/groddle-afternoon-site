@@ -16,7 +16,7 @@ final class SocialTags
     public const IMAGE = '/brand/share.jpg';
     public const IMAGE_WIDTH = 1200;
     public const IMAGE_HEIGHT = 630;
-    public const IMAGE_ALT = 'A Glitchen in Kristel Kaos, under red mushrooms, beside the words Groddle Afternoon';
+    public const IMAGE_ALT = 'A player in Kristel Kaos, under red mushrooms, beside the words Groddle Afternoon';
 
     /** The document with its tags before </head>; unchanged when it has no head or title, or tags already. */
     public static function insert(string $html, string $home, string $path): string

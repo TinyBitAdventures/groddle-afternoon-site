@@ -386,7 +386,7 @@ final readonly class PlayerPages
         $joined = $who['joined'];
         $avatar = $avatarAt === null
             ? self::ghost('profile-avatar-art')
-            : '<img class="profile-avatar-art" src="' . Html::attr(Profiles::imageUrl($id, 'avatar', $avatarAt)) . '" width="172" height="248" alt="' . Html::attr("{$name}'s Glitch") . '" />';
+            : '<img class="profile-avatar-art" src="' . Html::attr(Profiles::imageUrl($id, 'avatar', $avatarAt)) . '" width="172" height="248" alt="' . Html::attr("{$name}'s avatar") . '" />';
         $count = $counts['achievements'];
         return '<header class="masthead note-head profile-head">' . "\n  <div class=\"wrap profile-top\">\n"
             . "    <figure class=\"profile-avatar\">{$avatar}</figure>\n"
