@@ -157,7 +157,7 @@ final class Restoration
               <button class="spot" data-spot="quoin" style="left:612px; bottom:240px" aria-label="Quoins" tabindex="-1">
                 <span class="sheet sheet-quoin sheet-quoin-qurazy"></span>
               </button>
-              <button class="spot spot-walker" data-spot="player" style="left:486px; bottom:96px" aria-label="Your avatar and the physics of Ur">
+              <button class="spot spot-walker" data-spot="player" style="left:486px; bottom:96px" aria-label="Your Glitch and the physics of Ur">
                 <span class="sheet sheet-glitch"></span>
               </button>
               <button class="spot" data-spot="piggy" style="left:582px; bottom:94px" aria-label="Piggies">
