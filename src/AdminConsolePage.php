@@ -40,6 +40,23 @@ use Minn\Http\Route;
  *
  * Judged here rather than by a route Policy: the front's gate answers a
  * refused policy as JSON, and a page wants a redirect and a page.
+ *
+ * The look (Austin 2026-11-09: "skinned the same way the /community/ page is
+ * with its expanded header and re-colored chrome"): the chat app's (/chat/,
+ * CommunityPages). The header is SiteNav::nav with the app layout, full width,
+ * with the bell and the Console link marked as the page being read; the
+ * palette, the header and the bell's panel are community/community.css's, so
+ * the two pages stay one look. Under it, a full-window app: the tabs are the
+ * rows of a left rail (the chat's CHANNELS), the chosen tab's panels scroll in
+ * the pane beside it under a band with the realtime server's state.
+ * console/console.css holds the console's own surfaces. Ids, data hooks, tabs
+ * and #hash routes are as before, so a new tab is a button in the tablist and
+ * a panel in the pane.
+ *
+ * GET /console/me answers {"admin": true|false} for the reader, never cached:
+ * site/theme.js (the game's) asks it, only in a browser that has been an
+ * administrator's, before it puts the Console link in the header of a built
+ * or cached page, so no page's HTML carries the link for anyone.
  */
 final readonly class AdminConsolePage
 {
@@ -49,7 +66,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'interro-1';
+    public const ASSET_KEY = 'skin-1';
 
     public function __construct(private Seams $minn)
     {
@@ -59,6 +76,27 @@ final readonly class AdminConsolePage
     public function bare(Request $request): Response
     {
         return Response::redirect(self::PATH, 301);
+    }
+
+    /**
+     * Whether the reader may open the console, for the header's Console link
+     * (site/theme.js). Private and never stored by a cache: a visitor's answer
+     * and an administrator's must never trade places.
+     */
+    #[Route(Method::Get, self::PATH . 'me', policy: new Policy(Access::Public))]
+    public function me(Request $request): Response
+    {
+        return Response::json(['admin' => $this->isAdmin()])
+            ->withHeader('Cache-Control', 'no-store, private, max-age=0')
+            ->withHeader('Vary', 'Cookie')
+            ->withHeader('X-Robots-Tag', 'noindex');
+    }
+
+    /** A signed-in reader with manage_options. */
+    private function isAdmin(): bool
+    {
+        $user = $this->minn->user();
+        return $user !== null && Capabilities::fromDb($this->minn->db)->can($user->id, 'manage_options');
     }
 
     #[Route(Method::Get, self::PATH, policy: new Policy(Access::Public))]
@@ -90,27 +128,26 @@ final readonly class AdminConsolePage
         $builder = AdminBuilder::enabled($this->minn);
         $v = self::ASSET_KEY;
         $a = self::ASSETS;
+        $badges = SiteNav::badges($this->minn);
         return "<!DOCTYPE html>\n<html lang=\"en-US\">\n<head>\n<meta charset=\"UTF-8\" />\n"
             . "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n"
             . "<meta name=\"robots\" content=\"noindex\" />\n"
             . '<title>' . Html::esc('Console') . " &#8211; Groddle Afternoon</title>\n"
             . Extension::head()
+            // The chat app's look (Austin 2026-11-09): its palette, header and surfaces come from community.css.
+            . "<link rel=\"stylesheet\" href=\"" . CommunityPages::ASSETS . "community.css?v=" . CommunityPages::ASSET_KEY . "\" />\n"
             . "<link rel=\"stylesheet\" href=\"{$a}console.css?v={$v}\" />\n"
             . "<script type=\"module\" src=\"{$a}console.js?v={$v}\"></script>\n"
             . ($builder ? "<script type=\"module\" src=\"{$a}builder-keys.js?v={$v}\"></script>\n" : '')
             . "</head>\n<body class=\"notes console-page\">\n"
-            . SiteNav::nav(SiteNav::links($this->minn, 0), $path) . "\n"
+            // The chat app's header (as /chat/ draws it): full width, the bell, and the Console link marked as the page being read.
+            . SiteNav::nav(SiteNav::links($this->minn, 0), $path, $badges, ['bell' => $badges[SiteNav::COMMUNITY] ?? 0, 'console' => true]) . "\n"
+            . '<main class="console" id="console" data-console data-community-v="' . Html::attr(CommunityPages::ASSET_KEY) . '">'
             . <<<'HTML'
-<main class="console" id="console" data-console>
-  <header class="console-head">
-    <div>
-      <p class="kicker">Administrators</p>
-      <h1>Console</h1>
-    </div>
-    <p class="console-server" data-console-server role="status" aria-live="polite">Connecting</p>
-  </header>
-  <p class="console-note" data-console-note role="status" aria-live="polite" hidden></p>
-  <div class="console-tabs" role="tablist" aria-label="Console" data-console-tabs>
+
+ <nav class="console-rail" aria-label="Console sections">
+  <h2 class="console-rail-title" id="console-rail-title">Console</h2>
+  <div class="console-tabs" role="tablist" aria-labelledby="console-rail-title" aria-orientation="vertical" data-console-tabs>
     <button type="button" role="tab" id="console-tab-players" aria-controls="console-players" aria-selected="true" data-console-tab="players">Players</button>
     <button type="button" role="tab" id="console-tab-reports" aria-controls="console-reports" aria-selected="false" tabindex="-1" data-console-tab="reports">Reports <span class="console-count console-count-unread" data-console-reports-unread></span></button>
     <button type="button" role="tab" id="console-tab-chat" aria-controls="console-chat" aria-selected="false" tabindex="-1" data-console-tab="chat">Chat log</button>
@@ -122,6 +159,19 @@ HTML
             . <<<'HTML'
 
   </div>
+  <p class="console-rail-foot">Only administrators see this page. <a href="/chat/">Community</a> · <a href="/minn-admin/">Minn Admin</a></p>
+ </nav>
+ <div class="console-pane">
+  <header class="console-head">
+    <span class="console-head-mark" aria-hidden="true"></span>
+    <div class="console-head-txt">
+      <h1>Console</h1>
+      <p class="kicker">Administrators</p>
+    </div>
+    <p class="console-server" data-console-server role="status" aria-live="polite">Connecting</p>
+  </header>
+  <div class="console-body">
+  <p class="console-note" data-console-note role="status" aria-live="polite" hidden></p>
   <div class="console-grid" id="console-players" role="tabpanel" aria-labelledby="console-tab-players" data-console-tabpanel="players">
    <div class="console-col">
     <section class="console-panel console-online" aria-labelledby="console-online-title">
@@ -341,7 +391,7 @@ HTML
   </div>
 HTML
             . ($builder ? self::builderPanel() : '')
-            . "\n</main>\n</body>\n</html>\n";
+            . "\n  </div>\n </div>\n</main>\n</body>\n</html>\n";
     }
 
     /** The Builder tab: drafts (console.js fills them from AdminBuilder) and a new draft. */

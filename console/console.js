@@ -736,6 +736,8 @@ function boot() {
   }
   document.addEventListener('pointerdown', (e) => { if (menu && !menu.node.contains(e.target)) closeMenu(false); });
   addEventListener('scroll', () => closeMenu(false), { passive: true });
+  // The panels scroll in the pane, not the page (the chat app's frame, AdminConsolePage): a menu closes with it too.
+  root.querySelector('.console-body')?.addEventListener('scroll', () => closeMenu(false), { passive: true });
 
   // == Dialogs ==
   function dialog(title, body, submitLabel, onSubmit, { danger = false } = {}) {
@@ -1079,7 +1081,8 @@ function boot() {
   tablist.addEventListener('keydown', (e) => {
     const at = tabs.indexOf(e.target.closest('[role="tab"]'));
     if (at < 0) return;
-    const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    // The tabs are the rail's rows (aria-orientation vertical; a row on a phone): either arrow pair moves.
+    const to = { ArrowDown: at + 1, ArrowUp: at - 1, ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
     if (to === undefined) return;
     e.preventDefault();
     showTab(tabs[(to + tabs.length) % tabs.length].dataset.consoleTab, true);
@@ -1454,7 +1457,55 @@ function boot() {
   })();
 }
 
+/**
+ * The chat app's header (SiteNav::nav with the app layout, as /chat/ draws it): on a phone its links fold
+ * behind the menu button (community/community.css, data-menu; the same as community/community.js), and the
+ * bell opens community/notifications.js's panel, asking groddle/v1/notifications through the console's own
+ * nonce (createApi). The header is no part of the console's hooks, so this runs on its own.
+ */
+export function wireAppHeader(api = createApi()) {
+  const appNav = document.querySelector('.site-nav-app');
+  if (!appNav) return;
+  const menuButton = appNav.querySelector('.site-nav-menu');
+  const links = appNav.querySelector('.site-nav-links');
+  if (menuButton && links) {
+    const phone = matchMedia('(max-width: 720px)');
+    const setOpen = (on, focusBack = false) => {
+      appNav.dataset.menu = on ? 'open' : 'closed';
+      menuButton.setAttribute('aria-expanded', String(on));
+      if (on) links.querySelector('a')?.focus({ preventScroll: true });
+      else if (focusBack) menuButton.focus({ preventScroll: true });
+    };
+    menuButton.hidden = false;
+    setOpen(false);
+    menuButton.addEventListener('click', () => setOpen(appNav.dataset.menu !== 'open'));
+    appNav.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || appNav.dataset.menu !== 'open' || !phone.matches) return;
+      if (links.querySelector('.site-nav-panel:not([hidden])')) return; // a submenu closes first (site/theme.js)
+      e.preventDefault();
+      setOpen(false, true);
+    });
+    document.addEventListener('pointerdown', (e) => { if (appNav.dataset.menu === 'open' && !appNav.contains(e.target)) setOpen(false); });
+    links.addEventListener('click', (e) => { if (e.target.closest('a')) setOpen(false); });
+    phone.addEventListener('change', () => setOpen(false));
+  }
+  const v = document.querySelector('[data-console]')?.dataset.communityV;
+  if (!appNav.querySelector('[data-notif]') || !v) return;
+  // notifications.js speaks community.js's call(): { ok, status, data } and never throws.
+  const call = async (path, opts = {}) => {
+    try {
+      return { ok: true, status: 200, data: await api.call(path, opts) };
+    } catch (e) {
+      return { ok: false, status: e?.status || 0, data: { message: e?.message || COPY.failed, code: e?.code || '' } };
+    }
+  };
+  import(`/wp-content/themes/groddle/community/notifications.js?v=${encodeURIComponent(v)}`)
+    .then((m) => m.startNotifications({ call }))
+    .catch((e) => console.warn('notifications', e));
+}
+
 if (typeof document !== 'undefined') {
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  const start = () => { boot(); wireAppHeader(); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 }

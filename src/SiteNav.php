@@ -190,10 +190,11 @@ final class SiteNav
      * count) the notifications bell; on a phone the links fold behind a menu button
      * (community.js). site/site-nav.css names the header, its mark and name, the links and the theme
      * button for the page-to-page View Transition, so the centred header stretches into this one and back.
+     * The console draws the same layout ($app['console']: the Console link as the page being read).
      *
      * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}>}> $links
      * @param array<string, int> $badges href => a count its link shows (badges())
-     * @param array{bell?: int|null}|null $app
+     * @param array{bell?: int|null, console?: bool}|null $app
      */
     public static function nav(array $links, string $path, array $badges = [], ?array $app = null): string
     {
@@ -218,13 +219,31 @@ final class SiteNav
                 . $theme;
         }
         $bell = isset($app['bell']) ? self::bell((int) $app['bell']) . "\n" : '';
+        $console = !empty($app['console']) ? '    ' . self::consoleLink(true) . "\n" : '';
         return '<nav class="site-nav site-nav-app" aria-label="Site">' . "\n"
             . '  <div class="site-nav-row">' . "\n"
             . $wordmark
             . '    <button class="site-nav-menu" type="button" aria-expanded="false" aria-controls="site-nav-links" aria-label="Menu" hidden></button>' . "\n"
             . '    <div class="site-nav-links" id="site-nav-links">' . $items . "\n    </div>\n"
             . $bell
+            . $console
             . $theme;
+    }
+
+    /**
+     * The administrators' Console link (Austin 2026-11-09): a round icon beside the bell and the theme
+     * button, its word for a screen reader and a tooltip, and on /console/ itself the page being read,
+     * a pill with the word showing (site/site-nav.css). Drawn here only on the console, a page only an
+     * administrator is ever served (AdminConsolePage, no-store). Every other page, built, cached or drawn
+     * by Minn, gets it from site/theme.js after GET /console/me says the reader is an administrator, so
+     * no page's HTML carries it. The same markup as theme.js builds.
+     */
+    /** The console's address (AdminConsolePage::PATH), which site/theme.js links to as well. */
+    public const CONSOLE = '/console/';
+
+    public static function consoleLink(bool $current): string
+    {
+        return '<a class="site-nav-console" href="' . self::CONSOLE . '" title="Console"' . ($current ? ' aria-current="page"' : '') . '><span class="site-nav-console-word">Console</span></a>';
     }
 
     /** The chat app's notifications bell with its unread count (community/notifications.js opens its panel). */

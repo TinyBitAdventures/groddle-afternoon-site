@@ -1,36 +1,98 @@
-/* The administrators' console (/console/, src/AdminConsolePage.php). Colours come from the site's tokens
-   (restoration.css), so light and dark follow /site/theme.js like every other page. Dense, like an ops screen. */
+/* The administrators' console (/console/, src/AdminConsolePage.php), in the chat app's look (Austin 2026-11-09:
+   "skinned the same way the /community/ page is with its expanded header and re-colored chrome"). The palette,
+   the full-width header and the bell's panel are community/community.css's (the page loads it first and its
+   tokens name .console-page beside .community-page), so light and dark follow /site/theme.js and the two pages
+   stay one look. Here: the console's frame (a full-window app: a left rail of the tabs, the chat's CHANNELS,
+   and the chosen tab's panels scrolling in the pane beside it under a band, the chat's conversation head) and
+   its surfaces (the panels as the app's cards with a parchment head band, pill buttons, round fields).
+   Colours are tokens only; the kind and status chips keep fixed fills, each at least 4.5:1 in both themes. */
 
-.console { max-width: 1320px; margin: 0 auto; padding: 20px 16px 48px; font-size: 14px; }
-.console h1 { margin: 0; font-size: clamp(28px, 4vw, 36px); line-height: 1.1; }
-.console h2 { margin: 0; font-size: 18px; }
-.console-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
-.console-head .kicker { margin-bottom: 4px; }
-.console-server { margin: 0; padding: 5px 12px 5px 26px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font-weight: 700; position: relative; }
-.console-server::before { content: ''; position: absolute; left: 10px; top: 50%; width: 9px; height: 9px; margin-top: -4.5px; border-radius: 50%; background: var(--stone); }
-.console-server[data-state="up"]::before { background: var(--moss); }
-.console-server[data-state="down"]::before { background: #c8553d; }
-.console-note { margin: 0 0 14px; padding: 9px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-weight: 600; }
-.console-note[data-tone="bad"] { border-color: #c8553d; }
+.console-page { --site-nav-h: 48px; --cx-rail-w: 300px; --console-font: Nunito, ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; }
+
+/* A full-window app, as /chat/: the page never scrolls; under the header the rail and the pane scroll inside themselves. */
+html:has(> body.console-page) { height: 100%; overflow: hidden; overscroll-behavior: none; scroll-padding-top: 0; }
+body.console-page { display: flex; flex-direction: column; height: 100vh; height: 100dvh; margin: 0; overflow: hidden; overscroll-behavior: none; background: var(--bg); }
+.console-page > .site-nav { flex: none; }
+
+.console {
+  display: grid; flex: 1 1 auto; grid-template-columns: var(--cx-rail-w) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  min-height: 0; margin: 0; padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); overflow: hidden;
+  color: var(--fg); background: var(--bg); font-family: var(--console-font); font-size: 14px; font-weight: 600; line-height: 1.4;
+}
+.console h1, .console h2, .console h3 { font-family: var(--console-font); color: var(--fg); }
+.console h1 { margin: 0; font-size: 17px; font-weight: 800; line-height: 1.2; }
+.console h2 { margin: 0; font-size: 16px; font-weight: 800; }
+
+/* The rail: the tabs as the chat's rows, a round icon each, the count at the row's end. */
+.console-rail { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-right: 1px solid var(--border); background: var(--surface); }
+.console .console-rail-title { margin: 14px 16px 4px; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.console-tabs { display: grid; align-content: start; gap: 2px; flex: 1 1 auto; min-height: 0; margin: 0; padding: 0 8px 16px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.console .console-tabs [role="tab"] {
+  display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; min-height: 52px; padding: 8px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--fg); font: inherit; font-size: 15px; font-weight: 800; text-align: left; cursor: pointer;
+}
+.console .console-tabs [role="tab"]:hover { background: var(--cx-soft); }
+.console .console-tabs [role="tab"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--cx-soft); }
+.console .console-tabs [role="tab"][aria-selected="true"] { background: var(--cx-soft); box-shadow: inset 3px 0 0 var(--accent); }
+/* The row's round icon: the chat's channel circles, a colour and a glyph for each tab (any other tab gets the dots). */
+.console-tabs [role="tab"]::before {
+  content: ''; flex: none; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--tab-glyph, url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fffdf8'%3E%3Ccircle cx='6' cy='12' r='1.8'/%3E%3Ccircle cx='12' cy='12' r='1.8'/%3E%3Ccircle cx='18' cy='12' r='1.8'/%3E%3C/svg%3E")) center / 20px no-repeat, var(--tab-hue, var(--cx-hue-0));
+}
+.console-tabs [data-console-tab="players"] { --tab-hue: var(--cx-hue-1); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='9' cy='8' r='3.2'/%3E%3Cpath d='M3 19c.6-3.4 3-5 6-5s5.4 1.6 6 5'/%3E%3Cpath d='M15.5 5.2a3 3 0 0 1 0 5.6M17.5 14.4c1.8.6 3 2.1 3.5 4.6'/%3E%3C/svg%3E"); }
+.console-tabs [data-console-tab="reports"] { --tab-hue: var(--cx-hue-3); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 21V4h11l-2 4 2 4H5'/%3E%3C/svg%3E"); }
+.console-tabs [data-console-tab="chat"] { --tab-hue: var(--cx-hue-5); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 5h16v11H9l-5 4z'/%3E%3Cpath d='M8 9.5h8M8 12.5h5'/%3E%3C/svg%3E"); }
+.console-tabs [data-console-tab="credits"] { --tab-hue: var(--cx-hue-7); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='m12 3.5 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z'/%3E%3C/svg%3E"); }
+.console-tabs [data-console-tab="boards"] { --tab-hue: var(--cx-hue-2); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3.5' y='5' width='17' height='13' rx='1.5'/%3E%3Cpath d='M8 9h4M8 12.5h6'/%3E%3Ccircle cx='16.5' cy='8.6' r='.6' fill='%23fffdf8'/%3E%3C/svg%3E"); }
+.console-tabs [data-console-tab="community"] { --tab-hue: var(--cx-hue-4); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 5h11v7H8l-3 2.5V12H3z'/%3E%3Cpath d='M17 9h4v7h-2v2.5L16 16h-5v-2'/%3E%3C/svg%3E"); }
+.console-tabs [data-console-tab="builder"] { --tab-hue: var(--cx-hue-6); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 20h18M5 20v-7l4-3 4 3v7M13 20V9l3-4 3 4v11'/%3E%3C/svg%3E"); }
+.console-tabs .console-count { margin-left: auto; }
+.console-rail-foot { flex: none; margin: 0; padding: 8px 12px calc(9px + env(safe-area-inset-bottom)); border-top: 1px solid var(--row-line); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1.4; }
+.console-rail-foot a { color: inherit; text-decoration: none; }
+.console-rail-foot a:hover { color: var(--fg); text-decoration: underline; }
+
+/* The pane: the conversation head's band (the console, the server's state), then the tab's panels, scrolling. */
+.console-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.console-head { display: flex; flex: none; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--cx-parchment); }
+.console-head-mark {
+  flex: none; width: 32px; height: 32px; border-radius: 50%;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M12 3 5 6v5c0 4.4 3 8 7 10 4-2 7-5.6 7-10V6z'/%3E%3Cpath d='m9 12 2.2 2.2L15.5 10' stroke-linecap='round'/%3E%3C/svg%3E") center / 18px no-repeat, var(--cx-hue-5);
+}
+.console-head-txt { display: grid; flex: 1 1 auto; min-width: 0; }
+.console .console-head .kicker { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.console-server { flex: none; margin: 0; padding: 5px 14px 5px 28px; border: 1px solid var(--cx-strong); border-radius: 999px; background: var(--bg); color: var(--fg); font-size: 13px; font-weight: 700; position: relative; white-space: nowrap; }
+.console-server::before { content: ''; position: absolute; left: 11px; top: 50%; width: 9px; height: 9px; margin-top: -4.5px; border-radius: 50%; background: var(--muted); }
+.console-server[data-state="up"]::before { background: var(--cx-good); }
+.console-server[data-state="down"]::before { background: var(--cx-danger); }
+.console-body { flex: 1 1 auto; min-height: 0; padding: 16px 18px 40px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.console-note { margin: 0 0 14px; padding: 9px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--cx-soft); color: var(--fg); font-weight: 700; }
+.console-note[data-tone="bad"] { border-color: var(--cx-danger); background: color-mix(in srgb, var(--cx-danger) 12%, var(--bg)); }
 
 .console-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; align-items: start; }
 .console-col { display: grid; gap: 14px; min-width: 0; }
-@media (max-width: 900px) { .console-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1100px) { .console-grid { grid-template-columns: minmax(0, 1fr); } }
 
-.console-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px 14px 10px; min-width: 0; }
-.console-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-.console-hint { margin: 0; font-size: 12px; color: var(--muted); }
-.console-count { display: inline-block; min-width: 1.6em; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: var(--track); color: var(--fg); font-family: var(--font-body); font-size: 12px; text-align: center; vertical-align: 2px; }
+/* Panels: the app's cards (its thread panel and Who's around), each with the conversation head's parchment band. */
+.console-panel { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 0 14px 10px; min-width: 0; overflow: hidden; box-shadow: 0 1px 0 var(--row-line); }
+.console-panel-head, .console-panel > h2:first-child {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap;
+  margin: 0 -14px 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--cx-parchment);
+}
+.console-panel > p:first-child, .console-panel > [data-console-thread-empty] { margin-top: 12px; }
+.console-hint { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.console-panel > .console-hint { margin: 0 0 8px; }
+a.console-hint { color: var(--fg); }
+.console-count { display: inline-block; min-width: 1.6em; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: var(--track); color: var(--fg); font-family: var(--console-font); font-size: 12px; font-weight: 800; text-align: center; vertical-align: 1px; }
 .console-count:empty { display: none; }
 .console-empty { margin: 6px 2px 8px; color: var(--muted); }
 .console-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.console-sub { color: var(--muted); font-size: 12px; font-weight: 400; }
+.console-sub { color: var(--muted); font-size: 12px; font-weight: 600; }
 
 .console-table { width: 100%; border-collapse: collapse; table-layout: auto; }
 .console-table th { text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .console-table td { padding: 6px 8px; border-bottom: 1px solid var(--row-line); vertical-align: middle; overflow-wrap: anywhere; }
 .console-table tbody tr { cursor: pointer; }
-.console-table tbody tr:hover { background: var(--track); }
+.console-table tbody tr:hover { background: var(--cx-soft); }
 .console-table tbody tr:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 .console-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .console-act { width: 1%; text-align: right; }
@@ -40,17 +102,22 @@
 .console-tag-filtered { background: #e8b04b; color: #2b2112; cursor: help; }
 .console-tag-deleted { background: var(--muted); color: var(--bg); cursor: help; }
 
-.console button { cursor: pointer; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-solid); color: var(--fg); padding: 5px 12px; font-weight: 600; }
-.console button:hover { border-color: var(--accent); }
+/* Buttons: the app's pills (.cx-chip), the primary ones its purple (.cbutton, the header's Play). */
+.console button { cursor: pointer; border: 1px solid var(--cx-strong); border-radius: 999px; background: var(--bg); color: var(--fg); padding: 5px 14px; font: inherit; font-weight: 700; }
+.console button:hover { background: var(--cx-parchment); border-color: var(--cx-strong); }
+.console button:disabled { opacity: 0.55; cursor: default; }
 .console button:focus-visible, .console-menu button:focus-visible, .console-dialog :is(button, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .console .console-menu-btn { padding: 0 10px; line-height: 24px; font-size: 18px; }
 .console .console-small { padding: 2px 9px; font-size: 12px; }
 .console .console-small.console-danger { background: #b2452f; border-color: #b2452f; color: #fff; white-space: nowrap; }
 .console .console-more { margin: 6px 0; }
+.console .console-primary { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }
+.console .console-primary:hover { background: var(--play-hover); border-color: var(--play-hover); }
 
 .console-search { display: flex; gap: 6px; margin-bottom: 8px; }
 .console-search input { flex: 1; min-width: 0; }
-.console input, .console-dialog input, .console-dialog textarea { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+/* Fields: the app's rounded input (.cx-field). */
+.console input:not([type="checkbox"]):not([type="radio"]), .console select, .console-dialog input:not([type="checkbox"]):not([type="radio"]), .console-dialog textarea, .console-dialog select { font: inherit; font-weight: 600; color: var(--fg); background: var(--bg); border: 1px solid var(--cx-strong); border-radius: 18px; padding: 6px 12px; }
 
 .console-list { list-style: none; margin: 0; padding: 0; }
 .console-ban { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; padding: 7px 2px; border-bottom: 1px solid var(--row-line); }
@@ -66,42 +133,38 @@
 .console-kind-message { background: #477d38; color: #fff; }
 @media (max-width: 560px) { .console-loglist li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
 
-.console-menu { position: absolute; z-index: 1000; min-width: 220px; padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); font-family: var(--font-body); font-size: 14px; }
+.console-menu { position: absolute; z-index: 1000; min-width: 220px; padding: 4px; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); font-family: var(--console-font, var(--font-body)); font-size: 14px; font-weight: 600; }
 .console-menu-head { margin: 0; padding: 6px 10px 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
 .console-menu button { display: flex; width: 100%; justify-content: space-between; gap: 12px; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
-.console-menu button:hover, .console-menu button:focus { background: var(--track); outline: none; }
+.console-menu button:hover, .console-menu button:focus { background: var(--cx-soft, var(--track)); outline: none; }
 .console-menu button[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
 
-.console-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); padding: 0; font-family: var(--font-body); font-size: 14px; }
+.console-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--fg); padding: 0; font-family: var(--console-font, var(--font-body)); font-size: 14px; font-weight: 600; }
 .console-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .console-form { display: grid; gap: 10px; padding: 18px; }
-.console-form h2 { margin: 0 0 2px; font-family: var(--font-display); font-size: 20px; }
+.console-form h2 { margin: 0 0 2px; font-family: inherit; font-size: 18px; font-weight: 800; }
 .console-form label { display: grid; gap: 4px; font-weight: 700; }
 .console-form textarea { resize: vertical; min-height: 6em; }
 .console-form-status { margin: 0; color: #c8553d; font-weight: 600; min-height: 1em; }
 .console-form-status:empty { display: none; }
 .console-form-buttons { display: flex; justify-content: flex-end; gap: 8px; }
-.console-form button { cursor: pointer; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-solid); color: var(--fg); padding: 6px 14px; font: inherit; font-weight: 700; }
+.console-form button { cursor: pointer; border: 1px solid var(--cx-strong, var(--border)); border-radius: 999px; background: var(--bg); color: var(--fg); padding: 6px 16px; font: inherit; font-weight: 700; }
+.console-form button:hover { background: var(--cx-parchment, var(--track)); }
 .console-form .console-primary { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }
 .console-form .console-danger { background: #b2452f; border-color: #b2452f; color: #fff; }
 .console-form .console-small { padding: 2px 9px; font-size: 12px; }
 .console-counter { justify-self: end; margin-top: -6px; }
 .console-picker { display: grid; gap: 4px; position: relative; }
 .console-picker label { font-weight: 700; }
-.console-picks { list-style: none; margin: 0; padding: 4px; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--chip-solid); }
+.console-picks { list-style: none; margin: 0; padding: 4px; max-height: 220px; overflow: auto; border: 1px solid var(--cx-strong, var(--border)); border-radius: 12px; background: var(--bg); }
 .console-picks li { padding: 5px 8px; border-radius: 6px; cursor: pointer; }
-.console-picks li[aria-selected="true"], .console-picks li:hover { background: var(--track); }
+.console-picks li[aria-selected="true"], .console-picks li:hover { background: var(--cx-soft, var(--track)); }
 .console-chosen { margin: 0; font-weight: 600; }
 .console-stacks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .console-stacks li { display: flex; align-items: center; gap: 6px; }
 .console-qty { width: 6em; }
 
-/* Tabs: Players and Reports (the unread count rides on Reports). */
-.console-tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--border); }
-.console .console-tabs [role="tab"] { margin-bottom: -1px; padding: 7px 16px; border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted); font-size: 15px; font-weight: 700; }
-.console .console-tabs [role="tab"]:hover { color: var(--fg); border-color: transparent; }
-.console .console-tabs [role="tab"][aria-selected="true"] { background: var(--surface); color: var(--fg); border-color: var(--border); }
-.console-count-unread { background: #2d6a8f; color: #fff; }
+.console-count-unread { background: var(--play-bg); color: var(--play-fg); }
 /* A tab's panel that is not shown (its grid display would beat [hidden]). */
 .console [data-console-tabpanel][hidden] { display: none; }
 
@@ -111,13 +174,14 @@
 @media (max-width: 900px) { .console-reports { grid-template-columns: minmax(0, 1fr); } }
 .console-filter { display: flex; gap: 4px; flex-wrap: wrap; }
 .console .console-filter button { padding: 3px 10px; font-size: 12px; }
-.console .console-filter button[aria-pressed="true"] { background: var(--track); border-color: var(--accent); }
-.console-legacy { margin: 0 0 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; color: var(--lead); }
+.console .console-filter button[aria-pressed="true"] { background: var(--cx-soft); border-color: var(--accent); }
+.console-legacy { margin: 0 0 8px; padding: 8px 12px; border: 1px dashed var(--cx-strong); border-radius: 12px; color: var(--lead); }
 .console-ticketlist { max-height: 640px; overflow: auto; }
 .console-ticketlist li { border-bottom: 1px solid var(--row-line); }
 .console .console-ticket { display: grid; gap: 2px; width: 100%; padding: 8px 6px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-weight: 400; }
-.console .console-ticket:hover { background: var(--track); }
-.console .console-ticket[aria-current="true"] { background: var(--track); box-shadow: inset 3px 0 0 var(--accent); }
+.console .console-ticket { border-radius: 10px; }
+.console .console-ticket:hover { background: var(--cx-soft); }
+.console .console-ticket[aria-current="true"] { background: var(--cx-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .console-ticket-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .console-ticket-top b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .console-ticketlist li:not([data-unread]) .console-ticket-top b { font-weight: 600; }
@@ -133,14 +197,14 @@
 .console-thread-head h2:focus { outline: none; }
 .console-thread-head .console-sub { margin: 2px 0 0; }
 .console-thread-acts { display: flex; align-items: center; gap: 6px; }
-.console-context { margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--row-line); border-radius: 8px; }
+.console-context { margin: 0 0 10px; padding: 6px 12px; border: 1px solid var(--row-line); border-radius: 12px; background: var(--surface); }
 .console-context summary { cursor: pointer; font-weight: 700; color: var(--lead); }
 .console-context dl { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 2px 10px; margin: 8px 0 2px; font-size: 12px; }
 .console-context dt { color: var(--muted); }
 .console-context dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .console-messages { display: grid; gap: 8px; max-height: 460px; overflow: auto; margin-bottom: 10px; padding: 2px; }
-.console-msg { max-width: 88%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--chip-solid); }
-.console-msg-admin { justify-self: end; background: var(--track); }
+.console-msg { max-width: 88%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+.console-msg-admin { justify-self: end; background: var(--cx-soft); }
 .console-msg-who { margin: 0 0 3px; font-size: 12px; }
 .console-msg-who time { color: var(--muted); }
 .console-msg-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
@@ -171,7 +235,7 @@
 .console-broadcast .console-reply-foot [data-console-broadcast-len] { margin-left: auto; }
 .console-quote { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--track); white-space: pre-wrap; overflow-wrap: anywhere; }
 .console-reply label { font-weight: 700; }
-.console-reply textarea { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 5em; }
+.console-reply textarea { font: inherit; font-weight: 600; color: var(--fg); background: var(--bg); border: 1px solid var(--cx-strong); border-radius: 14px; padding: 8px 14px; resize: vertical; min-height: 5em; }
 .console-reply textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .console-reply-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .console-reply-foot .console-check { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer; }
@@ -189,11 +253,11 @@
 .console-draft-streets { display: flex; flex-wrap: wrap; gap: .25rem .75rem; margin: 0; padding: 0; list-style: none; font-size: .9em; }
 .console-draft-acts { display: flex; gap: .5rem; margin-top: .25rem; }
 .console-link-btn { display: inline-block; text-decoration: none; }
-.console-newdraft input[type="text"] { width: 100%; box-sizing: border-box; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; }
+.console-newdraft input[type="text"] { width: 100%; box-sizing: border-box; padding: .5rem .8rem; }
 /* —— Builder keys (console/builder-keys.js) —— */
 .console-keys { grid-column: 1 / -1; }
 .console-chip-closed { background: var(--track); color: var(--fg); }
-.console-newkey input[type="text"], .console-newkey input[type="number"] { width: 100%; box-sizing: border-box; padding: .5rem .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--fg); font: inherit; }
+.console-newkey input[type="text"], .console-newkey input[type="number"] { width: 100%; box-sizing: border-box; padding: .5rem .8rem; }
 .console-newkey input:focus-visible, .console-key-secret:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .console-key-scopes { display: flex; flex-wrap: wrap; gap: .35rem 1rem; border: 0; margin: .5rem 0; padding: 0; }
 .console-key-scopes legend { padding: 0; margin-bottom: .35rem; font-weight: 700; }
@@ -211,7 +275,7 @@
 .console-chatsearch { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; margin-bottom: 8px; }
 .console-chatsearch label { display: grid; gap: 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .console-chatsearch input[type="search"] { width: 13em; }
-.console-chatsearch select { font: inherit; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+.console-chatsearch select { padding: 6px 10px; }
 .console-chatsearch .console-check { display: inline-flex; align-items: center; gap: 6px; padding-bottom: 7px; font-weight: 400; color: var(--fg); font-size: 14px; cursor: pointer; }
 .console-chatsearch .console-check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 .console-chatsearch :is(input, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -243,14 +307,14 @@
 }
 
 /* A report's Credit box (src/AdminReportCredits.php): its score for the Contribute page's testers board, and the form to set it. */
-.console-credit { margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--row-line); border-radius: 8px; }
+.console-credit { margin: 0 0 10px; padding: 6px 12px; border: 1px solid var(--row-line); border-radius: 12px; background: var(--surface); }
 .console-credit summary { cursor: pointer; font-weight: 700; color: var(--lead); }
 .console-credit summary .console-sub { margin-left: 4px; }
 .console-credit-now { margin: 6px 0 0; overflow-wrap: anywhere; }
 .console-credit-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 6px 10px; margin: 8px 0 4px; }
 .console-credit-form label { display: grid; gap: 3px; font-size: 12px; font-weight: 700; color: var(--muted); }
 .console-credit-form .console-credit-wide { grid-column: 1 / -1; }
-.console-credit-form select { font: inherit; font-size: 14px; color: var(--fg); background: var(--chip-solid); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; }
+.console-credit-form select { font-size: 14px; padding: 5px 10px; }
 .console-credit-form input { font-size: 14px; font-weight: 400; }
 .console-credit-form :is(select, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
@@ -262,3 +326,28 @@
 .console-boardrow { display: grid; grid-template-columns: 2.2em minmax(0, 1fr) auto; gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--row-line); }
 .console-unscoredlist { max-height: 420px; overflow: auto; }
 .console-unscoredlist li { border-bottom: 1px solid var(--row-line); }
+
+/* Between a phone and a wide window the header keeps one row: the mark alone over the rail (as /chat/). The
+   rail narrows with it. */
+@media (max-width: 960px) {
+  .console-page { --cx-rail-w: 232px; }
+}
+/* Phones (desktop first, but never broken): the page scrolls as one, the rail is a row of the tabs over the
+   pane, and the panels stack. community.css folds the header's links behind its menu button (console.js). */
+@media (max-width: 720px) {
+  .console-page { --site-nav-h: 46px; }
+  html:has(> body.console-page) { height: auto; overflow: visible; }
+  body.console-page { display: block; height: auto; overflow: visible; }
+  .console { display: block; overflow: visible; }
+  .console-rail { border-right: 0; border-bottom: 1px solid var(--border); }
+  .console .console-rail-title { display: none; }
+  .console-tabs { display: flex; gap: 4px; padding: 6px 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .console .console-tabs [role="tab"] { flex: none; width: auto; min-height: 40px; padding: 6px 12px 6px 6px; gap: 8px; font-size: 14px; white-space: nowrap; }
+  .console-tabs [role="tab"]::before { width: 28px; height: 28px; background-size: 16px, auto; }
+  .console .console-tabs [role="tab"][aria-selected="true"] { box-shadow: inset 0 -3px 0 var(--accent); }
+  .console-rail-foot { display: none; }
+  .console-pane { display: block; }
+  .console-head { padding: 8px 12px; flex-wrap: wrap; }
+  .console-body { overflow: visible; padding: 12px 10px 32px; }
+}
+
