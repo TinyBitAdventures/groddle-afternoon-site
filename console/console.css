@@ -79,6 +79,8 @@ body.console-page { display: flex; flex-direction: column; height: 100vh; height
   margin: 0 -14px 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--cx-parchment);
 }
 .console-panel > p:first-child, .console-panel > [data-console-thread-empty] { margin-top: 12px; }
+/* Cards stacked straight in a tab (Boards, Community, Chat log) keep the columns' gap between them. */
+[role="tabpanel"] > .console-panel + .console-panel { margin-top: 14px; }
 .console-hint { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
 .console-panel > .console-hint { margin: 0 0 8px; }
 a.console-hint { color: var(--fg); }
