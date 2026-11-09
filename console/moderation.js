@@ -90,9 +90,9 @@ function boot() {
   const say = (t) => { status.textContent = t; };
 
   // —— Reports and flags ——
-  const reportList = el('ul', { class: 'console-list console-ticketlist', 'data-mod-reports': '', 'aria-label': 'Reports' });
+  const reportList = el('ul', { class: 'console-list console-draftlist', 'data-mod-reports': '', 'aria-label': 'Reports' });
   const reportEmpty = el('p', { class: 'console-empty', hidden: true }, 'Nothing reported. Players report an IM from its line in the game.');
-  const flagList = el('ul', { class: 'console-list', 'data-mod-flags': '', 'aria-label': 'Flags' });
+  const flagList = el('ul', { class: 'console-list console-draftlist', 'data-mod-flags': '', 'aria-label': 'Flags' });
   const flagEmpty = el('p', { class: 'console-empty', hidden: true }, 'No flags. The game raises one when a player sends IMs to many players, piles up refused IMs or lines, or is blocked by several players in a day.');
   const showAll = el('input', { type: 'checkbox', 'data-mod-all': '' });
   const reportsSection = el('section', { class: 'console-panel', 'aria-labelledby': 'console-mod-reports-title' },
@@ -104,7 +104,7 @@ function boot() {
     el('h3', {}, 'Flags'), flagList, flagEmpty);
 
   // —— Actions ——
-  const actionList = el('ul', { class: 'console-list console-loglist', 'data-mod-actions': '', 'aria-label': 'Moderators\' log' });
+  const actionList = el('ul', { class: 'console-list console-draftlist', 'data-mod-actions': '', 'aria-label': 'Moderators\' log' });
   const actionEmpty = el('p', { class: 'console-empty', hidden: true }, 'No moderation yet.');
   const onlyGrok = el('input', { type: 'checkbox', 'data-mod-only-grok': '' });
   const actionsSection = el('section', { class: 'console-panel', 'aria-labelledby': 'console-mod-actions-title' },
@@ -115,7 +115,7 @@ function boot() {
     actionList, actionEmpty);
 
   // —— Standing restrictions ——
-  const restrictionList = el('ul', { class: 'console-list', 'data-mod-restrictions': '', 'aria-label': 'Restrictions' });
+  const restrictionList = el('ul', { class: 'console-list console-draftlist', 'data-mod-restrictions': '', 'aria-label': 'Restrictions' });
   const restrictionEmpty = el('p', { class: 'console-empty', hidden: true }, 'Nobody is silenced or has IMs paused.');
   const restrictionsSection = el('section', { class: 'console-panel', 'aria-labelledby': 'console-mod-restrictions-title' },
     el('div', { class: 'console-panel-head' }, el('h2', { id: 'console-mod-restrictions-title' }, 'Silenced and IM-paused')),
