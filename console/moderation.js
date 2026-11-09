@@ -1,16 +1,17 @@
 /**
  * The console's Moderation tab (src/Moderation.php, ModReports.php, ModTokens.php; Austin 2026-11-09:
- * "Put Grok Bot in charge of keeping the game safe"): what players reported and the game's signals
- * flagged, what the moderators did (Grok Bot's lines marked, with Undo where there is one), the
- * restrictions that stand (Lift), and Grok Bot's token (made and revoked here, shown once).
+ * "Put Grok Bot in charge of keeping the game safe"): what the game's signals flagged, what the
+ * moderators did (Grok Bot's lines marked, with Undo where there is one), the restrictions that stand
+ * (Lift), and Grok Bot's token (made and revoked here, shown once).
  *
  * Its own module beside console.js: it fills the Moderation tab's panel and keeps its own REST nonce.
  * Everything goes through groddle/v1/mod/* with the session, as Grok Bot's token does with its bearer
- * secret. A reported IM shows the lines the reporter's report carries, and only those: no route gives
- * an IM's words otherwise.
+ * secret. No IM's words ever show here (Austin 2026-11-09: IM reports were scrapped; the privacy
+ * policy promises only an IM's two players read it): IM spam shows as flags (counts, no words) and
+ * is handled with an IM pause, a ban or a purge.
  */
 
-/** The outcomes a report resolves with (Moderation::OUTCOMES), in words. */
+/** The outcomes a flag resolves with (Moderation::OUTCOMES), in words. */
 export const OUTCOME_WORDS = Object.freeze({
   no_action: 'No action needed',
   warned: 'Warned',
@@ -26,7 +27,7 @@ export const OUTCOME_WORDS = Object.freeze({
 /** What an action line says, in words. */
 export const ACTION_WORDS = Object.freeze({
   silence: 'Silenced', im_restrict: 'Restricted IMs', lift: 'Lifted', ban: 'Banned', unban: 'Unbanned', delete_line: 'Deleted a line',
-  purge: 'Purged', notice: 'Sent a notice', resolve: 'Resolved a report', undo: 'Undid', token_create: 'Made a token', token_revoke: 'Revoked a token',
+  purge: 'Purged', notice: 'Sent a notice', resolve: 'Resolved a flag', undo: 'Undid', token_create: 'Made a token', token_revoke: 'Revoked a token',
 });
 
 /** PURE: an action line's words. */
@@ -83,25 +84,22 @@ function createApi() {
 
 function boot() {
   const panel = document.querySelector('[data-console-tabpanel="moderation"]');
-  if (!panel || panel.querySelector('[data-mod-reports]')) return;
+  if (!panel || panel.querySelector('[data-mod-flags]')) return;
   const api = createApi();
   const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
   const status = el('p', { class: 'console-sub', role: 'status', 'aria-live': 'polite', 'data-mod-status': '' });
   const say = (t) => { status.textContent = t; };
 
-  // —— Reports and flags ——
-  const reportList = el('ul', { class: 'console-list console-draftlist', 'data-mod-reports': '', 'aria-label': 'Reports' });
-  const reportEmpty = el('p', { class: 'console-empty', hidden: true }, 'Nothing reported. Players report an IM from its line in the game.');
+  // —— Flags (the queue) ——
   const flagList = el('ul', { class: 'console-list console-draftlist', 'data-mod-flags': '', 'aria-label': 'Flags' });
   const flagEmpty = el('p', { class: 'console-empty', hidden: true }, 'No flags. The game raises one when a player sends IMs to many players, piles up refused IMs or lines, or is blocked by several players in a day.');
   const showAll = el('input', { type: 'checkbox', 'data-mod-all': '' });
-  const reportsSection = el('section', { class: 'console-panel', 'aria-labelledby': 'console-mod-reports-title' },
+  const flagsSection = el('section', { class: 'console-panel', 'aria-labelledby': 'console-mod-flags-title' },
     el('div', { class: 'console-panel-head' },
-      el('h2', { id: 'console-mod-reports-title' }, 'Reports ', el('span', { class: 'console-count console-count-unread', 'data-mod-open': '' })),
-      el('p', { class: 'console-hint' }, 'IMs players reported, with the lines around them as the reporter saw them. This is the only place an IM\'s words reach moderation.'),
+      el('h2', { id: 'console-mod-flags-title' }, 'Flags ', el('span', { class: 'console-count console-count-unread', 'data-mod-open': '' })),
+      el('p', { class: 'console-hint' }, 'What the game counted, never what anyone wrote: no IM\'s words reach moderation.'),
       el('label', { class: 'console-check' }, showAll, ' Show resolved too')),
-    status, reportList, reportEmpty,
-    el('h3', {}, 'Flags'), flagList, flagEmpty);
+    status, flagList, flagEmpty);
 
   // —— Actions ——
   const actionList = el('ul', { class: 'console-list console-draftlist', 'data-mod-actions': '', 'aria-label': 'Moderators\' log' });
@@ -141,7 +139,7 @@ function boot() {
       el('p', { class: 'console-hint' }, 'Grok Bot\'s credential. Revoking stops it at once.')),
     tokenList, tokenEmpty, shown, tokenForm);
 
-  panel.append(reportsSection, actionsSection, restrictionsSection, tokensSection);
+  panel.append(flagsSection, actionsSection, restrictionsSection, tokensSection);
 
   // —— Acting ——
   async function act(path, body, done) {
@@ -154,16 +152,15 @@ function boot() {
   }
   const ask = (q, dflt) => globalThis.prompt?.(q, dflt);
 
-  function reportActions(r) {
+  function flagActions(r) {
     const p = r.player;
-    const reason = () => ask(`Why? (shown in the moderators' log${r.kind === 'im' ? ` with report #${r.id}` : ''})`, r.kind === 'im' ? `Report #${r.id}` : `Flag: ${r.signal}`);
+    const reason = () => ask('Why? (shown in the moderators\' log)', `Flag: ${r.signal}`);
     const btn = (label, fn, attrs = {}) => el('button', { type: 'button', class: 'console-small', ...attrs, onclick: fn }, label);
     const bar = el('div', { class: 'console-draft-acts' });
     if (r.status === 'open') {
       const pick = el('select', { 'aria-label': 'Outcome', 'data-mod-outcome': String(r.id) }, ...Object.entries(OUTCOME_WORDS).map(([v, w]) => el('option', { value: v }, w)));
       bar.append(pick, btn('Resolve', () => act(`reports/${r.id}/resolve`, { outcome: pick.value, note: ask('A note for the log (optional)', '') || '' }), { 'data-mod-resolve': String(r.id) }));
     }
-    if (r.kind === 'im' && r.lineDeletable) bar.append(btn('Delete line', () => { const why = reason(); if (why) act('delete_line', { report: r.id, reason: why }); }));
     bar.append(
       btn('Silence 24 h', () => { const why = reason(); if (why) act('silence', { player: p.id, scope: 'all', hours: 24, reason: why }); }),
       btn('Pause IMs 24 h', () => { const why = reason(); if (why) act('im_restrict', { player: p.id, scope: 'all', hours: 24, reason: why }); }),
@@ -173,27 +170,15 @@ function boot() {
     return bar;
   }
 
-  function reportRow(r) {
+  function flagRow(r) {
     const who = el('div', { class: 'console-draft-top' },
-      el('b', { text: r.kind === 'im' ? `#${r.id} ${r.player.name}` : `${r.player.name}` }),
+      el('b', { text: r.player.name }),
       el('span', { class: 'console-sub', text: ` ${when(r.createdAt)}${r.player.newAccount ? ' · new account' : ''}${r.player.accountDays != null ? ` · ${r.player.accountDays} days old` : ''}` }),
       el('span', { class: `console-chip console-chip-${r.status === 'open' ? 'open' : 'closed'}`, text: r.status === 'open' ? 'Open' : (OUTCOME_WORDS[r.outcome?.outcome] || 'Resolved') }));
-    const li = el('li', { class: 'console-draft', [r.kind === 'im' ? 'data-mod-report' : 'data-mod-flag']: String(r.id) }, who);
-    if (r.kind === 'im') {
-      li.append(el('span', { class: 'console-sub', text: `Reported by ${r.reporter?.name || '?'}${r.verified ? '' : ' · from the reporter\'s game (the site did not have the line yet)'}` }));
-      if (r.note) li.append(el('p', { class: 'console-quote', text: `“${r.note}”` }));
-      const lines = el('ol', { class: 'console-messages', 'aria-label': 'The conversation' });
-      for (const l of r.lines) {
-        lines.append(el('li', { class: `console-msg${l.reported ? ' console-msg-admin' : ''}`, 'data-mod-line': l.reported ? 'reported' : '' },
-          el('span', { class: 'console-msg-who', text: `${l.from?.name || '?'}${l.reported ? ' (reported)' : ''}: ` }),
-          el('span', { class: 'console-msg-body', text: l.text })));
-      }
-      li.append(lines);
-    } else {
-      li.append(el('span', { class: 'console-sub', text: `${r.about} · ${r.n} in ${Math.round(r.windowSeconds / 60)} min${r.times > 1 ? ` · raised ${r.times} times` : ''}` }));
-    }
+    const li = el('li', { class: 'console-draft', 'data-mod-flag': String(r.id) }, who,
+      el('span', { class: 'console-sub', text: `${r.about} · ${r.n} in ${Math.round(r.windowSeconds / 60)} min${r.times > 1 ? ` · raised ${r.times} times` : ''}` }));
     if (r.outcome) li.append(el('span', { class: 'console-sub', text: `${OUTCOME_WORDS[r.outcome.outcome] || r.outcome.outcome} by ${r.outcome.by}, ${when(r.outcome.at)}${r.outcome.note ? `: ${r.outcome.note}` : ''}` }));
-    li.append(reportActions(r));
+    li.append(flagActions(r));
     return li;
   }
 
@@ -235,11 +220,9 @@ function boot() {
         api.call(`actions${onlyGrok.checked ? '?actor=token' : ''}`),
         api.call('tokens'),
       ]);
-      reportList.replaceChildren(...feed.reports.map(reportRow));
-      reportEmpty.hidden = feed.reports.length > 0;
-      flagList.replaceChildren(...feed.flags.map(reportRow));
+      flagList.replaceChildren(...feed.flags.map(flagRow));
       flagEmpty.hidden = feed.flags.length > 0;
-      const open = feed.reports.filter((r) => r.status === 'open').length + feed.flags.filter((r) => r.status === 'open').length;
+      const open = feed.flags.filter((r) => r.status === 'open').length;
       panel.querySelector('[data-mod-open]').textContent = open ? String(open) : '';
       actionList.replaceChildren(...log.actions.map(actionRow));
       actionEmpty.hidden = log.actions.length > 0;

@@ -301,12 +301,6 @@ final readonly class ChatHistory
         return ['lines' => $lines, 'ims' => $ims];
     }
 
-    /** One IM line deleted for both players (a reported line, Moderation): words emptied, out of every read. 1 when it was. */
-    public static function deleteIm(\Minn\Db $db, int $row, int $by): int
-    {
-        return $db->execute('UPDATE ' . $db->table(self::IMS) . " SET text = '', reactions = NULL, deleted_ms = ?, deleted_by = ? WHERE id = ? AND deleted_ms = 0", [Community::ms(), $by, $row]);
-    }
-
     /** A reaction set as kept: [{e, by:[ids]}], known reactions only, each player once; null when it is not a set. */
     public static function reactionsJson(mixed $r): ?string
     {

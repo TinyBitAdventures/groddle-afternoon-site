@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.46",
+  "version": "0.5.47",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -853,12 +853,7 @@
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
       "kind varchar(8) NOT NULL",
       "status varchar(8) NOT NULL DEFAULT 'open'",
-      "reporter_id bigint(20) unsigned NOT NULL DEFAULT 0",
       "reported_id bigint(20) unsigned NOT NULL",
-      "im_row bigint(20) unsigned NOT NULL DEFAULT 0",
-      "note varchar(500) NOT NULL DEFAULT ''",
-      "excerpt mediumtext NULL",
-      "verified tinyint(1) unsigned NOT NULL DEFAULT 0",
       "signal_name varchar(24) NOT NULL DEFAULT ''",
       "signal_n int(10) unsigned NOT NULL DEFAULT 0",
       "signal_window int(10) unsigned NOT NULL DEFAULT 0",
@@ -871,8 +866,7 @@
       "resolved_by varchar(80) NOT NULL DEFAULT ''",
       "PRIMARY KEY  (id)",
       "KEY status_kind (status,kind,id)",
-      "KEY reported_id (reported_id,status)",
-      "KEY reporter_id (reporter_id,created_at)"
+      "KEY reported_id (reported_id,status)"
     ],
     "groddle_mod_restrictions": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",

@@ -30,8 +30,8 @@ use Minn\Http\Route;
  * with Remove; #boards opens it. Community (2026-11-04, AdminCommunity): posts on the Community
  * boards, reported first, with Remove and Restore, Pin and Lock on the thread, Stop posting on the
  * writer, and who is stopped; #community opens it. Moderation (2026-11-09, console/moderation.js over
- * Moderation, ModReports and ModTokens): players' IM reports and the game's flags with the actions on
- * them, the moderators' log (Grok Bot's lines marked, Undo), who is silenced or IM-paused (Lift), and
+ * Moderation, ModReports and ModTokens): the game's flags (counts, never an IM's words) with the
+ * actions on them, the moderators' log (Grok Bot's lines marked, Undo), who is silenced or IM-paused (Lift), and
  * Grok Bot's token; #moderation opens it. Builder (only when AdminBuilder::enabled, the
  * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
  * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
@@ -69,7 +69,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-4';
+    public const ASSET_KEY = 'skin-5';
 
     public function __construct(private Seams $minn)
     {

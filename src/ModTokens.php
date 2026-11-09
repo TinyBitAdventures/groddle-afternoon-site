@@ -18,7 +18,7 @@ use Minn\Db;
  * The database keeps the id, a label ("Grok Bot"), its capabilities and the sha256 of the secret,
  * never the secret: it is shown once, when an administrator makes the token in the console's
  * Moderation tab (session only; a token can never make, list or revoke tokens). Revoking is at
- * once. Capabilities: "read" (the feed: chat log, reports with their reported IM lines, flags,
+ * once. Capabilities: "read" (the feed: chat log, flags (never an IM: no route reads one),
  * community and board reports, the moderators' log) and "moderate" (the actions).
  */
 final readonly class ModTokens

@@ -28,13 +28,13 @@ use Minn\RestError;
  *     Moderation tab uses the same routes. The token routes take the session only.
  *
  * Read (capability "read"):
- *   GET  mod/feed?status=open|all&since=<ISO time>    {"reports":[Report],"flags":[Report],"community":[Post],
- *                                                       "notes":[Note],"actions":[Action],"restrictions":[Restriction],"imReportsFrom":ms}
+ *   GET  mod/feed?status=open|all&since=<ISO time>    {"flags":[Report],"community":[Post],"notes":[Note],
+ *                                                       "actions":[Action],"restrictions":[Restriction]}
  *   GET  mod/chatlog?player=&q=&kind=&since=&until=&refused=1&before=   the chat log (the console's admin/chatlog: Local,
  *                                                       channel, group and party lines for 30 days; never an IM)
- *   GET  mod/reports/{id}                              {"report":Report}
+ *   GET  mod/reports/{id}                              {"report":Report}  one row of the queue (a flag)
  *   GET  mod/players?id=7 | ?q=name                    {"players":[Player]}  name, level, account age, administrator,
- *                                                       banned, restrictions, open reports and flags
+ *                                                       banned, restrictions, open flags
  *   GET  mod/actions?before=<id>&actor=token|admin     {"actions":[Action],"more":bool}  the moderators' log
  * Act (capability "moderate"; every one names a reason, refuses administrators and answers what it did):
  *   POST mod/reports/{id}/resolve {"outcome","note"}   outcome: OUTCOMES
@@ -45,7 +45,6 @@ use Minn\RestError;
  *   POST mod/ban          {"player","reason"}           suspended: signed out now, no ticket, no save (AdminConsole's ban)
  *   POST mod/unban        {"player","reason"}
  *   POST mod/delete_line  {"channel":"global"|"help"|"trade"|"group-<id>","lid","reason"}   one channel or group line for everyone
- *                         {"report":id,"reason"}       a reported IM line, for both players
  *   POST mod/purge        {"player","hours":24|0,"reason"}   everything they said in the last hours (0: all): channel,
  *                                                       group, thread, Local and party lines and their side of every IM,
  *                                                       from the site, the server and every open window. FINAL: there is
@@ -63,9 +62,12 @@ use Minn\RestError;
  * administrator; what; the player; the reason; what came of it), shown in the console's Moderation tab with
  * Grok Bot's lines marked and an Undo where one exists. Refusals of a token's calls are logged too.
  *
- * IMs: nothing here reads an IM but the lines a recipient reported (ModReports: the report keeps
- * them). A purge or a deleted reported line empties those rows' words; the realtime server takes them
- * out of its own copy and every window (moderation.go). Restrictions reach the realtime server
+ * IMs: nothing here reads an IM, reported or not (Austin 2026-11-09: "maybe scrap looking at IMs. I
+ * don't want to deal with privacy changes"; the privacy policy promises only an IM's two players read
+ * it, administrators included). IM spam is handled from the content-free flags (ModReports), the
+ * players' blocks and the IM pause, and a purge: it empties the player's own IM rows' words by player
+ * id, and the realtime server takes them out of its own copy and every window (moderation.go), with
+ * counts in the answer and nobody seeing a word. Restrictions reach the realtime server
  * (mod_restrict, the whole set each time) and every new ticket (claim()); they end by themselves.
  */
 final readonly class Moderation
@@ -312,20 +314,17 @@ final readonly class Moderation
         $all = $request->query('status') === 'all';
         $r = $db->table(ModReports::TABLE);
         $where = $all ? '' : "AND status = 'open'";
-        $reports = ModReports::out($db, $db->rows("SELECT * FROM {$r} WHERE kind = 'im' {$where} ORDER BY id DESC LIMIT " . self::FEED_MAX));
         $flags = ModReports::out($db, $db->rows("SELECT * FROM {$r} WHERE kind = 'flag' {$where} ORDER BY updated_at DESC, id DESC LIMIT " . self::FEED_MAX));
         $since = $request->query('since');
         $sinceAt = is_string($since) && strtotime($since) !== false ? gmdate('Y-m-d H:i:s', (int) strtotime($since)) : gmdate('Y-m-d H:i:s', time() - 86400);
         $out = [
-            'reports' => $reports,
             'flags' => $flags,
             'community' => $this->communityReported(),
             'notes' => $this->boardNotes($sinceAt),
             'actions' => $this->actions(0, null, 30)['actions'],
             'restrictions' => $this->restrictionsStanding(),
-            'imReportsFrom' => ModReports::imFrom($this->minn),
         ];
-        $this->log($actor, 'read_feed', 0, '', ['reports' => count($reports), 'flags' => count($flags)], 'ok');
+        $this->log($actor, 'read_feed', 0, '', ['flags' => count($flags)], 'ok');
         return self::private(Response::json($out));
     }
 
@@ -391,9 +390,7 @@ final readonly class Moderation
                 'banned' => AdminConsole::banned($db, $pid) !== null,
                 'silence' => $s['silence'] === [] ? null : ['scope' => implode(',', $s['silence']), 'until' => $s['silenceUntil'] ?: null],
                 'im' => $s['im'] === '' ? null : ['scope' => $s['im'], 'until' => $s['imUntil'] ?: null],
-                'openReports' => (int) $db->value("SELECT COUNT(*) FROM {$r} WHERE reported_id = ? AND status = 'open' AND kind = 'im'", [$pid]),
                 'openFlags' => (int) $db->value("SELECT COUNT(*) FROM {$r} WHERE reported_id = ? AND status = 'open' AND kind = 'flag'", [$pid]),
-                'reportsEver' => (int) $db->value("SELECT COUNT(*) FROM {$r} WHERE reported_id = ? AND kind = 'im'", [$pid]),
             ];
         }
         $this->log($actor, 'read_players', count($ids) === 1 ? $ids[0] : 0, '', ['found' => count($out)], 'ok');
@@ -619,28 +616,11 @@ final readonly class Moderation
         $actor = $this->actor($request, 'moderate');
         $db = $this->minn->db;
         $body = $request->json();
-        $reportId = is_int($body['report'] ?? null) ? $body['report'] : 0;
-        if ($reportId > 0) {
-            // A reported IM line: the report names the site's row; nothing here reads its words.
-            $rep = $db->row('SELECT id, reported_id, im_row FROM ' . $db->table(ModReports::TABLE) . " WHERE id = ? AND kind = 'im'", [$reportId]);
-            if ($rep === null || (int) $rep['im_row'] === 0) {
-                $this->refused($actor, 'delete_line', 0, 'report');
-                throw new RestError('groddle_mod_no_report', 'No reported IM line the site keeps has that report id.', 404);
-            }
-            $player = $this->target($actor, (int) $rep['reported_id'], 'delete_line');
-            $reason = $this->reason($actor, $body, 'delete_line', $player['id']);
-            $im = $db->row('SELECT a_id, b_id, line_id, at_ms FROM ' . $db->table(ChatHistory::IMS) . ' WHERE id = ?', [(int) $rep['im_row']]);
-            $n = ChatHistory::deleteIm($db, (int) $rep['im_row'], $actor['by']);
-            $answer = $im === null ? null : (new RealtimeCall($this->minn))->post('im_delete', ['a' => (int) $im['a_id'], 'b' => (int) $im['b_id'], 'line' => (int) $im['line_id'], 'at' => (int) $im['at_ms'], 'by' => $actor['by']]);
-            $live = in_array($answer['status'] ?? null, ['deleted', 'unknown'], true);
-            $id = $this->log($actor, 'delete_line', $player['id'], $reason, ['report' => $reportId, 'im' => true, 'marked' => $n], $live ? 'live' : 'down');
-            return $this->answer($id, $player, $live ? 'live' : 'down', "The reported IM line is gone for both players.");
-        }
         $key = is_string($body['channel'] ?? null) ? $body['channel'] : '';
         $lid = is_int($body['lid'] ?? null) ? $body['lid'] : 0;
         if ($lid <= 0 || preg_match('/^(?:global|help|trade|group-[1-9]\d{0,18})$/', $key) !== 1) {
             $this->refused($actor, 'delete_line', 0, 'line');
-            throw new RestError('groddle_mod_line', 'Name a channel (global, help, trade, group-<id>) and a lid, or a report.', 400);
+            throw new RestError('groddle_mod_line', 'Name a channel (global, help, trade, group-<id>) and a lid.', 400);
         }
         $author = (int) ($db->value('SELECT author_id FROM ' . $db->table(ChatHistory::LINES) . ' WHERE lid = ?', [$lid]) ?? 0);
         if ($author > 0) {

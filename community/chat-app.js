@@ -1122,10 +1122,6 @@ function onMessage(m) {
       }
       return;
     }
-    case 'im_deleted':
-      // One reported IM line a moderator deleted.
-      dropLine(`im:${Number(m.with)}`, Number(m.line));
-      return;
     case 'reacted':
       setReactions(`l:${Number(m.line)}`, m.r || []);
       return;
