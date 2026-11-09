@@ -17,11 +17,15 @@ use Minn\RestError;
  * groddle/v1/ledger/spend: the realtime server spends from one character's
  * ledger (Ledger) for something it runs (G334, groddle-afternoon-server
  * party_spaces.go): a Party Pack that opens a party's Party Space, or the
- * currants the Party ATM takes to extend one. For the realtime server only,
+ * currants the Party ATM takes to extend one; and the 50 currants the Crown
+ * Game Teleporter takes for a Game of Crowns (G387, crowns_teleporter.go;
+ * items/game_teleporter.js onConversation 213, stats_try_remove_currants(50)).
+ * For the realtime server only,
  * signed with the realtime secret (ServiceCall), never with a player's
  * cookie:
  *
  *   POST groddle/v1/ledger/spend       {"op":"party-<16 hex>","id":7,"gave":Goods,"why":"party_pack"|"party_atm"}
+ *                                      {"op":"gtele-<16 hex>","id":7,"gave":{"items":[],"currants":50},"why":"game_teleporter"}
  *        200 {"status":"settled"} | 409 {"status":"refused","short":{"id":7,"c":"party_pack_toxic_moon"}|{"id":7,"currants":true}}
  *        | 200 {"status":"void"} (given back, or voided before it came)
  *   POST groddle/v1/ledger/spend/void  {"op":"party-…","id":7}
@@ -57,7 +61,10 @@ final readonly class LedgerSpend
     public const REFUND = '/groddle/v1/ledger/spend/refund';
 
     /** What the realtime server may spend on, and what each takes. */
-    private const WHY = ['party_pack', 'party_atm'];
+    private const WHY = ['party_pack', 'party_atm', 'game_teleporter'];
+
+    /** game_teleporter.js onConversation 213: a Game of Crowns at the teleporter is 50 currants. */
+    public const TELEPORTER_PRICE = 50;
 
     public function __construct(private Seams $minn)
     {
@@ -72,7 +79,7 @@ final readonly class LedgerSpend
         $id = is_array($body) ? ($body['id'] ?? null) : null;
         $why = is_array($body) ? ($body['why'] ?? null) : null;
         $gave = is_array($body) && is_array($body['gave'] ?? null) ? LedgerMath::goods($body['gave']) : null;
-        if (!self::opId($op) || !is_int($id) || $id <= 0 || !in_array($why, self::WHY, true) || $gave === null || !self::fits($why, $gave)) {
+        if (!self::opId($op) || !is_int($id) || $id <= 0 || !in_array($why, self::WHY, true) || !self::opFor($op, $why) || $gave === null || !self::fits($why, $gave)) {
             throw new RestError('groddle_ledger_invalid', 'Not a spend.', 400);
         }
         $out = Ledger::atomically($this->minn->db, fn () => $this->settle($op, $id, $why, $gave, time()));
@@ -108,6 +115,9 @@ final readonly class LedgerSpend
     /** A pack is one Party Pack and nothing else; the ATM takes currants and nothing else. */
     private static function fits(string $why, array $gave): bool
     {
+        if ($why === 'game_teleporter') {
+            return $gave['items'] === [] && $gave['currants'] === self::TELEPORTER_PRICE;
+        }
         if ($why === 'party_atm') {
             return $gave['items'] === [] && $gave['currants'] > 0;
         }
@@ -248,9 +258,15 @@ final readonly class LedgerSpend
         }
     }
 
-    /** party_spaces.go newSpend: party- and 16 hex. */
+    /** party_spaces.go newSpend: party- and 16 hex; crowns_teleporter.go: gtele- and 16 hex. */
     private static function opId(mixed $op): bool
     {
-        return is_string($op) && preg_match('/^party-[0-9a-f]{16}$/', $op) === 1;
+        return is_string($op) && preg_match('/^(party|gtele)-[0-9a-f]{16}$/', $op) === 1;
+    }
+
+    /** A teleporter spend carries its own prefix, a party's its own. */
+    private static function opFor(string $op, string $why): bool
+    {
+        return str_starts_with($op, $why === 'game_teleporter' ? 'gtele-' : 'party-');
     }
 }
