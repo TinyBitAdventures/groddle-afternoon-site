@@ -33,6 +33,9 @@ namespace Groddle\Minn;
  *     imbued} (teleportation_script.js 298-319): tsid and hubId letters, digits,
  *     _ and -, at most id; x and y whole numbers within coord (null when not
  *     known); label and hubName as one phrase of len. No tsid is no words.
+ *   - plop: a Piggy Plop's seeds {seed, n} (plop.js seed_class, seed_count):
+ *     seed one of the crop seed classes (seeds), n a whole number from 1 to max
+ *     (G605: a shared Plop's seeds, groddle-afternoon-server objects_pigs_plops.go).
  *
  * Words a class does not keep, words on a stack of more than one, or words
  * that come out empty are none (null): the copy goes without them. Only the
@@ -118,6 +121,17 @@ final class CopyTags
                     'workingSince' => self::whole($value['workingSince'] ?? null, $nowMs),
                 ];
                 return $v['hopper'] > 0 || $v['hooch'] > 0 || $v['workingSince'] > 0 ? $v : null;
+            case 'plop':
+                // G605: a Piggy Plop's seeds (plop.js seed_class, seed_count; npc_animal doPlop 1315-1350).
+                if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+                    return null;
+                }
+                $seed = $value['seed'] ?? null;
+                if (!is_string($seed) || !in_array($seed, (array) ($rules['plop']['seeds'] ?? []), true)) {
+                    return null;
+                }
+                $n = self::whole($value['n'] ?? null, (int) ($rules['plop']['max'] ?? 0));
+                return $n >= 1 ? ['seed' => $seed, 'n' => $n] : null;
             case 'script':
                 if (!is_array($value) || ($value !== [] && array_is_list($value))) {
                     return null;

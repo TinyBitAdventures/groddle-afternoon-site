@@ -65,6 +65,16 @@ use Minn\RestError;
  *   'eaten'. A dropper's missed drop still applies what was dropped (the
  *   trade's goods), a picker's take what was there when they took it.
  *
+ *   POST groddle/v1/ledger/drop/place (signed) {"op":"drop-…","id":7,"street":"LA5…","x":1200,"y":-120,"item":{"c":"plop","n":1,"t"?:{…}}}
+ *        200 {"status":"settled"} | 409 {"status":"refused","why":"type","text":"…"}
+ *
+ *   A stack the street makes (G605): a Plop a fed street Piggy leaves (npc_animal doPlop
+ *   1315-1350) or the Piglet a Potion of Animal Youth leaves where its Piggy stood
+ *   (potion_animal_youth.js onPour 547-569). It comes out of nobody's ledger, so no trade is
+ *   recorded for it: the row waits under the player whose act made it (dropper_id, for the
+ *   realtime server's 100 px guard and a return after its keep), an outcome of that act
+ *   (logged as "place"). Recorded once per op. From then on it is any stack on the ground.
+ *
  *   POST groddle/v1/ledger/drops      (signed) {}  → {"stacks":[{id, by, name, street, x, y, c, n, r?, at}]}
  *        every stack on the ground, for a realtime server that has just started.
  *
@@ -88,6 +98,7 @@ final readonly class LedgerDrop
     public const TAKE = '/groddle/v1/ledger/drop/take';
     public const GROUND = '/groddle/v1/ledger/drops';
     public const EAT = '/groddle/v1/ledger/drop/eat';
+    public const PLACE = '/groddle/v1/ledger/drop/place';
 
     /** Stacks one list carries (drops.go holds at most 60 a street). */
     public const LIST_MAX = 5000;
@@ -114,6 +125,20 @@ final readonly class LedgerDrop
         }
         $db = $this->minn->db;
         $out = Ledger::atomically($db, fn () => self::settle($db, Ledger::fromSeams($this->minn), $drop, time()));
+        return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
+    }
+
+    #[Route(Method::Post, self::PLACE, policy: new Policy(Access::Public))]
+    public function place(Request $request): Response
+    {
+        $this->signed($request, self::PLACE);
+        $body = json_decode($request->body, true);
+        $drop = is_array($body) ? self::call($body) : null;
+        if ($drop === null) {
+            throw new RestError('groddle_ledger_invalid', 'Not a placed stack.', 400);
+        }
+        $db = $this->minn->db;
+        $out = Ledger::atomically($db, fn () => self::put($db, Ledger::fromSeams($this->minn), $drop, time()));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
@@ -292,6 +317,29 @@ final readonly class LedgerDrop
             $drop['op'], $drop['id'], $drop['street'], $drop['x'], $drop['y'], $drop['c'], $drop['n'], $drop['r'], $drop['t'] ?? null, $stamp,
         ]);
         $ledger->log($drop['id'], 'drop', ['drop' => $drop['op'], 'street' => $drop['street'], 'gave' => [$drop['c'] => $drop['n']]], $now);
+        return ['status' => 'settled'];
+    }
+
+    /**
+     * A stack the street made, placed once per op under the player whose act made it (no ledger
+     * gives it up). The transaction is the caller's (Ledger::atomically).
+     *
+     * @return array{status: string, why?: string, text?: string}
+     */
+    public static function put(Db $db, Ledger $ledger, array $drop, int $now): array
+    {
+        $drops = $db->table(self::TABLE);
+        if ($db->row("SELECT id FROM {$drops} WHERE id = ? FOR UPDATE", [$drop['op']]) !== null) {
+            return ['status' => 'settled'];
+        }
+        if (!Economy::shared()->tradeable($drop['c'])) {
+            return ['status' => 'refused', 'why' => 'type', 'text' => self::TEXT_TYPE];
+        }
+        $stamp = gmdate('Y-m-d H:i:s', $now);
+        $db->execute("INSERT INTO {$drops} (id, dropper_id, street, x, y, class_tsid, count, points, tag, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ground', ?)", [
+            $drop['op'], $drop['id'], $drop['street'], $drop['x'], $drop['y'], $drop['c'], $drop['n'], $drop['r'], $drop['t'] ?? null, $stamp,
+        ]);
+        $ledger->log($drop['id'], 'place', ['drop' => $drop['op'], 'street' => $drop['street'], 'placed' => [$drop['c'] => $drop['n']]], $now);
         return ['status' => 'settled'];
     }
 
