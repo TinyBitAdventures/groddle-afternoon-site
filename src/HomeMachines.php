@@ -60,6 +60,21 @@ use Minn\RestError;
  *   street's rewards (players/inc_houses.js 1706-1709), so a Tower's were
  *   never collected.
  *
+ * The Community Machine Rooms (lane machines, report #152; Austin
+ * 2026-11-08: "Allow machines in the community machine rooms only."): a
+ * player may also set their own machine down in the Meadow, Besara or Forest
+ * room (config_prod.js:1332 machine_rooms), place "mr:meadow", "mr:besara",
+ * "mr:forest", named by the realtime server from the room the actor stands
+ * in. The row's owner is whoever set it down. There canDrop counts every
+ * machine in the room, everyone's and the room's own (data "machineRooms":
+ * the room's ends and its own machines' x, from the game's
+ * js/machine-rooms.js), anyone uses, refuels and collects as anywhere, a
+ * room is no POL so everyone's output goes after 6 game days, the owner's
+ * too (expireOldContents 1146-1158), no pool is paid (no home), and only the
+ * owner picks it up (ours: the source hid disassemble in a machine room,
+ * isInCraftingAltar, fuelmaker.js 64 and 310, so nobody could). A machine
+ * stays where it was set down while its owner is away, or for good.
+ *
  * Everything that moves items goes through the ledger (G335), the same
  * bookkeeping LedgerSpend uses: a job's ingredients and a refuel's Fuel Cells
  * are a spend (a settled trade with nobody, a_id the player, the trade id the
@@ -83,6 +98,7 @@ use Minn\RestError;
  *        | 409 {"status":"refused","why":"…","text":"…","machine":{…}|null,"now":ms}
  *   GET  groddle/v1/homes/{owner}/machines   anyone not blocked: the machines as they stand (each with its place), whether I may pick one up, and the house's back yard and wall segments
  *   GET  groddle/v1/homes/machines           mine to apply: my placed machines (id, class), and what I picked up (dropped once my save lists it)
+ *   GET  groddle/v1/machine-rooms/{meadow|besara|forest}/machines   anyone signed in: every player's machine in that room as it stands, with its owner and their name
  *
  * Table groddle_home_machines.
  */
@@ -95,6 +111,8 @@ final readonly class HomeMachines
     public const VERBS = ['place', 'take', 'use', 'collect', 'refuel', 'music', 'check'];
     public const PLACE_STREET = 'street';
     public const PLACE_HOUSE = 'house';
+    /** The machine rooms' places (the game's js/home-machines.js MACHINE_ROOM_PLACES). */
+    public const ROOMS = ['meadow', 'besara', 'forest'];
     public const ENGINEERING = 'engineering_1';
     /** The furthest from the house a machine may stand (ours: past any yard). */
     public const RX_MAX = 20000;
@@ -153,7 +171,8 @@ final readonly class HomeMachines
             return Response::json(['status' => 'refused', 'why' => 'blocked', 'text' => self::TEXT_BLOCKED, 'now' => self::nowMs()], 409);
         }
         $b['place'] = $place;
-        $mayTake = $verb === 'take' && ($owner === $actor || (new Neighbours($this->minn))->holdsKeyTo($owner, $actor));
+        // A machine room has no key-holders: only the owner picks one up there.
+        $mayTake = $verb === 'take' && ($owner === $actor || (!self::isRoom($place) && (new Neighbours($this->minn))->holdsKeyTo($owner, $actor)));
         $out = Ledger::atomically($this->minn->db, fn (): array => $this->run($op, $owner, $actor, $verb, $b, $mayTake));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
@@ -180,18 +199,29 @@ final readonly class HomeMachines
             if ($actor !== $owner) {
                 return $refuse('own', self::TEXT_OWN);
             }
-            $state = Neighbours::state($db, $owner);
-            if (!Neighbours::hasHome($state)) {
-                return $refuse('no_home', HomePool::TEXT_NO_HOME);
-            }
             $class = $b['class'] ?? null;
             $place = (string) $b['place'];
-            $placed = array_values(array_filter($rows, static fn (array $r): bool => $r['status'] === 'placed' && $r['place'] === $place));
-            $span = self::span($rules, $place, $state);
+            $fixed = [];
+            if (self::isRoom($place)) {
+                // Everyone's machines in the room, locked so two never land within 200 px of each other.
+                $placed = [];
+                foreach ($db->rows("SELECT * FROM {$t} WHERE place = ? AND status = 'placed' FOR UPDATE", [$place]) as $r) {
+                    $placed[] = self::rowOf($r);
+                }
+                $span = self::roomSpan($rules, $place);
+                $fixed = self::roomFixed($rules, $place);
+            } else {
+                $state = Neighbours::state($db, $owner);
+                if (!Neighbours::hasHome($state)) {
+                    return $refuse('no_home', HomePool::TEXT_NO_HOME);
+                }
+                $placed = array_values(array_filter($rows, static fn (array $r): bool => $r['status'] === 'placed' && $r['place'] === $place));
+                $span = self::span($rules, $place, $state);
+            }
             if ($span === false) {
                 return $refuse('here', sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')));
             }
-            $why = self::placeWhy($rules, $placed, $class, $b['rx'] ?? null, $span);
+            $why = self::placeWhy($rules, $placed, $class, $b['rx'] ?? null, $span, $fixed);
             if ($why !== null) {
                 return $refuse($why, $why === 'many' ? self::TEXT_MANY : sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')));
             }
@@ -360,6 +390,37 @@ final readonly class HomeMachines
         return Response::json(['placed' => $placed, 'taken' => $taken]);
     }
 
+    /** Every player's machine in a machine room as it stands now, each with its owner and their name. */
+    #[Route(Method::Get, '/groddle/v1/machine-rooms/{room:[a-z]+}/machines', policy: new Policy(Access::SignedIn))]
+    public function room(Request $request, string $room): Response
+    {
+        $place = 'mr:' . $room;
+        if (!self::isRoom($place)) {
+            throw new RestError('groddle_machines_room', 'No such room.', 404);
+        }
+        $db = $this->minn->db;
+        $rules = self::rules();
+        $out = Ledger::atomically($db, function () use ($db, $rules, $place): array {
+            $now = self::nowMs();
+            $t = $db->table(self::TABLE);
+            $rows = [];
+            foreach ($db->rows("SELECT * FROM {$t} WHERE place = ? AND status = 'placed' ORDER BY created_at, id FOR UPDATE", [$place]) as $r) {
+                $row = self::rowOf($r);
+                // A room pays no pool: settle only finishes jobs and lets old output go.
+                [$next] = self::settle($rules, $row, $row['owner'], $now);
+                if ($next !== $row) {
+                    $db->execute("UPDATE {$t} SET fuel = ?, job = ?, contents = ?, updated_at = ? WHERE id = ?",
+                        [$next['fuel'], $next['job'] === null ? null : json_encode($next['job'], JSON_UNESCAPED_SLASHES), self::contentsJson($next['contents']), gmdate('Y-m-d H:i:s'), $next['id']]);
+                }
+                $rows[] = $next;
+            }
+            return ['now' => $now, 'rows' => $rows];
+        });
+        $names = (new Characters($db))->namesOf(array_values(array_unique(array_map(static fn (array $r): int => $r['owner'], $out['rows']))));
+        $machines = array_map(static fn (array $r): array => self::view($r) + ['ownerName' => $names[$r['owner']] ?? ''], $out['rows']);
+        return Response::json(['now' => $out['now'], 'room' => $room, 'machines' => $machines]);
+    }
+
     // —— The rules (pure; tests: php -r) ——
 
     /** @return array<string, mixed> data/home-machines.json */
@@ -381,7 +442,26 @@ final readonly class HomeMachines
 
     public static function placeId(mixed $place): bool
     {
-        return is_string($place) && preg_match('/^(street|house|tower:[0-8])$/', $place) === 1;
+        return is_string($place) && preg_match('/^(street|house|tower:[0-8]|mr:(meadow|besara|forest))$/', $place) === 1;
+    }
+
+    /** A Community Machine Room's place ("mr:meadow", "mr:besara", "mr:forest"). */
+    public static function isRoom(mixed $place): bool
+    {
+        return is_string($place) && preg_match('/^mr:(meadow|besara|forest)$/', $place) === 1;
+    }
+
+    /** A machine room's ends in room x (data machineRooms: the rooms' bounds, -700..700). @return array{0: int, 1: int}|false */
+    public static function roomSpan(array $rules, string $place): array|false
+    {
+        $room = $rules['machineRooms'][substr($place, 3)] ?? null;
+        return is_array($room) ? [(int) $room['l'], (int) $room['r']] : false;
+    }
+
+    /** The room's own machines' x (they count for canDrop's 200 px as any machine does). @return list<int> */
+    public static function roomFixed(array $rules, string $place): array
+    {
+        return array_map('intval', $rules['machineRooms'][substr($place, 3)]['fixed'] ?? []);
     }
 
     /** The house's wall segments in a stored save (home-decor normalizeHomeDecorState: 6 to 20, 7 when unset). */
@@ -419,8 +499,13 @@ final readonly class HomeMachines
         return [(int) $room['towerLeft'], (int) $room['towerRight']];
     }
 
-    /** machine_stand.js canDrop and ours: why a machine may not stand at rx (in the place's span, when it has one), or null. */
-    public static function placeWhy(array $rules, array $placed, mixed $class, mixed $rx, ?array $span = null): ?string
+    /**
+     * machine_stand.js canDrop and ours: why a machine may not stand at rx (in the place's span, when it has one), or null.
+     * $fixed: x of machines nobody placed (a machine room's own), as near as any other.
+     *
+     * @param list<int> $fixed
+     */
+    public static function placeWhy(array $rules, array $placed, mixed $class, mixed $rx, ?array $span = null, array $fixed = []): ?string
     {
         if (!is_string($class) || !isset($rules['machines'][$class])) {
             return 'class';
@@ -436,6 +521,11 @@ final readonly class HomeMachines
         }
         foreach ($placed as $r) {
             if (abs((int) $r['rx'] - $rx) < (int) $rules['spacing']) {
+                return 'near';
+            }
+        }
+        foreach ($fixed as $x) {
+            if (abs((int) $x - $rx) < (int) $rules['spacing']) {
                 return 'near';
             }
         }
@@ -570,9 +660,11 @@ final readonly class HomeMachines
             }
             $row['job'] = null;
         }
+        // expireOldContents 1146-1158: only a POL's owner keeps theirs; a machine room is no POL.
+        $keepOwner = !self::isRoom($row['place'] ?? self::PLACE_STREET);
         foreach ($row['contents'] as $user => $c) {
             $diff = $nowMs - (int) $c['at'];
-            if ((string) $user !== (string) $owner && $diff >= 0 && (int) round($diff / (int) $rules['dayMs']) > (int) $rules['storeDays']) {
+            if ((!$keepOwner || (string) $user !== (string) $owner) && $diff >= 0 && (int) round($diff / (int) $rules['dayMs']) > (int) $rules['storeDays']) {
                 unset($row['contents'][$user]);
             }
         }
@@ -585,6 +677,7 @@ final readonly class HomeMachines
         $job = is_array($row['job']) ? ['user' => (int) $row['job']['user'], 'name' => (string) $row['job']['name'], 'qty' => (int) $row['job']['qty'], 'at' => (int) $row['job']['at'], 'ready' => (int) $row['job']['ready']] : null;
         return [
             'id' => $row['id'],
+            'owner' => (int) ($row['owner'] ?? 0),
             'class' => $row['class'],
             'place' => $row['place'] ?? self::PLACE_STREET,
             'rx' => $row['rx'],
