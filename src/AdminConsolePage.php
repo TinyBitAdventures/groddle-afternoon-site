@@ -15,7 +15,7 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Six tabs, seven with the level builder on: Players (who is online,
+ * /console/, the administrators' console. Seven tabs, eight with the level builder on: Players (who is online,
  * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
@@ -29,7 +29,10 @@ use Minn\Http\Route;
  * (2026-11-04, AdminBoards): the notes players pinned on the shared Notice Boards, reported first,
  * with Remove; #boards opens it. Community (2026-11-04, AdminCommunity): posts on the Community
  * boards, reported first, with Remove and Restore, Pin and Lock on the thread, Stop posting on the
- * writer, and who is stopped; #community opens it. Builder (only when AdminBuilder::enabled, the
+ * writer, and who is stopped; #community opens it. Moderation (2026-11-09, console/moderation.js over
+ * Moderation, ModReports and ModTokens): players' IM reports and the game's flags with the actions on
+ * them, the moderators' log (Grok Bot's lines marked, Undo), who is silenced or IM-paused (Lift), and
+ * Grok Bot's token; #moderation opens it. Builder (only when AdminBuilder::enabled, the
  * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
  * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
@@ -66,7 +69,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-2';
+    public const ASSET_KEY = 'skin-3';
 
     public function __construct(private Seams $minn)
     {
@@ -138,6 +141,7 @@ final readonly class AdminConsolePage
             . "<link rel=\"stylesheet\" href=\"" . CommunityPages::ASSETS . "community.css?v=" . CommunityPages::ASSET_KEY . "\" />\n"
             . "<link rel=\"stylesheet\" href=\"{$a}console.css?v={$v}\" />\n"
             . "<script type=\"module\" src=\"{$a}console.js?v={$v}\"></script>\n"
+            . "<script type=\"module\" src=\"{$a}moderation.js?v={$v}\"></script>\n"
             . ($builder ? "<script type=\"module\" src=\"{$a}builder-keys.js?v={$v}\"></script>\n" : '')
             . "</head>\n<body class=\"notes console-page\">\n"
             // The chat app's header (as /chat/ draws it): full width, the bell, and the Console link marked as the page being read.
@@ -154,6 +158,7 @@ final readonly class AdminConsolePage
     <button type="button" role="tab" id="console-tab-credits" aria-controls="console-credits" aria-selected="false" tabindex="-1" data-console-tab="credits">Credits <span class="console-count" data-console-credits-unscored></span></button>
     <button type="button" role="tab" id="console-tab-boards" aria-controls="console-boards" aria-selected="false" tabindex="-1" data-console-tab="boards">Boards <span class="console-count console-count-unread" data-console-boards-reported></span></button>
     <button type="button" role="tab" id="console-tab-community" aria-controls="console-community" aria-selected="false" tabindex="-1" data-console-tab="community">Community <span class="console-count console-count-unread" data-console-community-reported></span></button>
+    <button type="button" role="tab" id="console-tab-moderation" aria-controls="console-moderation" aria-selected="false" tabindex="-1" data-console-tab="moderation">Moderation</button>
 HTML
             . ($builder ? "\n    <button type=\"button\" role=\"tab\" id=\"console-tab-builder\" aria-controls=\"console-builder\" aria-selected=\"false\" tabindex=\"-1\" data-console-tab=\"builder\">Builder</button>" : '')
             . <<<'HTML'
@@ -389,6 +394,8 @@ HTML
       <p class="console-empty" data-console-community-stops-empty>Nobody is stopped from posting.</p>
     </section>
   </div>
+
+  <div class="console-community" id="console-moderation" role="tabpanel" aria-labelledby="console-tab-moderation" data-console-tabpanel="moderation" hidden></div>
 HTML
             . ($builder ? self::builderPanel() : '')
             . "\n  </div>\n </div>\n</main>\n</body>\n</html>\n";

@@ -163,6 +163,7 @@ final readonly class Buddies
         $db = $this->minn->db;
         $db->execute('DELETE FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? AND buddy_id = ?', [$me, $id]);
         $db->execute('INSERT IGNORE INTO ' . $db->table(self::IGNORES) . ' (user_id, ignored_id, added_at) VALUES (?, ?, ?)', [$me, $id, gmdate('Y-m-d H:i:s')]);
+        ModReports::afterBlock($db, $id); // several players blocking one in a day is a moderation signal (no words)
         return Response::json($this->answer() + ['ignored' => $id]);
     }
 

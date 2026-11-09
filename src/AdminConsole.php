@@ -251,13 +251,25 @@ final readonly class AdminConsole
         foreach (['player', 'q', 'kind', 'since', 'until', 'refused', 'before'] as $k) {
             $query[$k] = $request->query($k);
         }
+        return Response::json($this->chatlogAnswer($query));
+    }
+
+    /**
+     * admin/chatlog's answer for a search (chatQuery's words); the moderators' mod/chatlog
+     * (Moderation) gives the same. The chat log never holds an IM (chatlog.go).
+     *
+     * @param array<string, mixed> $query
+     * @return array<string, mixed>
+     */
+    public function chatlogAnswer(array $query): array
+    {
         $answer = (new RealtimeCall($this->minn))->post('chatlog', self::chatQuery($query));
         $status = $answer['status'] ?? null;
         if ($status === 'off') {
-            return Response::json(['server' => 'off', 'lines' => [], 'next' => '', 'dropped' => 0, 'days' => 0]);
+            return ['server' => 'off', 'lines' => [], 'next' => '', 'dropped' => 0, 'days' => 0];
         }
         if ($status !== 'ok' || !is_array($answer['lines'] ?? null)) {
-            return Response::json(['server' => 'down', 'lines' => [], 'next' => '', 'dropped' => 0, 'days' => 0]);
+            return ['server' => 'down', 'lines' => [], 'next' => '', 'dropped' => 0, 'days' => 0];
         }
         $raw = array_values(array_filter($answer['lines'], 'is_array'));
         $ids = [];
@@ -302,13 +314,13 @@ final readonly class AdminConsole
                 'deleted' => $this->chatDeleted($l['deleted'] ?? null, $names),
             ];
         }
-        return Response::json([
+        return [
             'server' => 'up',
             'lines' => $lines,
             'next' => is_string($answer['next'] ?? null) ? $answer['next'] : '',
             'dropped' => max(0, (int) ($answer['dropped'] ?? 0)),
             'days' => max(0, (int) ($answer['days'] ?? 0)),
-        ]);
+        ];
     }
 
     /**
@@ -324,7 +336,7 @@ final readonly class AdminConsole
             return null;
         }
         $by = (int) ($d['by'] ?? 0);
-        return ['at' => (string) ($d['at'] ?? ''), 'by' => ['id' => $by, 'name' => (string) ($names[$by] ?? ($d['by_name'] ?? "#{$by}"))]];
+        return ['at' => (string) ($d['at'] ?? ''), 'by' => ['id' => $by, 'name' => (string) ($names[$by] ?? ($d['by_name'] ?? "#{$by}"))]] + (($d['purge'] ?? false) === true ? ['purge' => true] : []);
     }
 
     /**

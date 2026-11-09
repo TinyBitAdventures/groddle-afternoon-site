@@ -1106,6 +1106,26 @@ function onMessage(m) {
       dropLine(`chan:${m.channel}`, Number(m.lid), Number(m.parent) || 0, sum);
       return;
     }
+    case 'chat_purged': {
+      // A moderator's purge (groddle-afternoon-server moderation.go): every line the player said since then goes, everywhere.
+      const who = Number(m.player);
+      const since = Number(m.since) || 0;
+      if (!(who > 0)) return;
+      for (const c of convs.values()) {
+        let gone = false;
+        for (const [id, l] of c.lines) if (l.from === who && l.at >= since) { c.lines.delete(id); gone = true; }
+        if (gone && open === c.key) redraw(c);
+      }
+      if (thread) {
+        const kept = thread.lines.filter((l) => !(Number(l.from) === who && Number(l.at) >= since));
+        if (kept.length !== thread.lines.length) { thread.lines = kept; const c = convs.get(thread.key); if (c) drawThread(c); }
+      }
+      return;
+    }
+    case 'im_deleted':
+      // One reported IM line a moderator deleted.
+      dropLine(`im:${Number(m.with)}`, Number(m.line));
+      return;
     case 'reacted':
       setReactions(`l:${Number(m.line)}`, m.r || []);
       return;

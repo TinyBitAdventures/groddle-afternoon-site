@@ -240,6 +240,13 @@ final readonly class ChatHistory
                     return 0;
                 }
                 return $db->execute('INSERT IGNORE INTO ' . $db->table(self::IMS) . ' (a_id, b_id, line_id, from_id, text, at_ms, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)', [$a, $b, $e['line'], $from, $text, $int($e['at'] ?? null), $int($e['parent'] ?? null)]);
+            case 'purge':
+                // A moderator purged what a player said (groddle-afternoon-server moderation.go; Moderation marks first when it can).
+                $id = $int($e['id'] ?? null);
+                return $id === 0 ? 0 : array_sum(self::purge($db, $id, is_int($e['at'] ?? null) && $e['at'] >= 0 ? $e['at'] : 0, $int($e['by'] ?? null)));
+            case 'flag':
+                // A moderation signal with no words in it (groddle-afternoon-server modsignals.go).
+                return ModReports::flag($db, $int($e['id'] ?? null), is_string($e['signal'] ?? null) ? $e['signal'] : '', $int($e['n'] ?? null), $int($e['window'] ?? null));
             case 'im_react':
                 [$a, $b] = [$int($e['a'] ?? null), $int($e['b'] ?? null)];
                 $r = $react($e['r'] ?? null);
@@ -266,6 +273,38 @@ final readonly class ChatHistory
             $db->execute("UPDATE {$t} SET changed_ms = ? WHERE lid = ? AND room = ?", [$ms, (int) $row['parent_lid'], (string) $row['room']]);
         }
         return $n;
+    }
+
+    /**
+     * A moderator's purge (Moderation::purge, and the realtime server's chat store "purge"): every
+     * channel, group and thread line the player wrote since $sinceMs (0: all) marked deleted, as an
+     * administrator's delete is (out of every read; the words go after DELETED_KEEP_DAYS), and every IM
+     * line they sent marked deleted with its words emptied at once: an IM is private, so nobody, the
+     * moderator included, reads a purged one, and none is kept for evidence. Idempotent; counts only.
+     *
+     * @return array{lines: int, ims: int}
+     */
+    public static function purge(\Minn\Db $db, int $player, int $sinceMs, int $by): array
+    {
+        if ($player <= 0) {
+            return ['lines' => 0, 'ims' => 0];
+        }
+        $ms = Community::ms();
+        $t = $db->table(self::LINES);
+        $parents = $db->rows("SELECT DISTINCT room, parent_lid FROM {$t} WHERE author_id = ? AND at_ms >= ? AND deleted_ms = 0 AND parent_lid > 0", [$player, $sinceMs]);
+        $lines = $db->execute("UPDATE {$t} SET deleted_ms = ?, deleted_by = ?, changed_ms = ? WHERE author_id = ? AND at_ms >= ? AND deleted_ms = 0", [$ms, $by, $ms, $player, $sinceMs]);
+        foreach ($parents as $p) {
+            // The thread's count moved: a reader polling with since= gets the parent again.
+            $db->execute("UPDATE {$t} SET changed_ms = ? WHERE lid = ? AND room = ?", [$ms, (int) $p['parent_lid'], (string) $p['room']]);
+        }
+        $ims = $db->execute('UPDATE ' . $db->table(self::IMS) . " SET text = '', reactions = NULL, deleted_ms = ?, deleted_by = ? WHERE from_id = ? AND at_ms >= ? AND deleted_ms = 0", [$ms, $by, $player, $sinceMs]);
+        return ['lines' => $lines, 'ims' => $ims];
+    }
+
+    /** One IM line deleted for both players (a reported line, Moderation): words emptied, out of every read. 1 when it was. */
+    public static function deleteIm(\Minn\Db $db, int $row, int $by): int
+    {
+        return $db->execute('UPDATE ' . $db->table(self::IMS) . " SET text = '', reactions = NULL, deleted_ms = ?, deleted_by = ? WHERE id = ? AND deleted_ms = 0", [Community::ms(), $by, $row]);
     }
 
     /** A reaction set as kept: [{e, by:[ids]}], known reactions only, each player once; null when it is not a set. */
@@ -421,7 +460,8 @@ final readonly class ChatHistory
             $rooms[] = 'trade';
         }
         $name = (new Characters($db))->namesOf([$me])[$me] ?? '';
-        $call = ['player' => $me, 'name' => $name, 'channel' => $key, 'rooms' => implode(',', $rooms), 'silence' => implode(',', $c['silenced']), 'text' => mb_substr($text, 0, self::TEXT_MAX)];
+        $silence = array_values(array_unique([...$c['silenced'], ...Moderation::silenced($db, $me)])); // a moderator's silence too
+        $call = ['player' => $me, 'name' => $name, 'channel' => $key, 'rooms' => implode(',', $rooms), 'silence' => implode(',', $silence), 'text' => mb_substr($text, 0, self::TEXT_MAX)];
         if ($parent > 0) {
             $call['parent'] = $parent;
             $call['kept'] = $kept;
@@ -454,7 +494,7 @@ final readonly class ChatHistory
         foreach ($db->rows("SELECT ignored_id AS id FROM {$ignores} WHERE user_id = ? UNION SELECT user_id AS id FROM {$ignores} WHERE ignored_id = ?", [$me, $me]) as $r) {
             $blocked[(int) $r['id']] = true;
         }
-        $rows = $db->rows("SELECT a_id, b_id, MAX(at_ms) AS last_at FROM {$t} WHERE (a_id = ? OR b_id = ?) AND parent_id = 0 GROUP BY a_id, b_id ORDER BY last_at DESC LIMIT 100", [$me, $me]);
+        $rows = $db->rows("SELECT a_id, b_id, MAX(at_ms) AS last_at FROM {$t} WHERE (a_id = ? OR b_id = ?) AND parent_id = 0 AND deleted_ms = 0 GROUP BY a_id, b_id ORDER BY last_at DESC LIMIT 100", [$me, $me]);
         $others = [];
         foreach ($rows as $r) {
             $other = (int) $r['a_id'] === $me ? (int) $r['b_id'] : (int) $r['a_id'];
@@ -473,7 +513,7 @@ final readonly class ChatHistory
             if (!isset($names[$other]) || count($out) >= 50) {
                 continue;
             }
-            $last = $db->row("SELECT from_id, text, at_ms FROM {$t} WHERE a_id = ? AND b_id = ? AND parent_id = 0 ORDER BY at_ms DESC, id DESC LIMIT 1", [(int) $r['a_id'], (int) $r['b_id']]);
+            $last = $db->row("SELECT from_id, text, at_ms FROM {$t} WHERE a_id = ? AND b_id = ? AND parent_id = 0 AND deleted_ms = 0 ORDER BY at_ms DESC, id DESC LIMIT 1", [(int) $r['a_id'], (int) $r['b_id']]);
             $out[] = ['with' => ['id' => $other, 'name' => $names[$other], 'buddy' => isset($held[$other])], 'last' => $last === null ? null : ['from' => (int) $last['from_id'], 'text' => (string) $last['text'], 'at' => (int) $last['at_ms']]];
         }
         return self::private(Response::json(['convs' => $out]));
@@ -494,6 +534,10 @@ final readonly class ChatHistory
             throw new RestError('groddle_chat_blank', 'Write something first.', 400);
         }
         $parent = is_int($body['parent'] ?? null) && $body['parent'] > 0 ? $body['parent'] : 0;
+        // A moderator paused this player's IMs (Moderation; the realtime server refuses them too).
+        if (Moderation::imRestricted($db, $me, (int) $with)) {
+            throw new RestError('groddle_im_restricted', Moderation::IM_PAUSED, 403);
+        }
         $name = (new Characters($db))->namesOf([$me])[$me] ?? '';
         $answer = (new RealtimeCall($this->minn))->post('web_im', ['player' => $me, 'name' => $name, 'to' => (int) $with, 'text' => mb_substr($text, 0, self::TEXT_MAX), 'parent' => $parent]);
         return match ($answer['status'] ?? null) {
@@ -523,7 +567,7 @@ final readonly class ChatHistory
         $before = $request->query('before_at');
         $t = $db->table(self::IMS);
         $users = $db->table('users');
-        $where = "FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id = 0";
+        $where = "FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id = 0 AND i.deleted_ms = 0";
         $rows = $before !== null
             ? $db->rows("SELECT i.* {$where} AND i.at_ms < ? ORDER BY i.at_ms DESC, i.id DESC LIMIT " . ($limit + 1), [$a, $b, max(0, (int) $before)])
             : $db->rows("SELECT i.* {$where} ORDER BY i.at_ms DESC, i.id DESC LIMIT " . ($limit + 1), [$a, $b]);
@@ -534,7 +578,7 @@ final readonly class ChatHistory
         $ids = array_map(static fn (array $r): int => (int) $r['line_id'], $rows);
         if ($ids !== []) {
             $in = implode(',', array_map('intval', $ids));
-            foreach ($db->rows("SELECT i.parent_id, COUNT(*) AS n, MAX(i.id) AS last_row FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id IN ({$in}) GROUP BY i.parent_id", [$a, $b]) as $g) {
+            foreach ($db->rows("SELECT i.parent_id, COUNT(*) AS n, MAX(i.id) AS last_row FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id IN ({$in}) AND i.deleted_ms = 0 GROUP BY i.parent_id", [$a, $b]) as $g) {
                 $from = (int) $db->value("SELECT from_id FROM {$t} WHERE id = ?", [(int) $g['last_row']]);
                 $th[(int) $g['parent_id']] = ['n' => (int) $g['n'], 'last' => ['id' => $from, 'name' => (string) ($names[$from] ?? '')]];
             }
@@ -613,17 +657,44 @@ final readonly class ChatHistory
     {
         $admin = $this->minn->user() ?? throw new RestError('rest_not_logged_in', 'You are not currently logged in.', 401);
         $db = $this->minn->db;
-        $id = (int) $lid;
-        // Live Help is the newbie room under level 11 and the regular one above (Groups::channels): either.
-        $rooms = $key === 'help' ? ['help', 'newbie'] : [$key];
+        $done = $this->deleteAs($admin->id, (new Characters($db))->namesOf([$admin->id])[$admin->id] ?? '', $key, (int) $lid);
+        if ($done['again']) {
+            return self::private(Response::json(['status' => 'deleted', 'lid' => $done['lid'], 'parent' => $done['parent'], 'live' => false]));
+        }
+        AdminConsole::recordAction($db, $admin->id, $done['author'], 'chat_delete', [
+            'where' => self::CHANNELS[$key], 'lid' => $done['lid'], 'reply' => $done['parent'] > 0, 'text' => mb_substr($done['text'], 0, 200),
+        ], $done['live'] ? 'live' : 'down');
+        return self::private(Response::json(['status' => 'deleted', 'lid' => $done['lid'], 'parent' => $done['parent'], 'live' => $done['live']]));
+    }
+
+    /**
+     * A line of a channel (global, help, trade) or of a group's chat (group-<id>, Moderation) deleted
+     * for everyone by $by (an administrator, or the moderator token's maker with the token's name in
+     * $byName): the kept row marked, the realtime server's chat_delete. again: it was deleted already.
+     * Refuses 404 groddle_chat_no_line when neither has it, 503 groddle_chat_down when the server is
+     * down and the site has no row.
+     *
+     * @return array{lid: int, parent: int, author: int, text: string, room: string, live: bool, again: bool}
+     */
+    public function deleteAs(int $by, string $byName, string $key, int $id): array
+    {
+        $db = $this->minn->db;
+        if (preg_match('/^group-([1-9]\d{0,18})$/', $key, $g) === 1) {
+            $rooms = ["group:{$g[1]}"];
+        } elseif (isset(self::CHANNELS[$key])) {
+            // Live Help is the newbie room under level 11 and the regular one above (Groups::channels): either.
+            $rooms = $key === 'help' ? ['help', 'newbie'] : [$key];
+        } else {
+            throw new RestError('groddle_chat_no_line', 'That line is not there any more.', 404);
+        }
         $row = $db->row('SELECT room, author_id, text, at_ms, parent_lid, deleted_ms FROM ' . $db->table(self::LINES) . ' WHERE lid = ? AND room IN (?)', [$id, $rooms]);
         if ($row !== null && (int) $row['deleted_ms'] > 0) {
-            return self::private(Response::json(['status' => 'deleted', 'lid' => $id, 'parent' => (int) $row['parent_lid'], 'live' => false]));
+            return ['lid' => $id, 'parent' => (int) $row['parent_lid'], 'author' => (int) $row['author_id'], 'text' => (string) $row['text'], 'room' => (string) $row['room'], 'live' => false, 'again' => true];
         }
         if ($row !== null) {
-            self::markDeleted($db, $id, $admin->id, Community::ms());
+            self::markDeleted($db, $id, $by, Community::ms());
         }
-        $call = ['lid' => $id, 'rooms' => implode(',', $rooms), 'by' => $admin->id, 'by_name' => (new Characters($db))->namesOf([$admin->id])[$admin->id] ?? ''];
+        $call = ['lid' => $id, 'rooms' => implode(',', $rooms), 'by' => $by, 'by_name' => $byName];
         if ($row !== null) {
             $call += ['room' => (string) $row['room'], 'parent' => (int) $row['parent_lid'], 'author' => (int) $row['author_id'], 'at' => (int) $row['at_ms'], 'text' => (string) $row['text']];
         }
@@ -634,15 +705,17 @@ final readonly class ChatHistory
                 ? new RestError('groddle_chat_down', 'The game\'s chat is not answering. Try again in a moment.', 503)
                 : new RestError('groddle_chat_no_line', 'That line is not there any more.', 404));
         }
-        $author = $row !== null ? (int) $row['author_id'] : max(0, (int) ($answer['author'] ?? 0));
-        $parent = $row !== null ? (int) $row['parent_lid'] : max(0, (int) ($answer['parent'] ?? 0));
-        $text = $row !== null ? (string) $row['text'] : (string) ($answer['text'] ?? '');
-        AdminConsole::recordAction($db, $admin->id, $author, 'chat_delete', [
-            'where' => self::CHANNELS[$key], 'lid' => $id, 'reply' => $parent > 0, 'text' => mb_substr($text, 0, 200),
-        ], $live ? 'live' : 'down');
         // An administrator's chat route runs the 30-day clearing too (G568), at most once an hour.
         self::clearWhenDue($this->minn->site, $db, Community::ms());
-        return self::private(Response::json(['status' => 'deleted', 'lid' => $id, 'parent' => $parent, 'live' => $live]));
+        return [
+            'lid' => $id,
+            'parent' => $row !== null ? (int) $row['parent_lid'] : max(0, (int) ($answer['parent'] ?? 0)),
+            'author' => $row !== null ? (int) $row['author_id'] : max(0, (int) ($answer['author'] ?? 0)),
+            'text' => $row !== null ? (string) $row['text'] : (string) ($answer['text'] ?? ''),
+            'room' => $row !== null ? (string) $row['room'] : (string) ($answer['room'] ?? $rooms[0]),
+            'live' => $live,
+            'again' => false,
+        ];
     }
 
     // —— Shared ——
@@ -828,7 +901,7 @@ final readonly class ChatHistory
         [$a, $b] = $me < $other ? [$me, $other] : [$other, $me];
         $t = $db->table(self::IMS);
         $users = $db->table('users');
-        $rows = $db->rows("SELECT i.* FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id = ? ORDER BY i.at_ms ASC, i.id ASC LIMIT 500", [$a, $b, (int) $line]);
+        $rows = $db->rows("SELECT i.* FROM {$t} i JOIN {$users} u ON u.ID = i.from_id WHERE i.a_id = ? AND i.b_id = ? AND i.parent_id = ? AND i.deleted_ms = 0 ORDER BY i.at_ms ASC, i.id ASC LIMIT 500", [$a, $b, (int) $line]);
         $names = (new Characters($db))->namesOf([$a, $b]);
         return self::private(Response::json(['lines' => array_map(static fn (array $r): array => self::imOut($r, $names), $rows), 'blocked' => false]));
     }
@@ -896,7 +969,7 @@ final readonly class ChatHistory
         foreach ($db->rows("SELECT ignored_id AS id FROM {$ignores} WHERE user_id = ? UNION SELECT user_id AS id FROM {$ignores} WHERE ignored_id = ?", [$me, $me]) as $r) {
             $blocked[(int) $r['id']] = true;
         }
-        $rows = $db->rows("SELECT a_id, b_id, MAX(CASE WHEN from_id = ? THEN at_ms ELSE 0 END) AS mine, MAX(CASE WHEN from_id <> ? THEN at_ms ELSE 0 END) AS theirs FROM {$t} WHERE (a_id = ? OR b_id = ?) AND at_ms >= ? GROUP BY a_id, b_id ORDER BY theirs DESC LIMIT " . (max(1, $limit) * 2), [$me, $me, $me, $me, $sinceMs]);
+        $rows = $db->rows("SELECT a_id, b_id, MAX(CASE WHEN from_id = ? THEN at_ms ELSE 0 END) AS mine, MAX(CASE WHEN from_id <> ? THEN at_ms ELSE 0 END) AS theirs FROM {$t} WHERE (a_id = ? OR b_id = ?) AND at_ms >= ? AND deleted_ms = 0 GROUP BY a_id, b_id ORDER BY theirs DESC LIMIT " . (max(1, $limit) * 2), [$me, $me, $me, $me, $sinceMs]);
         $others = [];
         foreach ($rows as $r) {
             $other = (int) $r['a_id'] === $me ? (int) $r['b_id'] : (int) $r['a_id'];
@@ -911,14 +984,14 @@ final readonly class ChatHistory
                 continue;
             }
             $after = max((int) $r['mine'], $sinceMs - 1);
-            $n = (int) $db->value("SELECT COUNT(*) FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? AND at_ms > ?", [(int) $r['a_id'], (int) $r['b_id'], $other, $after]);
-            $last = $db->row("SELECT text, parent_id, at_ms FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? ORDER BY at_ms DESC, id DESC LIMIT 1", [(int) $r['a_id'], (int) $r['b_id'], $other]);
+            $n = (int) $db->value("SELECT COUNT(*) FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? AND at_ms > ? AND deleted_ms = 0", [(int) $r['a_id'], (int) $r['b_id'], $other, $after]);
+            $last = $db->row("SELECT text, parent_id, at_ms FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? AND deleted_ms = 0 ORDER BY at_ms DESC, id DESC LIMIT 1", [(int) $r['a_id'], (int) $r['b_id'], $other]);
             if ($last === null || $n < 1) {
                 continue;
             }
             $look = max($seen[$other] ?? 0, $seenAll);
             $fresh = $look > $after
-                ? (int) $db->value("SELECT COUNT(*) FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? AND at_ms > ?", [(int) $r['a_id'], (int) $r['b_id'], $other, $look])
+                ? (int) $db->value("SELECT COUNT(*) FROM {$t} WHERE a_id = ? AND b_id = ? AND from_id = ? AND at_ms > ? AND deleted_ms = 0", [(int) $r['a_id'], (int) $r['b_id'], $other, $look])
                 : $n;
             $out[] = ['with' => ['id' => $other, 'name' => $names[$other]], 'n' => $n, 'fresh' => $fresh, 'text' => (string) $last['text'], 'parent' => (int) $last['parent_id'], 'at' => (int) $last['at_ms']];
         }

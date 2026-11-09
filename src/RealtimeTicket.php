@@ -84,6 +84,11 @@ final readonly class RealtimeTicket
         if (in_array('chat', (new Groups($this->minn))->cones($user->id), true)) {
             $payload['cone'] = true;
         }
+        // A moderator's restrictions that stand now (Moderation: silence, IM pause), so they hold from the first frame.
+        $mod = Moderation::claim($this->minn->db, $user->id);
+        if ($mod !== null) {
+            $payload['mod'] = $mod;
+        }
         $answer = ['ticket' => self::sign($payload, $secret), 'expiresIn' => self::TTL, 'path' => '/ws'];
         $url = self::socketUrl();
         if ($url !== null) {
