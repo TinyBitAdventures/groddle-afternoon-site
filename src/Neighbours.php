@@ -480,9 +480,10 @@ final readonly class Neighbours
      * The owner's Butler as a visitor sees it (G328 slice 2: bag_butler.js
      * stands at its post on the home street): whether it is there, its name,
      * its eight parts (the customizer's, js/butler.js normalizeButlerParts
-     * checks them) and its post relative to the house. Not what it holds.
+     * checks them), its post relative to the house, and the line its owner
+     * left for visitors (leave info), word-filtered. Not what it holds.
      *
-     * @return array{owned: bool, name?: string, parts?: object, post?: int|null}
+     * @return array{owned: bool, name?: string, parts?: object, post?: int|null, info?: string}
      */
     public static function butlerView(?object $state): array
     {
@@ -498,7 +499,9 @@ final readonly class Neighbours
             }
         }
         $post = is_numeric($b->post ?? null) ? (int) round((float) $b->post) : null;
-        return ['owned' => true, 'name' => $name, 'parts' => $parts, 'post' => $post];
+        // leave info (bag_butler.js verbs.record_info; 141 characters, 3419): what a visitor reads under "tell me about...".
+        $info = is_string($b->info ?? null) ? WordFilter::text(mb_substr(trim((string) preg_replace('/\s+/', ' ', strip_tags($b->info))), 0, 141)) : '';
+        return ['owned' => true, 'name' => $name, 'parts' => $parts, 'post' => $post, 'info' => $info];
     }
 
     /**
