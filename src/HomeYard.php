@@ -92,6 +92,7 @@ use Minn\RestError;
  *        {"op":"yd-<16 hex>","owner":7,"visitor":9,"kind":"animal|plot|tree","id":"a3|patch:0","verb":"pet"}
  *        200 {"status":"settled","act":{…},"added":4,"today":12} | 409 {"status":"refused","why":"…","text":"…"}
  *   GET  groddle/v1/homes/{owner}/yard    a visitor: the owner's Patches, trees and animals as they stand, and my uses today
+ *        (and, to look at only, the owner's placed Magic Sticks and yard machines: "sticks", "machines")
  *   GET  groddle/v1/homes/yard            the owner: the acts waiting for my game
  */
 final readonly class HomeYard
@@ -103,6 +104,10 @@ final readonly class HomeYard
     public const STREET = 'RH_HOME_EXT';
     /** The game's js/animal-husbandry.js MAGIC_STICKS. */
     public const MAGIC_STICKS = ['magic_pig_stick', 'magic_chicken_stick', 'magic_butterfly_stick'];
+    /** The game's js/animal-husbandry.js REMOTE_MACHINES: what Remote Herdkeeping sets down on the home street. */
+    public const YARD_MACHINES = ['meat_collector', 'butterfly_milker', 'piggy_feeder'];
+    /** The most yard machines one view lists (the game works three collectors of a kind at most; more fail). */
+    public const YARD_MACHINES_MAX = 24;
     public const SLICE = 'yard-verbs-mp';
 
     public const WAITING_MAX = 200;
@@ -325,6 +330,7 @@ final readonly class HomeYard
             'patches' => $patches,
             'animals' => $animals,
             'sticks' => self::stickRows($state),
+            'machines' => self::machineRows($state),
             'rocks' => $rocks,
             'nodes' => $nodes,
             'mine' => (object) $mine,
@@ -1045,6 +1051,30 @@ final readonly class HomeYard
         foreach (is_array($rows) ? $rows : [] as $k) {
             if (is_object($k) && in_array($k->classTsid ?? '', self::MAGIC_STICKS, true) && is_numeric($k->x ?? null)) {
                 $out[] = ['classTsid' => $k->classTsid, 'x' => (int) $k->x, 'distance' => is_numeric($k->distance ?? null) && (int) $k->distance > 0 ? (int) $k->distance : 250];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The owner's Meat Collectors, Butterfly Milkers and Piggy Feeders on the home street, for a
+     * visitor to see standing there ({ classTsid, x }). In the original each was an item in the
+     * location, so everyone there saw it; someone who was not the owner and held no key had no verb
+     * on a collector or a milker (meat_collector.js collect 131-134, canPickup 171-180;
+     * butterfly_milker.js 131-134, 172-181). What one holds is not sent: it is the owner's.
+     *
+     * @return list<array{classTsid: string, x: int}>
+     */
+    public static function machineRows(?object $state): array
+    {
+        $rows = $state?->world?->streets?->{self::STREET}?->features?->{'animal-husbandry'}?->machines ?? [];
+        $out = [];
+        foreach (is_array($rows) ? $rows : [] as $m) {
+            if (count($out) >= self::YARD_MACHINES_MAX) {
+                break;
+            }
+            if (is_object($m) && in_array($m->classTsid ?? '', self::YARD_MACHINES, true) && is_numeric($m->x ?? null)) {
+                $out[] = ['classTsid' => $m->classTsid, 'x' => (int) $m->x];
             }
         }
         return $out;
