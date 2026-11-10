@@ -34,7 +34,8 @@ use Minn\RestError;
  *   and a pass signed with the realtime secret ({k: home, sub: visitor, o:
  *   owner, name, key}) the game hands the realtime server (homes.go home_pass),
  *   which only lets a holder of a pass onto HOME_<owner>, and into
- *   HOUSE_<owner> with a key (or once the owner lets them in).
+ *   HOUSE_<owner> with a key (or once the owner lets them in). With it, to
+ *   look at only, the owner's Garden Gnomes where they stand ("gnomes").
  * - groddle/v1/homes/random: a random home among the players who opted in
  *   (callbacks/player_random_go.php is not in the dump: here, a few
  *   opted-in players in random order, the first one houses_visit allows).
@@ -79,6 +80,13 @@ final readonly class Neighbours
 
     /** The most of a homes slice sent to a visitor. */
     public const HOME_BUDGET = 400000;
+
+    /** The most Garden Gnomes one visit lists. */
+    public const GNOMES_MAX = 24;
+
+    /** npc_garden_gnome.js: three phrases (369), 150 characters each (571). */
+    public const GNOME_PHRASES = 3;
+    public const GNOME_PHRASE_MAX = 150;
 
     // The source's words (admin_houses_visit 937-956, visiting_stone.js 136-138, inc_acl_keys.js 9-35, inc_visiting.js 41-46, 128).
     public const TEXT_NOT_FOUND = 'Could not find that player.';
@@ -272,6 +280,7 @@ final readonly class Neighbours
             // Slice 2: the gardens with the key-holders' waiting acts on them (HomeTending), and the Butler as it looks.
             'homes' => HomeTending::overlay($homes, HomeTending::rowsFor($db, $owner)),
             'butler' => self::butlerView($theirs),
+            'gnomes' => self::gnomeRows($theirs, $key),
             'key' => $key,
             'pass' => $this->pass($me, $owner, $name, $key),
         ];
@@ -502,6 +511,58 @@ final readonly class Neighbours
         // leave info (bag_butler.js verbs.record_info; 141 characters, 3419): what a visitor reads under "tell me about...".
         $info = is_string($b->info ?? null) ? WordFilter::text(mb_substr(trim((string) preg_replace('/\s+/', ' ', strip_tags($b->info))), 0, 141)) : '';
         return ['owned' => true, 'name' => $name, 'parts' => $parts, 'post' => $post, 'info' => $info];
+    }
+
+    /**
+     * The owner's Garden Gnomes as a visitor sees them: in the original a
+     * gnome set down was an item in the location, so everyone there saw it,
+     * anyone who bumped it made it hop and say one of the phrases its owner
+     * taught it, chat-filtered, to the whole location (items/npc_garden_gnome.js
+     * idle0_onMsg 452-484, talk_onRun 611-619), and only its owner could
+     * teach it, flip it or pick it up (232-243, 303-312, 354-364). From the
+     * owner's save (the garden-gnome feature's `placed`): where each stands
+     * (the home street, the house's ground floor, a Tower floor: the rooms a
+     * visitor can reach), which way it faces and its phrases through the
+     * remake's own word filter. Ours: a gnome in the house says its phrases
+     * only to the owner and key-holders (`$key`); anyone else let in sees it
+     * hop without them, since this answer is given before anyone is let in.
+     *
+     * @return list<array{id: string, place: string, x: int, y: int, facingLeft: bool, phrases: list<string>}>
+     */
+    public static function gnomeRows(?object $state, bool $key): array
+    {
+        $placed = self::feature($state, 'garden-gnome')?->placed ?? [];
+        $out = [];
+        foreach (is_array($placed) ? $placed : [] as $g) {
+            if (count($out) >= self::GNOMES_MAX) {
+                break;
+            }
+            if (!is_object($g) || !is_string($g->id ?? null) || !is_string($g->place ?? null) || !is_numeric($g->x ?? null) || !is_numeric($g->y ?? null)) {
+                continue;
+            }
+            if (preg_match('/^[A-Za-z0-9_-]{1,40}$/', $g->id) !== 1 || preg_match('/^(street|house|tower:[0-9])$/', $g->place) !== 1) {
+                continue;
+            }
+            $phrases = [];
+            foreach ($g->place !== 'house' || $key ? (is_array($g->phrases ?? null) ? $g->phrases : []) : [] as $p) {
+                if (count($phrases) >= self::GNOME_PHRASES) {
+                    break;
+                }
+                $text = is_string($p) ? WordFilter::text(mb_substr(trim((string) preg_replace('/\s+/', ' ', strip_tags($p))), 0, self::GNOME_PHRASE_MAX)) : '';
+                if ($text !== '') {
+                    $phrases[] = $text;
+                }
+            }
+            $out[] = [
+                'id' => $g->id,
+                'place' => $g->place,
+                'x' => (int) round(max(-1000000.0, min(1000000.0, (float) $g->x))),
+                'y' => (int) round(max(-1000000.0, min(1000000.0, (float) $g->y))),
+                'facingLeft' => ($g->facingLeft ?? true) !== false,
+                'phrases' => $phrases,
+            ];
+        }
+        return $out;
     }
 
     /**
