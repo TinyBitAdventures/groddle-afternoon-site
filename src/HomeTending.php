@@ -27,7 +27,9 @@ use Minn\RestError;
  * The owner's save is the owner's: a key-holder's act is checked here
  * against the owner's stored gardens (ticked as the game grows them, with
  * the seeds' times in data/garden-seeds.json, written by the game's
- * tools/build-garden-seeds.mjs) and the acts already waiting, then kept in
+ * tools/build-garden-seeds.mjs from its one garden speed, GARDEN_SPEEDUP:
+ * the source's hours at "pace" times Glitch's speed, Austin 2026-11-10) and
+ * the acts already waiting, then kept in
  * table groddle_home_tending. The owner's game applies the waiting acts to
  * its own gardens on its next load, or at once when the realtime server
  * tells it (homes.go home_tend_tell), and remembers their ids in its slice
@@ -190,27 +192,60 @@ final readonly class HomeTending
     // —— The rules (js/garden.js) ——
 
     /**
+     * Whether a mark (a plot's pace or wetPace) names today's garden clock.
+     * A crop keeps the clock it was planted on and a watering the clock it
+     * was poured on (js/garden.js sowPlot, wetPlot, LEGACY_GARDEN): a plot
+     * stored without the mark is from before the speed changed, and finishes
+     * on the old times (l1, l2, legacyWaterMs), so nothing in the ground is
+     * lost or made to wait.
+     */
+    private static function onPace(mixed $mark, array $seeds): bool
+    {
+        return is_numeric($mark) && (int) $mark === (int) ($seeds['pace'] ?? 0) && (int) $mark > 0;
+    }
+
+    /** How long the plot's watering lasts (js/garden.js plotWaterMs). */
+    public static function waterMs(object $plot, array $seeds): int
+    {
+        return self::onPace($plot->wetPace ?? null, $seeds)
+            ? (int) ($seeds['waterMs'] ?? 4320000)
+            : (int) ($seeds['legacyWaterMs'] ?? 43200000);
+    }
+
+    /** One stage of the plot's crop, with its grow modifier (js/garden.js plotStageMs). */
+    public static function stageMs(object $plot, string $state, array $seeds): int
+    {
+        $seed = is_string($plot->seed ?? null) ? ($seeds['seeds'][$plot->seed] ?? null) : null;
+        if ($seed === null) {
+            return 0;
+        }
+        $mod = is_numeric($plot->growModifier ?? null) && (float) $plot->growModifier > 0 ? (float) $plot->growModifier : 1.0;
+        $base = self::onPace($plot->pace ?? null, $seeds)
+            ? ($state === 'seeds' ? $seed['g1'] : $seed['g2'])
+            : ($state === 'seeds' ? ($seed['l1'] ?? $seed['g1']) : ($seed['l2'] ?? $seed['g2']));
+        return (int) ceil($base * $mod);
+    }
+
+    /**
      * tickGarden for one plot, continuously: each stage ends when its time
      * is up (not when the next frame notices), and a watering dries out
-     * after waterMs, banking the stage's growth (dryPlot).
+     * after its time (waterMs), banking the stage's growth (dryPlot).
      */
     public static function tickPlot(object $plot, int $now, array $seeds): void
     {
-        $water = (int) ($seeds['waterMs'] ?? 43200000);
         for ($step = 0; $step < 3; $step++) {
             if (($plot->wet ?? false) !== true) {
                 return;
             }
             $wetAt = is_numeric($plot->wetAt ?? null) ? (int) $plot->wetAt : $now;
-            $dryAt = $wetAt + $water;
+            $dryAt = $wetAt + self::waterMs($plot, $seeds);
             $at = min($now, $dryAt);
             $state = (string) ($plot->state ?? 'clean');
             $seed = is_string($plot->seed ?? null) ? ($seeds['seeds'][$plot->seed] ?? null) : null;
             $started = is_numeric($plot->stageStartedAt ?? null) ? (int) $plot->stageStartedAt : $at;
             $banked = max(0, (int) ($plot->growthMs ?? 0));
             if ($seed !== null && ($state === 'seeds' || $state === 'shoots')) {
-                $mod = is_numeric($plot->growModifier ?? null) && (float) $plot->growModifier > 0 ? (float) $plot->growModifier : 1.0;
-                $need = (int) ceil(($state === 'seeds' ? $seed['g1'] : $seed['g2']) * $mod);
+                $need = self::stageMs($plot, $state, $seeds);
                 $doneAt = $started + max(0, $need - $banked);
                 if ($doneAt <= $at) {
                     $plot->state = $state === 'seeds' ? 'shoots' : 'crop';
@@ -226,6 +261,7 @@ final readonly class HomeTending
                 $plot->stageStartedAt = $dryAt;
                 $plot->wet = false;
                 $plot->wetAt = null;
+                unset($plot->wetPace);
             }
             return;
         }
@@ -260,7 +296,7 @@ final readonly class HomeTending
                 if (($state !== 'seeds' && $state !== 'shoots') || !is_string($plot->seed ?? null) || ($plot->fertilized ?? false) === true) {
                     return self::TEXT_FERTILIZE;
                 }
-                $water = (int) ($seeds['waterMs'] ?? 43200000);
+                $water = self::waterMs($plot, $seeds);
                 $wetAt = is_numeric($plot->wetAt ?? null) ? (int) $plot->wetAt : $now;
                 return ($plot->wet ?? false) === true && 1 - ($now - $wetAt) / $water >= self::FERTILIZE_PERC ? null : self::TEXT_FERTILIZE_WATER;
         }
@@ -276,6 +312,8 @@ final readonly class HomeTending
             }
             $plot->wet = true;
             $plot->wetAt = $at;
+            // Poured on today's clock (js/garden.js wetPlot).
+            $plot->wetPace = (int) ($seeds['pace'] ?? 0);
             return;
         }
         if ($act === 'guano') {
@@ -290,8 +328,7 @@ final readonly class HomeTending
                 $plot->stageStartedAt = $at;
                 $plot->growthMs = 0;
             } elseif (($plot->state ?? '') === 'shoots') {
-                $mod = is_numeric($plot->growModifier ?? null) && (float) $plot->growModifier > 0 ? (float) $plot->growModifier : 1.0;
-                $need = $row['g2'] * $mod;
+                $need = self::stageMs($plot, 'shoots', $seeds);
                 $started = is_numeric($plot->stageStartedAt ?? null) ? (int) $plot->stageStartedAt : $at;
                 $elapsed = max(0, (int) ($plot->growthMs ?? 0)) + (($plot->wet ?? false) === true ? max(0, $at - $started) : 0);
                 $plot->stageStartedAt = (int) ceil($at - ($need - 0.1 * max(0, $need - $elapsed)));
@@ -306,6 +343,8 @@ final readonly class HomeTending
         $plot->growthMs = 0;
         if ($act === 'plant') {
             $plot->growModifier = 1;
+            // Planted on today's clock (js/garden.js sowPlot).
+            $plot->pace = (int) ($seeds['pace'] ?? 0);
         }
         if ($act !== 'clear' && (isset($plot->fertilized) || isset($plot->guanoAt))) {
             // include/garden.js 553: picking ends the fertilizer with the crop.
@@ -386,7 +425,7 @@ final readonly class HomeTending
         if ($seeds === null) {
             $raw = @file_get_contents(dirname(__DIR__) . '/data/garden-seeds.json');
             $json = is_string($raw) ? json_decode($raw, true) : null;
-            $seeds = is_array($json) ? $json : ['waterMs' => 43200000, 'seeds' => []];
+            $seeds = is_array($json) ? $json : ['pace' => 0, 'waterMs' => 43200000, 'legacyWaterMs' => 43200000, 'seeds' => []];
         }
         return $seeds;
     }
