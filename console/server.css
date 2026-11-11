@@ -1,0 +1,89 @@
+/* The console's Server tab (console/server.js, src/AdminConsole.php health): the realtime server's health over
+   time. Loaded after console.css with its own key (AdminConsolePage::SERVER_ASSET_KEY). The chart colours are
+   the data-viz reference palette's first three slots, validated all-pairs for colour-blind separation on these
+   surfaces (#fffdf8 light, #1d1813 dark): 1 blue the machine's measures and "in", 2 orange players, 3 aqua "out".
+   Light aqua is under 3:1 on the light surface, so its series always has a legend, the tooltip and the table.
+   Text stays in the page's text colours; a coloured key beside it carries identity. */
+
+.console-page { --hz-1: #2a78d6; --hz-2: #eb6834; --hz-3: #1baf7a; }
+:root[data-theme="dark"] .console-page { --hz-1: #3987e5; --hz-2: #d95926; --hz-3: #199e70; }
+
+.console-tabs [data-console-tab="server"] { --tab-hue: var(--cx-hue-6); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h4l2.5-6 4 12 2.5-6H21'/%3E%3C/svg%3E"); }
+
+.console-health > .console-panel + .console-panel { margin-top: 14px; }
+.console-health.hz-loading .hz-charts, .console-health.hz-loading .hz-scatter { opacity: 0.6; transition: opacity 0.2s; }
+.hz-status { margin: 0; }
+
+/* Now: the tiles, then the machine in one line. */
+.hz-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 4px 0 10px; }
+.hz-tile { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 0; }
+.hz-tile-label { color: var(--muted); font-size: 12px; font-weight: 700; }
+.hz-tile-value { color: var(--fg); font-size: 26px; font-weight: 800; line-height: 1.15; }
+.hz-tile-sub { color: var(--muted); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.hz-machine { margin: 0 2px 4px; overflow-wrap: anywhere; }
+
+/* Over time: the range buttons, then the charts on one time axis, and one tooltip for them all. */
+.hz-over, .hz-scatter { position: relative; }
+.hz-ranges { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.console .hz-ranges button[aria-pressed="true"] { background: var(--play-bg); color: var(--play-fg); border-color: var(--play-bg); }
+.hz-span { margin: 0 0 6px; }
+.hz-charts { display: grid; gap: 4px; }
+.hz-chart { margin: 0; }
+.hz-chart figcaption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 6px 0 0; font-size: 13px; }
+.hz-chart figcaption b { color: var(--fg); font-weight: 800; }
+.hz-note { color: var(--muted); font-size: 12px; font-weight: 600; }
+.hz-legend { display: inline-flex; gap: 12px; margin-left: auto; color: var(--fg); font-size: 12px; font-weight: 700; }
+.hz-key { display: inline-flex; align-items: center; gap: 5px; }
+.hz-swatch { display: inline-block; width: 14px; height: 2px; border-radius: 1px; background: var(--hz-c); }
+.hz-svg { display: block; max-width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+.hz-axis-y { margin: 0 0 2px; color: var(--muted); font-size: 12px; font-weight: 700; }
+
+/* Series identity: one class a series, its colour in --hz-c. */
+.hz-s1 { --hz-c: var(--hz-1); }
+.hz-s2 { --hz-c: var(--hz-2); }
+.hz-s3 { --hz-c: var(--hz-3); }
+
+.hz-grid { stroke: var(--row-line); stroke-width: 1; }
+.hz-axis { stroke: var(--border); stroke-width: 1; }
+.hz-tick { fill: var(--muted); font-family: var(--console-font); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hz-axis-title { font-weight: 700; }
+.hz-ref { stroke: var(--muted); stroke-width: 1; opacity: 0.7; }
+.hz-ref-label { fill: var(--muted); font-family: var(--console-font); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.hz-line { fill: none; stroke: var(--hz-c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.hz-area { fill: var(--hz-c); opacity: 0.1; stroke: none; }
+.hz-band { fill: var(--hz-c); opacity: 0.16; stroke: none; }
+.hz-dot { fill: var(--hz-c); }
+.hz-pt { fill: var(--hz-c); fill-opacity: 0.45; }
+.hz-trend { stroke: var(--fg); stroke-width: 1.5; stroke-linecap: round; opacity: 0.6; }
+.hz-cross { stroke: var(--fg); stroke-width: 1; opacity: 0.45; pointer-events: none; }
+.hz-mark { fill: var(--hz-c); stroke: var(--bg); stroke-width: 2; pointer-events: none; }
+.hz-hit { fill: transparent; cursor: crosshair; }
+.hz-hit:focus { outline: none; }
+.hz-hit:focus-visible { stroke: var(--accent); stroke-width: 2; }
+
+.hz-tip {
+  position: absolute; z-index: 5; min-width: 200px; max-width: 280px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg); color: var(--fg); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16); font-size: 12px; pointer-events: none;
+}
+.hz-tip-head { margin-bottom: 4px; color: var(--muted); font-weight: 700; }
+.hz-tip-row { display: grid; grid-template-columns: 14px auto 1fr; align-items: baseline; gap: 6px; line-height: 1.5; }
+.hz-tip-row b { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hz-tip-row span { color: var(--muted); font-weight: 600; }
+.hz-key-line { display: inline-block; width: 12px; height: 2px; border-radius: 1px; background: var(--hz-c, transparent); align-self: center; }
+
+/* Load against players: the readout first, in plain words. */
+.hz-readout { margin: 0 0 8px; }
+.hz-readout p { margin: 0 0 4px; color: var(--fg); font-size: 14px; font-weight: 700; }
+.hz-readout p + p { color: var(--lead); font-weight: 600; }
+
+.hz-details summary { cursor: pointer; padding: 10px 0 4px; font-weight: 800; }
+.hz-table-wrap { max-height: 420px; overflow: auto; }
+.hz-table th { position: sticky; top: 0; background: var(--bg); white-space: nowrap; }
+.hz-table tbody tr { cursor: default; }
+.hz-table td { white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .hz-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hz-tile-value { font-size: 22px; }
+  .hz-legend { margin-left: 0; }
+}

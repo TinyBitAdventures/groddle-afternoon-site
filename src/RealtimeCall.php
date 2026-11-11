@@ -19,17 +19,20 @@ final readonly class RealtimeCall
     /** How long the site waits for the realtime server. */
     public const TIMEOUT = 3.0;
 
+    /** The most of an answer the site reads (health asks for more: AdminConsole::HEALTH_BYTES). */
+    public const MAX_BYTES = 262144;
+
     public function __construct(private Seams $minn)
     {
     }
 
     /**
-     * The server's answer (its JSON, with "http" the status code), or null
+     * The server's answer (its JSON, with "http" the status code; at most $maxBytes of it), or null
      * when there is no secret or the server did not answer.
      *
      * @return array<string, mixed>|null
      */
-    public function post(string $call, array $body, float $timeout = self::TIMEOUT): ?array
+    public function post(string $call, array $body, float $timeout = self::TIMEOUT, int $maxBytes = self::MAX_BYTES): ?array
     {
         if (preg_match('/^[a-z][a-z_]{0,15}$/', $call) !== 1) {
             return null;
@@ -46,7 +49,7 @@ final readonly class RealtimeCall
             $reply = $this->minn->http->post($url, body: $json, query: ['call' => $call], headers: [
                 'Content-Type' => 'application/json',
                 'X-Groddle-Service' => ServiceCall::sign('POST', '/realtime/v1/' . $call, time(), bin2hex(random_bytes(8)), $json, $secret),
-            ], timeout: $timeout, redirects: 0, private: $loopback === null ? [] : [$loopback], maxBytes: 262144);
+            ], timeout: $timeout, redirects: 0, private: $loopback === null ? [] : [$loopback], maxBytes: $maxBytes);
         } catch (\Throwable) {
             return null;
         }

@@ -31,6 +31,11 @@ use Minn\RestError;
  *   GET  admin/chatlog?player=&q=&kind=&since=&until=&refused=1&before=
  *                               {"server":"up"|"down"|"off","lines":[Chat],"next":"…"|"","dropped":n,"days":n}
  *                               the realtime server's chat log, newest first (chatQuery, below)
+ *   GET  admin/health?range=24h|7d|30d|90d|all  (or ?since=&until=, unix seconds)
+ *                               {"server":"up"|"down"|"off","range","since","until","first","bucket":seconds,
+ *                                "machine":{host,os,cpus,mem,disk,version,started,uptime,boot},"now":Sample|null,
+ *                                "fields":["t","p",…],"samples":[[…],…]}   the realtime server's health a minute
+ *                               (groddle-afternoon-server health.go), bucketed by the server to at most HEALTH_POINTS rows
  *   GET  admin/catalog          {"items":[{"c","name","plural"}]}   what a give may carry (the ledger's tradeable classes)
  *   GET  admin/streets          {"streets":[{"tsid","label","hub"}]}  the game's street index, for teleport
  *   GET  admin/rooks            {"server":"up"|"down","attacks":[Rook]}   every Rook over a street now (the server's rooks)
@@ -46,6 +51,7 @@ use Minn\RestError;
  *   Row: {"id","name","level","street":{tsid,label}|null,"savedAt","banned":bool,"admin":bool}
  *   Rook: {"street":{tsid,label},"phase","angry","health","maxHealth","stun","maxStun","wingBeats","clock",
  *          "orbs","primed","scheduled","players":[{id,name}]}
+ *   Sample: one line of the server's health log (health.go's header names the keys: t, p players, c CPU %, l1 load, …)
  *   Chat: {"at","kind":"local"|"channel"|"party","where":{"id","label"},"player":{id,name},"text",
  *          "delivered":bool,"why":""|"slow_down"|"silenced","skipped":n,"to":[{id,name}],
  *          "deleted":null|{"at","by":{id,name}}}   deleted: an administrator deleted the line for everyone
@@ -57,6 +63,13 @@ use Minn\RestError;
  * server's signed chatlog call and names what it answers (streets from the
  * street index, channels in the game's words, groups from groddle_groups,
  * players as the game names them now; the line keeps the name they spoke under).
+ *
+ * Server health (Austin 2026-11-11: "review the server health over time ... see the count of active
+ * players on the game at that same moment ... upgrade proactively ... lightweight so we can keep all
+ * historical info") lives on the realtime server too (health.go: a sample a minute, a JSON line each in
+ * a file a UTC month, kept forever). admin/health asks the server's signed health call for a range and
+ * passes its rows on as they are (columns named by fields, nulls where the machine could not read a
+ * value), so a year of history stays one small answer; the console's Server tab draws it.
  *
  * A broadcast (Austin 2026-10-30: "a broadcast option, to blast everyone at
  * once") is admin/message to each player on the realtime server's online list
@@ -125,6 +138,13 @@ final readonly class AdminConsole
 
     /** Chat log lines a page (the server allows up to 200). */
     public const CHAT_PAGE = 100;
+
+    /** admin/health's ranges (seconds back from now; all: from the first sample kept), and how many rows at most. */
+    public const HEALTH_RANGES = ['24h' => 86400, '7d' => 604800, '30d' => 2592000, '90d' => 7776000, 'all' => 0];
+    public const HEALTH_POINTS = 1500;
+    /** A long range reads months of lines on the server: more time, and a bigger answer, than the other calls. */
+    public const HEALTH_TIMEOUT = 15.0;
+    public const HEALTH_BYTES = 1048576;
 
     /** The chat channels in the game's words (realtime server channels.go rooms). */
     public const CHANNELS = ['global' => 'Global Chat', 'trade' => 'Trade Channel', 'help' => 'Live Help', 'newbie' => 'Live Help (new players)'];
@@ -429,6 +449,98 @@ final readonly class AdminConsole
         }
         usort($out, static fn (array $a, array $b): int => strcasecmp($a['label'], $b['label']) ?: strcmp($a['tsid'], $b['tsid']));
         return Response::json(['streets' => $out])->withHeader('Cache-Control', 'private, max-age=300');
+    }
+
+    #[Route(Method::Get, '/groddle/v1/admin/health', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function health(Request $request): Response
+    {
+        $q = self::healthQuery($request->query('range'), $request->query('since'), $request->query('until'), time());
+        $answer = (new RealtimeCall($this->minn))->post('health', $q['call'], self::HEALTH_TIMEOUT, self::HEALTH_BYTES);
+        return Response::json(self::healthAnswer($answer, $q['range']));
+    }
+
+    /**
+     * The health call's body for a range (HEALTH_RANGES) or explicit since/until (unix seconds), and the range named.
+     *
+     * @return array{range: string, call: array<string, int>}
+     */
+    public static function healthQuery(mixed $range, mixed $since, mixed $until, int $now): array
+    {
+        $num = static fn (mixed $v): ?int => is_string($v) && preg_match('/^\d{1,12}$/', $v) === 1 ? (int) $v : null;
+        $s = $num($since);
+        $u = $num($until);
+        if ($s !== null && ($u === null || $u > $s)) {
+            return ['range' => 'custom', 'call' => ['since' => $s, 'until' => $u ?? $now + 60, 'points' => self::HEALTH_POINTS]];
+        }
+        $range = is_string($range) && array_key_exists($range, self::HEALTH_RANGES) ? $range : '24h';
+        $span = self::HEALTH_RANGES[$range];
+        return ['range' => $range, 'call' => ['since' => $span === 0 ? 0 : max(0, $now - $span), 'until' => $now + 60, 'points' => self::HEALTH_POINTS]];
+    }
+
+    /**
+     * What admin/health answers for the server's answer: its rows as they are, checked (a field name a
+     * short key, every row as long as fields, every value a number or null), and the machine's few facts.
+     *
+     * @param array<string, mixed>|null $answer
+     * @return array<string, mixed>
+     */
+    public static function healthAnswer(?array $answer, string $range): array
+    {
+        $status = $answer['status'] ?? null;
+        $empty = ['range' => $range, 'since' => 0, 'until' => 0, 'first' => 0, 'bucket' => 0, 'machine' => null, 'now' => null, 'fields' => [], 'samples' => []];
+        if ($status === 'off') {
+            return ['server' => 'off'] + $empty;
+        }
+        $fields = $answer['fields'] ?? null;
+        if ($status !== 'ok' || !is_array($fields) || !is_array($answer['rows'] ?? null) || !array_is_list($fields) || ($fields[0] ?? null) !== 't') {
+            return ['server' => 'down'] + $empty;
+        }
+        foreach ($fields as $f) {
+            if (!is_string($f) || preg_match('/^[a-z][a-z0-9]{0,3}$/', $f) !== 1) {
+                return ['server' => 'down'] + $empty;
+            }
+        }
+        $isNum = static fn (mixed $v): bool => $v === null || is_int($v) || is_float($v);
+        $samples = [];
+        foreach ($answer['rows'] as $row) {
+            if (is_array($row) && array_is_list($row) && count($row) === count($fields) && is_int($row[0]) && count(array_filter($row, $isNum)) === count($row)) {
+                $samples[] = $row;
+            }
+        }
+        $now = null;
+        if (is_array($answer['now'] ?? null)) {
+            $now = [];
+            foreach ($answer['now'] as $k => $v) {
+                if (is_string($k) && preg_match('/^[a-z][a-z0-9]{0,3}$/', $k) === 1 && $v !== null && $isNum($v)) {
+                    $now[$k] = $v;
+                }
+            }
+        }
+        $m = is_array($answer['machine'] ?? null) ? $answer['machine'] : [];
+        $int = static fn (mixed $v): ?int => is_int($v) || is_float($v) ? (int) $v : null;
+        $str = static fn (mixed $v): string => is_string($v) ? mb_substr($v, 0, 64) : '';
+        return [
+            'server' => 'up',
+            'range' => $range,
+            'since' => (int) ($answer['since'] ?? 0),
+            'until' => (int) ($answer['until'] ?? 0),
+            'first' => (int) ($answer['first'] ?? 0),
+            'bucket' => max(60, (int) ($answer['bucket'] ?? 60)),
+            'machine' => [
+                'host' => $str($m['host'] ?? null),
+                'os' => $str($m['os'] ?? null),
+                'cpus' => $int($m['cpus'] ?? null),
+                'mem' => $int($m['mem'] ?? null),
+                'disk' => is_int($m['disk'] ?? null) || is_float($m['disk'] ?? null) ? (float) $m['disk'] : null,
+                'version' => $str($m['version'] ?? null),
+                'started' => $int($m['started'] ?? null),
+                'uptime' => $int($m['uptime'] ?? null),
+                'boot' => $int($m['boot'] ?? null),
+            ],
+            'now' => $now,
+            'fields' => $fields,
+            'samples' => $samples,
+        ];
     }
 
     #[Route(Method::Get, '/groddle/v1/admin/rooks', policy: new Policy(Access::Cap, self::ADMIN))]
