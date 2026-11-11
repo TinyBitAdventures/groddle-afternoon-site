@@ -573,8 +573,9 @@ final readonly class CommunityPages
     }
 
     /**
-     * The whole app: the rail (Channels, Chats and Buddies for a signed-in player, the Boards for
-     * everyone), the conversation, and for a signed-in player the thread panel and Who's around.
+     * The whole app: the rail (Channels and Chats for a signed-in player, the Boards for everyone,
+     * then a signed-in player's Buddies), the conversation, and for a signed-in player the thread panel
+     * and Who's around.
      * $active: what the rail marks (chan, boards, board:<slug>); $view: what a phone shows (list|main);
      * $channel: the channel asked for (?c=), marked when it is one the reader may read, else the first.
      *
@@ -598,8 +599,7 @@ final readonly class CommunityPages
             if ($chans !== '') {
                 $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-channels"><h2 class="cx-sec-title" id="cx-sec-channels">Channels</h2><ul class="cx-list">' . $chans . '</ul></section>';
             }
-            $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-chats"><h2 class="cx-sec-title" id="cx-sec-chats">Chats</h2><ul class="cx-list" data-cx-ims><li class="cx-empty">Your IMs show here.</li></ul></section>'
-                . '<section class="cx-sec" aria-labelledby="cx-sec-buddies"><h2 class="cx-sec-title" id="cx-sec-buddies">Buddies</h2><ul class="cx-list cx-people" data-cx-buddies><li class="cx-empty">Loading your buddies…</li></ul></section>';
+            $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-chats"><h2 class="cx-sec-title" id="cx-sec-chats">Chats</h2><ul class="cx-list" data-cx-ims><li class="cx-empty">Your IMs show here.</li></ul></section>';
         }
         $boards = '';
         foreach ($community->boards() as $b) {
@@ -608,6 +608,10 @@ final readonly class CommunityPages
                 . '<span class="cx-txt"><span class="cx-name"><span class="cx-label">' . Html::esc($b['name']) . '</span></span><span class="cx-last">' . Html::esc($b['latest'] === null ? $b['about'] : $b['latest']['title']) . '</span></span></a></li>';
         }
         $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-boards"><h2 class="cx-sec-title" id="cx-sec-boards">Boards</h2><ul class="cx-list">' . $boards . '</ul></section>';
+        if ($signed) {
+            // Buddies last: the list grows with every buddy, and the six boards should not sit under it.
+            $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-buddies"><h2 class="cx-sec-title" id="cx-sec-buddies">Buddies</h2><ul class="cx-list cx-people" data-cx-buddies><li class="cx-empty">Loading your buddies…</li></ul></section>';
+        }
         if (!$signed) {
             $rail .= '<div class="cx-sec cx-rail-signin"><p>' . Html::esc(self::COPY['channelsSignedOut']) . '</p>' . self::signInLinks() . '</div>';
         }
