@@ -426,21 +426,220 @@ final class CommunityText
     }
 
     /**
-     * A post's words as HTML: paragraphs at blank lines, line breaks kept, links made.
+     * A post's words as HTML, with basic Markdown (Austin 2026-11-11): paragraphs at blank
+     * lines and line breaks kept, as before; **bold** (or __bold__), *italic* (or _italic_),
+     * ~~struck~~, `code`, [words](link), lists ("- ", "* " or "1. " at a line's start), quotes
+     * ("> ") and ``` fenced code blocks. Everything a player wrote is still escaped piece by
+     * piece and nothing they write is ever HTML; a [words](link) link must pass readLink, as a
+     * bare address does, or it stays as typed. A mark with no partner stays as typed, and an _
+     * inside a word (snake_case) is a letter. Chat lines keep lineHtml (no Markdown).
      *
      * @param list<string> $homeHosts
      */
     public static function bodyHtml(string $body, array $homeHosts = self::HOME_HOSTS): string
     {
+        $lines = explode("\n", trim($body, "\n"));
         $out = '';
-        foreach (preg_split("/\n\s*\n/", trim($body)) ?: [] as $para) {
-            $para = trim($para, "\n");
-            if ($para === '') {
+        $para = [];
+        $quote = [];
+        $list = null; // 'ul' | 'ol'
+        $items = [];
+        $inline = static fn (string $l): string => self::inlineHtml($l, $homeHosts);
+        $flush = static function () use (&$out, &$para, &$quote, &$list, &$items, $inline): void {
+            if ($para !== []) {
+                $out .= '<p>' . implode('<br />', array_map($inline, $para)) . '</p>';
+                $para = [];
+            }
+            if ($quote !== []) {
+                $out .= '<blockquote><p>' . implode('<br />', array_map($inline, $quote)) . '</p></blockquote>';
+                $quote = [];
+            }
+            if ($list !== null) {
+                $out .= "<{$list}>" . implode('', array_map(static fn (string $i): string => '<li>' . $inline($i) . '</li>', $items)) . "</{$list}>";
+                $list = null;
+                $items = [];
+            }
+        };
+        $n = count($lines);
+        for ($i = 0; $i < $n; $i++) {
+            $line = $lines[$i];
+            // A fence opens a code block only when a closing fence follows.
+            if (preg_match('/^\s*```/', $line) === 1) {
+                $close = null;
+                for ($j = $i + 1; $j < $n; $j++) {
+                    if (preg_match('/^\s*```\s*$/', $lines[$j]) === 1) {
+                        $close = $j;
+                        break;
+                    }
+                }
+                if ($close !== null) {
+                    $flush();
+                    $out .= '<pre><code>' . self::esc(implode("\n", array_slice($lines, $i + 1, $close - $i - 1))) . '</code></pre>';
+                    $i = $close;
+                    continue;
+                }
+            }
+            if (trim($line) === '') {
+                $flush();
                 continue;
             }
-            $out .= '<p>' . implode('<br />', array_map(static fn (string $l): string => self::lineHtml($l, $homeHosts), explode("\n", $para))) . '</p>';
+            if (preg_match('/^\s*[-*+]\s+(\S.*)$/', $line, $m) === 1 || preg_match('/^\s*\d{1,3}[.)]\s+(\S.*)$/', $line, $m) === 1) {
+                $kind = preg_match('/^\s*[-*+]\s/', $line) === 1 ? 'ul' : 'ol';
+                if ($list !== $kind || $para !== [] || $quote !== []) {
+                    $flush();
+                }
+                $list = $kind;
+                $items[] = $m[1];
+                continue;
+            }
+            if (preg_match('/^\s*>\s?(.*)$/', $line, $m) === 1) {
+                if ($quote === []) {
+                    $flush();
+                }
+                $quote[] = $m[1];
+                continue;
+            }
+            if ($list !== null || $quote !== []) {
+                $flush();
+            }
+            $para[] = $line;
+        }
+        $flush();
+        return $out;
+    }
+
+    /**
+     * One line of a post with its inline Markdown: `code` first (its words exactly as typed),
+     * then [words](link), then bare addresses (linkSegments), then the emphasis marks, paired
+     * across the pieces between them so **a https://x.com link** stays bold around the link.
+     *
+     * @param list<string> $homeHosts
+     */
+    public static function inlineHtml(string $line, array $homeHosts = self::HOME_HOSTS): string
+    {
+        /** @var list<array{0: 'text'|'html', 1: string}> $toks */
+        $toks = [];
+        foreach (preg_split('/(`[^`\n]+`)/', $line, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: [] as $piece) {
+            if (preg_match('/^`[^`\n]+`$/', $piece) === 1) {
+                $toks[] = ['html', '<code>' . self::esc(substr($piece, 1, -1)) . '</code>'];
+                continue;
+            }
+            foreach (preg_split('/(\[[^\]\n]{1,200}\]\([^)\s]{1,600}\))/', $piece, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: [] as $part) {
+                if (preg_match('/^\[([^\]\n]{1,200})\]\(([^)\s]{1,600})\)$/', $part, $m) === 1 && ($link = self::readLink($m[2], $homeHosts)) !== null) {
+                    $toks[] = ['html', self::anchor($link, self::emphasisHtml([['text', $m[1]]]))];
+                    continue;
+                }
+                foreach (self::linkSegments($part, $homeHosts) as $seg) {
+                    $toks[] = isset($seg['href']) ? ['html', self::anchor($seg, self::esc($seg['text']))] : ['text', $seg['text']];
+                }
+            }
+        }
+        return self::emphasisHtml($toks);
+    }
+
+    /** A link's tag around $inner (already HTML): home links open here, others after a confirm. */
+    private static function anchor(array $link, string $inner): string
+    {
+        return $link['home']
+            ? '<a class="chat-link" data-chat-link="home" href="' . self::esc($link['href']) . '" rel="ugc">' . $inner . '</a>'
+            : '<a class="chat-link" data-chat-link="away" data-host="' . self::esc($link['host']) . '" href="' . self::esc($link['href']) . '" target="_blank" rel="' . self::LINK_REL . '" title="' . self::esc('Opens ' . $link['host']) . '">' . $inner . '</a>';
+    }
+
+    /**
+     * The text pieces' emphasis marks as tags, everything else escaped; html pieces pass
+     * through. A mark opens before a non-space and closes after one; _ and __ also need a
+     * word edge (snake_case stays); pairs match last-opened first, so tags always nest, and
+     * an unpaired or empty mark stays as typed.
+     *
+     * @param list<array{0: 'text'|'html', 1: string}> $toks
+     */
+    private static function emphasisHtml(array $toks): string
+    {
+        $tags = ['**' => 'strong', '__' => 'strong', '*' => 'em', '_' => 'em', '~~' => 'del'];
+        $space = static fn (string $c): bool => $c === '' || preg_match('/\s/u', $c) === 1;
+        $word = static fn (string $c): bool => $c !== '' && preg_match('/[\p{L}\p{N}]/u', $c) === 1;
+        // Marks: [token, offset, mark, canOpen, canClose].
+        $marks = [];
+        $count = count($toks);
+        foreach ($toks as $t => [$kind, $text]) {
+            if ($kind !== 'text') {
+                continue;
+            }
+            preg_match_all('/\*\*|__|~~|\*|_/', $text, $found, PREG_OFFSET_CAPTURE);
+            foreach ($found[0] as [$mark, $at]) {
+                $before = $at > 0 ? mb_substr(substr($text, 0, $at), -1) : ($t > 0 ? ($toks[$t - 1][0] === 'html' ? 'a' : mb_substr($toks[$t - 1][1], -1)) : '');
+                $rest = substr($text, $at + strlen($mark));
+                $after = $rest !== '' ? mb_substr($rest, 0, 1) : ($t + 1 < $count ? ($toks[$t + 1][0] === 'html' ? 'a' : mb_substr($toks[$t + 1][1], 0, 1)) : '');
+                $open = !$space($after);
+                $close = !$space($before);
+                if ($mark[0] === '_') {
+                    $open = $open && !$word($before);
+                    $close = $close && !$word($after);
+                }
+                $marks[] = [$t, $at, $mark, $open, $close];
+            }
+        }
+        // Pair them: a closer takes the nearest open mark of its kind; marks opened after it stay as typed.
+        $paired = [];
+        $stack = [];
+        foreach ($marks as $k => $m) {
+            if ($m[4]) {
+                for ($s = count($stack) - 1; $s >= 0; $s--) {
+                    $o = $marks[$stack[$s]];
+                    if ($o[2] !== $m[2]) {
+                        continue;
+                    }
+                    // Nothing between them: no tag.
+                    if ($o[0] === $m[0] && $o[1] + strlen($o[2]) === $m[1]) {
+                        break;
+                    }
+                    $paired[$stack[$s]] = 'open';
+                    $paired[$k] = 'close';
+                    $stack = array_slice($stack, 0, $s);
+                    continue 2;
+                }
+            }
+            if ($m[3]) {
+                $stack[] = $k;
+            }
+        }
+        // Where each paired mark sits: [token][offset] => [mark, open|close].
+        $at = [];
+        foreach ($paired as $k => $role) {
+            $at[$marks[$k][0]][$marks[$k][1]] = [$marks[$k][2], $role];
+        }
+        $out = '';
+        foreach ($toks as $t => [$kind, $text]) {
+            if ($kind === 'html') {
+                $out .= $text;
+                continue;
+            }
+            $pos = 0;
+            $here = $at[$t] ?? [];
+            ksort($here);
+            foreach ($here as $offset => [$mark, $role]) {
+                $out .= self::esc(substr($text, $pos, $offset - $pos)) . ($role === 'open' ? "<{$tags[$mark]}>" : "</{$tags[$mark]}>");
+                $pos = $offset + strlen($mark);
+            }
+            $out .= self::esc(substr($text, $pos));
         }
         return $out;
+    }
+
+    /**
+     * A post's words without its Markdown marks, for one-line snippets and quotes: [words](link)
+     * becomes words, `code` its words, and the emphasis marks, list and quote marks go.
+     */
+    public static function plain(string $body): string
+    {
+        $s = (string) preg_replace('/\[([^\]\n]{1,200})\]\(([^)\s]{1,600})\)/', '$1', $body);
+        $s = (string) preg_replace('/^\s*```.*$/m', '', $s);
+        $s = (string) preg_replace('/`([^`\n]+)`/', '$1', $s);
+        $s = (string) preg_replace('/^\s*(?:[-*+]|\d{1,3}[.)]|>)\s+/m', '', $s);
+        $s = (string) preg_replace('/(\*\*|__|~~)(?=\S)(.+?)(?<=\S)\1/u', '$2', $s);
+        $s = (string) preg_replace('/(?<![\p{L}\p{N}*])\*(?=\S)(.+?)(?<=\S)\*(?![\p{L}\p{N}*])/u', '$1', $s);
+        $s = (string) preg_replace('/(?<![\p{L}\p{N}_])_(?=\S)(.+?)(?<=\S)_(?![\p{L}\p{N}_])/u', '$1', $s);
+        return $s;
     }
 
     /** "2 minutes ago", "3 hours ago", "Nov 4" (and the year when it is not this one), for $at seen at $now (unix). */

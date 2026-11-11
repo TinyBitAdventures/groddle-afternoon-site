@@ -369,7 +369,7 @@ final readonly class Community
         $snips = [];
         if ($lastIds !== []) {
             foreach ($db->rows('SELECT id, body FROM ' . $db->table(self::POSTS) . " WHERE status = 'shown' AND id IN (" . implode(',', $lastIds) . ')') as $p) {
-                $snips[(int) $p['id']] = CommunityText::snippet((string) $p['body'], 90);
+                $snips[(int) $p['id']] = CommunityText::snippet(CommunityText::plain((string) $p['body']), 90);
             }
         }
         foreach ($rows as &$r) {
@@ -487,7 +487,7 @@ final readonly class Community
             $r['quote'] = $q === null || (int) $q['thread_id'] !== (int) $r['thread_id'] ? null : [
                 'id' => (int) $q['id'],
                 'name' => $names[(int) $q['author_id']] ?? (string) $q['author_name'],
-                'text' => $q['status'] === 'shown' && !isset($blocks[(int) $q['author_id']]) ? CommunityText::quoteText((string) $q['body']) : '',
+                'text' => $q['status'] === 'shown' && !isset($blocks[(int) $q['author_id']]) ? CommunityText::quoteText(CommunityText::plain((string) $q['body'])) : '',
                 'gone' => $q['status'] !== 'shown',
                 'blocked' => isset($blocks[(int) $q['author_id']]),
             ];

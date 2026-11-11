@@ -314,6 +314,16 @@ a.cpost-name:hover { text-decoration: underline; }
 .cpost-body p { margin: 0 0 8px; white-space: pre-wrap; }
 .cpost-body p:last-child { margin-bottom: 0; }
 .cpost-body a, .cquote a { color: var(--fg); text-decoration-color: var(--accent); }
+/* Basic Markdown in posts (CommunityText::bodyHtml, 2026-11-11): lists, quotes, code. */
+.cpost-body ul, .cpost-body ol { margin: 0 0 8px; padding-left: 1.4em; }
+.cpost-body li { margin: 2px 0; }
+.cpost-body blockquote { margin: 0 0 8px; padding: 2px 0 2px 12px; border-left: 3px solid var(--border); color: var(--lead); }
+.cpost-body blockquote p { margin: 0; }
+.cpost-body code { padding: 1px 5px; border-radius: 5px; background: var(--track); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+.cpost-body pre { margin: 0 0 8px; padding: 10px 12px; overflow-x: auto; border: 1px solid var(--row-line); border-radius: 8px; background: var(--track); }
+.cpost-body pre code { padding: 0; border: 0; background: none; font-size: 0.9em; white-space: pre; }
+.cpost-body del { color: var(--muted); }
+.cpost-body > :last-child { margin-bottom: 0; }
 .cpost-gone { margin: 2px 0 0; color: var(--muted); font-style: italic; }
 .cquote { margin: 6px 0 8px; padding: 6px 12px; border-left: 3px solid var(--accent); background: var(--track); border-radius: 0 var(--radius) var(--radius) 0; font-size: 15px; }
 .cquote > a { font-weight: 700; text-decoration: none; }

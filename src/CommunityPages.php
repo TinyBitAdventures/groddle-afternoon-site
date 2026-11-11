@@ -89,7 +89,7 @@ final readonly class CommunityPages
         'channelsHint' => 'Lines you send here go to everyone in the channel in the game, marked web. Local chat and IMs stay in the game.',
         'signIn' => 'Sign in to post. Reading is open to everyone; posting needs your Groddle Afternoon player account.',
         'notPlayer' => 'Only players can post. Make a character in the game first.',
-        'noImages' => 'Words and links only: no pictures yet.',
+        'noImages' => 'Words and links, no pictures yet. **bold**, *italic*, `code`, - lists, > quotes and [words](link) work.',
         'locked' => 'This thread is locked, so nobody can reply.',
         'deleted' => 'This post was deleted by its writer.',
         'removed' => 'This post was removed by a moderator.',
@@ -328,7 +328,7 @@ final readonly class CommunityPages
             . $this->replyBox($community, $thread, $viewer, $canonical, $quote, is_string($form['body'] ?? null) ? $form['body'] : '', $error)
             . '</div></section>';
         $body = $this->shell($community, $viewer, "board:{$thread['board']}", $main, 'main', ['thread' => (int) $thread['id'], 'after' => $last, 'since' => Community::ms(), 'last-page' => $page === $pages ? '1' : '0', 'board' => (string) $thread['board']]);
-        $first = $posts !== [] && $page === 1 && $posts[0]['status'] === 'shown' ? CommunityText::snippet((string) $posts[0]['body'], 155) : '';
+        $first = $posts !== [] && $page === 1 && $posts[0]['status'] === 'shown' ? CommunityText::snippet(CommunityText::plain((string) $posts[0]['body']), 155) : '';
         $title = $thread['title'] . ' – ' . $thread['board_name'] . ($page > 1 ? " – page {$page}" : '');
         return $this->page($title, $first !== '' ? $first : 'A thread on the ' . $thread['board_name'] . ' board of the Groddle Afternoon community.', $body, $viewer, $pagerLink($page), $error === '' ? 200 : 400, $thread['status'] === 'open');
     }
@@ -358,7 +358,7 @@ final readonly class CommunityPages
         return '    <form class="creply" id="reply" method="post" action="' . Html::attr($canonical . 'reply/') . '" data-community-reply="' . (int) $thread['id'] . "\">\n"
             . '      <input type="hidden" name="_wpnonce" value="' . Html::attr($viewer['nonce']) . "\" />\n"
             . '      <input type="hidden" name="quote" value="' . ($quoted === null ? '' : (int) $quoted['id']) . "\" data-quote-field />\n"
-            . '      <div class="cquoting" data-quoting' . ($quoted === null ? ' hidden' : '') . '><span data-quoting-text>' . ($quoted === null ? '' : 'Quoting ' . Html::esc($quoteName) . ': ' . Html::esc(CommunityText::snippet((string) $quoted['body'], 90))) . '</span>'
+            . '      <div class="cquoting" data-quoting' . ($quoted === null ? ' hidden' : '') . '><span data-quoting-text>' . ($quoted === null ? '' : 'Quoting ' . Html::esc($quoteName) . ': ' . Html::esc(CommunityText::snippet(CommunityText::plain((string) $quoted['body']), 90))) . '</span>'
             . '<a class="cquoting-off" href="' . Html::attr($canonical) . '#reply" data-unquote>Remove quote</a></div>' . "\n"
             . '      <div class="cx-say"><label class="visually-hidden" for="creply-body">Your reply</label>'
             . '<textarea class="ctext cx-field" id="creply-body" name="body" rows="1" required maxlength="' . CommunityText::BODY_MAX . '" placeholder="Reply as ' . Html::attr($viewer['name']) . '">' . Html::esc($text) . '</textarea>'
@@ -493,7 +493,7 @@ final readonly class CommunityPages
         if ($p['blocked'] ?? false) {
             $inner = '<details class="cpost-blocked"><summary>' . Html::esc(self::COPY['blocked']) . '</summary>' . $inner . '</details>';
         }
-        $data = ' data-post="' . $id . '" data-status="' . Html::attr($status) . '"' . ($signed ? ' data-author="' . (int) ($p['author_id'] ?? 0) . '" data-author-name="' . Html::attr($name) . '"' : '') . ($mine ? ' data-mine=""' : '') . ($p['blocked'] ?? false ? ' data-blocked=""' : '') . ' data-quote-text="' . Html::attr(CommunityText::snippet((string) $p['body'], 90)) . '"';
+        $data = ' data-post="' . $id . '" data-status="' . Html::attr($status) . '"' . ($signed ? ' data-author="' . (int) ($p['author_id'] ?? 0) . '" data-author-name="' . Html::attr($name) . '"' : '') . ($mine ? ' data-mine=""' : '') . ($p['blocked'] ?? false ? ' data-blocked=""' : '') . ' data-quote-text="' . Html::attr(CommunityText::snippet(CommunityText::plain((string) $p['body']), 90)) . '"';
         return '<li class="cpost" id="post-' . $id . '"' . $data . '><div class="cpost-face">' . $face . '</div><div class="cpost-main">' . $inner . '</div></li>';
     }
 

@@ -144,7 +144,7 @@ final readonly class AdminCommunity
         $community->refreshThread((int) $post['thread_id']);
         $name = (new Characters($db))->namesOf([(int) $post['author_id']])[(int) $post['author_id']] ?? (string) $post['author_name'];
         $title = (string) ($thread['title'] ?? '');
-        AdminConsole::recordAction($db, $admin, (int) $post['author_id'], $remove ? 'comm_remove' : 'comm_restore', ['post' => (int) $post['id'], 'thread' => (int) $post['thread_id'], 'title' => mb_substr($title, 0, 80), 'first' => $first, 'text' => CommunityText::snippet((string) $post['body'], 200)], 'stored', $now);
+        AdminConsole::recordAction($db, $admin, (int) $post['author_id'], $remove ? 'comm_remove' : 'comm_restore', ['post' => (int) $post['id'], 'thread' => (int) $post['thread_id'], 'title' => mb_substr($title, 0, 80), 'first' => $first, 'text' => CommunityText::snippet(CommunityText::plain((string) $post['body']), 200)], 'stored', $now);
         $text = $remove
             ? ($first ? "Removed {$name}'s thread “{$title}” from its board." : "Removed {$name}'s post in “{$title}”.")
             : ($first ? "Restored {$name}'s thread “{$title}”." : "Restored {$name}'s post in “{$title}”.");
