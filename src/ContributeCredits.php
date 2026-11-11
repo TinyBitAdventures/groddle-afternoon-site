@@ -12,7 +12,10 @@ use Minn\Html;
  * The Contribute page's "Thank you, testers" board (blocks/contribute-credits):
  * the top ReportCredits::BOARD players by the points their bug reports earned
  * (ReportCredits::rank), drawn in full on the server from the database each
- * time the page is read, no script.
+ * time the page is read, no script. Every other tester with points is behind
+ * a "View N more testers" button, in a pop-up over the page (Austin
+ * 2026-11-10): the browser's own popover, so it opens, closes on Esc or a
+ * click outside and returns focus without a script.
  *
  * Each row: the rank, the player's Glitch (their avatar, the Players page's
  * /players/<id>/avatar picture), their character's name, their points and how
@@ -36,14 +39,16 @@ final class ContributeCredits
     }
 
     /**
-     * The board as it stands: ReportCredits::rank's rows with what a row
-     * draws: name, slug (null without a public page) and the avatar's time.
+     * The board as it stands, everyone with points in rank order (draw shows
+     * the first ReportCredits::BOARD and keeps the rest for the pop-up):
+     * ReportCredits::rank's rows with what a row draws: name, slug (null
+     * without a public page) and the avatar's time.
      *
      * @return list<array{id: int, points: int, reports: int, name: string, slug: ?string, avatarAt: ?string}>
      */
     public static function board(Db $db): array
     {
-        $top = ReportCredits::rank((new ReportCredits($db))->totals());
+        $top = ReportCredits::rank((new ReportCredits($db))->totals(), PHP_INT_MAX);
         if ($top === []) {
             return [];
         }
@@ -90,10 +95,33 @@ final class ContributeCredits
             return '<div class="cc-board cc-board-empty"><p class="cc-empty">' . Inline::html($empty) . '</p>' . $how . '</div>';
         }
         $rows = '';
+        $rest = '';
         foreach (array_values($board) as $i => $e) {
-            $rows .= self::row($i + 1, $e);
+            if ($i < ReportCredits::BOARD) {
+                $rows .= self::row($i + 1, $e);
+            } else {
+                $rest .= self::row($i + 1, $e);
+            }
         }
-        return '<div class="cc-board"><ol class="cc-list" role="list" aria-label="Testers by points">' . $rows . '</ol>' . $how . '</div>';
+        return '<div class="cc-board"><ol class="cc-list" role="list" aria-label="Testers by points">' . $rows . '</ol>'
+            . ($rest === '' ? '' : self::more($rest, count($board) - ReportCredits::BOARD))
+            . $how . '</div>';
+    }
+
+    /**
+     * The button under the board and the pop-up it opens: the testers below
+     * the first ReportCredits::BOARD, their ranks carrying on. The pop-up is a
+     * popover (no script); its pictures are lazy, so they load when it opens.
+     */
+    private static function more(string $rows, int $count): string
+    {
+        $label = $count === 1 ? 'View 1 more tester' : 'View ' . $count . ' more testers';
+        return '<p class="cc-more"><button type="button" class="cc-more-open" popovertarget="cc-more">' . $label . '</button></p>'
+            . '<div class="cc-pop" id="cc-more" popover role="dialog" aria-labelledby="cc-more-title">'
+            . '<header class="cc-pop-head"><h3 class="cc-pop-title" id="cc-more-title">More testers</h3>'
+            . '<button type="button" class="cc-pop-close" popovertarget="cc-more" popovertargetaction="hide" aria-label="Close">×</button></header>'
+            . '<ol class="cc-list cc-list-more" role="list" start="' . (ReportCredits::BOARD + 1) . '" aria-label="More testers by points">' . $rows . '</ol>'
+            . '</div>';
     }
 
     private static function row(int $rank, array $e): string

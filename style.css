@@ -704,6 +704,19 @@ a.cc-name:focus { outline: none; }
 .cc-points span { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .cc-board .cc-empty { margin: 0; padding: 18px 20px; border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--muted); background: var(--surface); }
 .cc-board .cc-how { margin: 18px 0 0; max-width: 46em; font-size: 14px; color: var(--muted); }
+/* Everyone below the first ten: a button under the board opens them in a pop-up over the page (the browser's popover,
+   no script). One column of the same rows, scrolling inside the pop-up; its head stays put. */
+.cc-more { margin: 14px 0 0; }
+.cc-more-open { padding: 9px 16px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.cc-more-open:hover { border-color: var(--accent); }
+.cc-more-open:focus-visible, .cc-pop-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.cc-pop { width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); margin: auto; padding: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); color: var(--fg); overflow: auto; overscroll-behavior: contain; }
+.cc-pop::backdrop { background: color-mix(in srgb, var(--bg) 78%, transparent); }
+.cc-pop-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 12px 18px; border-bottom: 1px solid var(--border); background: var(--bg); }
+.cc-pop-title { margin: 0; font-size: 18px; line-height: 1.2; }
+.cc-pop-close { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font: inherit; font-size: 20px; line-height: 1; cursor: pointer; }
+.cc-pop-close:hover { border-color: var(--accent); }
+.cc-list.cc-list-more { grid-template-columns: minmax(0, 1fr); padding: 14px; }
 @media (max-width: 760px) {
   .cc-list { grid-template-columns: minmax(0, 1fr); }
 }
