@@ -345,6 +345,11 @@ button.cchip:hover { border-color: var(--muted); }
 .cpicker[hidden] { display: none; }
 .cpicker button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; font-size: 20px; cursor: pointer; }
 .cpicker button:hover, .cpicker button[aria-pressed="true"] { background: var(--track); }
+/* Eight in a row are 330 px with the 8 px community.js keeps to each side of the window: a narrower phone gets closer, smaller buttons (280 px). */
+@media (max-width: 345px) {
+  .cpicker { gap: 2px; padding: 4px; }
+  .cpicker button { width: 32px; height: 32px; }
+}
 
 /* Editing in place */
 .cedit { display: grid; gap: 8px; margin-top: 4px; }

@@ -39,6 +39,12 @@
       "art": ""
     },
     {
+      "key": "thanks",
+      "glyph": "🙏",
+      "label": "Thank you",
+      "art": ""
+    },
+    {
       "key": "hi",
       "glyph": "",
       "label": "Hi",
