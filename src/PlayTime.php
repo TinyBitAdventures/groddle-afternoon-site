@@ -27,8 +27,13 @@ use Minn\RestError;
  * about once a minute and when a player leaves:
  *
  *   POST groddle/v1/play-time
- *        {"id":"pt-…","players":[{"user":7,"seconds":60,"last":1730000000},…]}
+ *        {"id":"pt-…","players":[{"user":7,"seconds":60,"last":1730000000},…],"counts":{"2026-11-11":{"pig:nibble":3}}}
  *        200 {"done":"pt-…","added":n}   added 0 and "again" true: the batch was taken before
+ *
+ * "counts" (optional) are the world's tallies the server rides on the batch (its tally.go: per UTC day, the acts
+ * on the shared world that landed, everyone together): checked here (counts()) and kept by Analytics, once with
+ * the batch. A batch may carry counts and no players. Analytics also takes each batch's players as that day's
+ * active players and their seconds as the day's play time (Analytics::fromBatch, in the same transaction).
  *
  * Each player's seconds go onto user meta groddle_play_seconds (a running
  * integer, added in the database: UPDATE … + n, under a lock on the user's
@@ -73,6 +78,12 @@ final readonly class PlayTime
 
     /** How far past the site's clock a "last" may be (the two clocks' slack, seconds). */
     public const SKEW = 60;
+
+    /** A tally key (the realtime server's tally.go tallyKeyRe), a day's keys at most, a count at most, days a batch at most. */
+    public const TALLY_KEY = '/^[a-z][a-z0-9_]{0,31}:[a-z][a-z0-9_]{0,23}$/';
+    public const TALLY_KEYS = 256;
+    public const TALLY_MOST = 1000000;
+    public const TALLY_DAYS = 8;
 
     /** Batch ids are kept this long (days); the realtime server never resends one that old. */
     public const KEEP = 90;
@@ -122,7 +133,7 @@ final readonly class PlayTime
      * per player (two for one player are summed), "last" never past the site's
      * clock plus SKEW. Null when it is not a batch at all.
      *
-     * @return array{id: string, players: list<array{user: int, seconds: int, last: int}>}|null
+     * @return array{id: string, players: list<array{user: int, seconds: int, last: int}>, counts?: array<string, array<string, int>>}|null
      */
     public static function batch(mixed $body, int $now): ?array
     {
@@ -144,7 +155,45 @@ final readonly class PlayTime
             $by[$user] = $p;
         }
         ksort($by);
-        return ['id' => $body['id'], 'players' => array_values($by)];
+        $out = ['id' => $body['id'], 'players' => array_values($by)];
+        $counts = self::counts($body['counts'] ?? null, $now);
+        if ($counts !== []) {
+            $out['counts'] = $counts;
+        }
+        return $out;
+    }
+
+    /**
+     * A batch's tallies, checked: days (Y-m-d) from KEEP days back to tomorrow, at most TALLY_DAYS of them, keys of
+     * the server's shape, at most TALLY_KEYS a day, each count a whole number from 1 to TALLY_MOST. Anything else
+     * is left out (the batch is still answered).
+     *
+     * @return array<string, array<string, int>>
+     */
+    public static function counts(mixed $counts, int $now): array
+    {
+        if (!is_array($counts)) {
+            return [];
+        }
+        $out = [];
+        foreach ($counts as $day => $keys) {
+            $ts = is_string($day) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $day) === 1 ? strtotime("{$day} 00:00:00 UTC") : false;
+            if ($ts === false || gmdate('Y-m-d', $ts) !== $day || $ts < $now - self::KEEP * 86400 || $ts > $now + 86400 || !is_array($keys) || count($out) >= self::TALLY_DAYS) {
+                continue;
+            }
+            $kept = [];
+            foreach ($keys as $key => $n) {
+                if (is_string($key) && preg_match(self::TALLY_KEY, $key) === 1 && is_int($n) && $n >= 1 && $n <= self::TALLY_MOST && count($kept) < self::TALLY_KEYS) {
+                    $kept[$key] = $n;
+                }
+            }
+            if ($kept !== []) {
+                ksort($kept);
+                $out[$day] = $kept;
+            }
+        }
+        ksort($out);
+        return $out;
     }
 
     /**
@@ -172,6 +221,8 @@ final readonly class PlayTime
                 $added++;
             }
         }
+        // The console's Analytics tab: the day's active players and play time, and the world's tallies.
+        Analytics::fromBatch($db, $batch, $now);
         return $added;
     }
 

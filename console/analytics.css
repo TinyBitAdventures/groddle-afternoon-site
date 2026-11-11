@@ -1,0 +1,37 @@
+/* The console's Analytics tab (console/analytics.js, src/Analytics.php). Its charts, tiles and tooltip are the Server
+   tab's (server.css: .hz-*, the same validated palette slots, light and dark from the page's tokens); this adds the
+   tab's glyph, the notes under the range, the pages table, the tallies' grid with their sparklines, and the records.
+   Loaded after server.css with its own key (AdminConsolePage::ANALYTICS_ASSET_KEY). */
+
+.console-tabs [data-console-tab="analytics"] { --tab-hue: var(--cx-hue-3); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16'/%3E%3Cpath d='M7 16v-4M12 16V7M17 16v-6'/%3E%3C/svg%3E"); }
+
+.an-intro { margin: 2px 2px 10px; color: var(--fg); }
+.an-privacy { margin: 2px 2px 0; }
+.an-notes { margin: 0 0 6px; padding-left: 18px; }
+.an-notes li { margin: 0; }
+
+.an-table-wrap { overflow-x: auto; }
+.an-pages tbody tr { cursor: default; }
+.an-pages tbody tr:hover { background: none; }
+.an-pages td:first-child { font-family: var(--console-font); font-weight: 700; overflow-wrap: normal; word-break: normal; }
+.an-pages th.console-num, .an-pages td.console-num { text-align: right; }
+
+/* Around Ur: a tile a tally, today's number first, the range as a sparkline, then all time and the best day. */
+.an-ur { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px; margin: 4px 0 0; padding: 0; list-style: none; }
+.an-ur-tile { display: grid; gap: 3px; align-content: start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 0; }
+.an-ur-today { color: var(--muted); font-size: 12px; font-weight: 700; }
+.an-ur-today b { color: var(--fg); font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.an-spark { display: block; width: 100%; height: 28px; margin: 2px 0; overflow: visible; }
+.an-spark .an-spark-line { stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+
+/* Records: a label and its best day, two columns where there is room. */
+.an-records { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; margin: 4px 0 0; }
+.an-record { display: grid; gap: 1px; padding: 6px 0; border-bottom: 1px solid var(--row-line); min-width: 0; }
+.an-record dt { color: var(--muted); font-size: 12px; font-weight: 700; }
+.an-record dd { margin: 0; color: var(--fg); font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+@media (max-width: 720px) {
+  .an-ur { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .an-ur-tile { padding: 8px 10px; }
+  .an-ur-today b { font-size: 19px; }
+}

@@ -15,10 +15,15 @@
  * - The numbers as a table, newest first.
  *
  * Its own module beside console.js (as moderation.js): it fills the Server tab's panel, keeps its own REST
- * nonce, and draws its charts as inline SVG (no chart library). Colours come from server.css's tokens, so the
- * site's light and dark themes switch them; text is always the page's text colours, never a series colour.
- * Every name and value goes in with textContent.
+ * nonce, and draws its charts as inline SVG (no chart library) with the console's chart kit (console/charts.js,
+ * shared with the Analytics tab). Colours come from server.css's tokens, so the site's light and dark themes
+ * switch them; text is always the page's text colours, never a series colour. Every name and value goes in with
+ * textContent.
  */
+
+import { round, fmt, niceTicks, bytes, duration, el, sv, createApi, lineChart, linkCharts } from './charts.js?v=charts-1';
+
+export { niceTicks, timeTicks, bytes, duration } from './charts.js?v=charts-1';
 
 /** admin/health's ranges, in the buttons' order. */
 export const RANGES = Object.freeze([['24h', '24 hours'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days'], ['all', 'All']]);
@@ -51,8 +56,6 @@ export function trend(points) {
   return { slope, intercept: my - slope * mx, r2: syy === 0 ? 0 : (sxy * sxy) / (sxx * syy), n };
 }
 
-const round = (v, d = 0) => { const p = 10 ** d; return Math.round(v * p) / p; };
-const fmt = (v, d = 0) => (v == null ? '–' : round(v, d).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }));
 
 /**
  * PURE: the readout under the scatter: how the y measure grows with players and where it would reach its limit.
@@ -87,99 +90,6 @@ export function readout(points, kind = 'cpu') {
   return lines;
 }
 
-/** PURE: about n round ticks from 0 to at least max. */
-export function niceTicks(max, n = 4) {
-  if (!(max > 0)) return [0, 1];
-  const raw = max / n;
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || 10 * mag;
-  const out = [];
-  for (let v = 0; v < max + step * 0.999; v += step) out.push(round(v, 6));
-  return out;
-}
-
-/** PURE: time ticks between a and b (unix seconds) at most every minGap seconds, on local hours, days or months. */
-export function timeTicks(a, b, count) {
-  const span = b - a;
-  const H = 3600; const D = 86400;
-  const steps = [H, 2 * H, 3 * H, 6 * H, 12 * H, D, 2 * D, 7 * D, 14 * D];
-  const step = steps.find((s) => span / s <= count);
-  const out = [];
-  if (step) {
-    const d = new Date(a * 1000);
-    if (step < D) d.setMinutes(0, 0, 0); else d.setHours(0, 0, 0, 0);
-    if (step === 7 * D || step === 14 * D) d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Mondays
-    while (d.getTime() / 1000 < a) step < D ? d.setHours(d.getHours() + 1) : d.setDate(d.getDate() + 1);
-    // On the step's own grid (local hours divisible by it; days stepping from the first).
-    if (step < D) while (d.getHours() % (step / H)) d.setHours(d.getHours() + 1);
-    for (; d.getTime() / 1000 <= b; step < D ? d.setHours(d.getHours() + step / H) : d.setDate(d.getDate() + step / D)) out.push(d.getTime() / 1000);
-    return { ticks: out, unit: step < D ? 'hour' : 'day' };
-  }
-  const months = [1, 2, 3, 6, 12].find((m) => span / (m * 30 * D) <= count) || 12;
-  const d = new Date(a * 1000);
-  d.setDate(1); d.setHours(0, 0, 0, 0);
-  while (d.getTime() / 1000 < a || d.getMonth() % months) d.setMonth(d.getMonth() + 1);
-  for (; d.getTime() / 1000 <= b; d.setMonth(d.getMonth() + months)) out.push(d.getTime() / 1000);
-  return { ticks: out, unit: 'month' };
-}
-
-/** PURE: bytes as KB, MB or GB (decimal), per second when perSecond. */
-export function bytes(v, perSecond = false) {
-  if (v == null) return '–';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  while (Math.abs(v) >= 1000 && i < units.length - 1) { v /= 1000; i++; }
-  return `${fmt(v, v < 10 && i > 0 ? 1 : 0)} ${units[i]}${perSecond ? '/s' : ''}`;
-}
-
-/** PURE: seconds as "3 days", "5 h", "12 min". */
-export function duration(s) {
-  if (s == null) return '–';
-  if (s >= 2 * 86400) return `${Math.floor(s / 86400)} days`;
-  if (s >= 86400) return '1 day';
-  if (s >= 2 * 3600) return `${Math.floor(s / 3600)} h`;
-  return `${Math.max(1, Math.floor(s / 60))} min`;
-}
-
-const SVG = 'http://www.w3.org/2000/svg';
-function el(tag, attrs = {}, ...kids) {
-  const n = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (v === false || v == null) continue;
-    if (k === 'text') n.textContent = String(v);
-    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
-    else n.setAttribute(k, v === true ? '' : String(v));
-  }
-  for (const k of kids) if (k != null) n.append(k);
-  return n;
-}
-function sv(tag, attrs = {}, text) {
-  const n = document.createElementNS(SVG, tag);
-  for (const [k, v] of Object.entries(attrs)) if (v != null) n.setAttribute(k, String(v));
-  if (text != null) n.textContent = String(text);
-  return n;
-}
-
-function createApi() {
-  let nonce = '';
-  async function fresh() {
-    const r = await fetch('/wp-admin/admin-ajax.php?action=rest-nonce', { credentials: 'same-origin', cache: 'no-store' });
-    const t = (await r.text()).trim();
-    nonce = r.ok && /^[0-9a-f]{10}$/.test(t) ? t : '';
-  }
-  async function call(path, retried = false) {
-    if (!nonce) await fresh();
-    const r = await fetch(`/wp-json/groddle/v1/${path}`, { credentials: 'same-origin', cache: 'no-store', headers: { 'X-WP-Nonce': nonce } });
-    const data = await r.json().catch(() => null);
-    if (r.status === 403 && data?.code === 'rest_cookie_invalid_nonce' && !retried) {
-      nonce = '';
-      return call(path, true);
-    }
-    if (!r.ok) throw Object.assign(new Error(data?.message || 'That did not work.'), { status: r.status });
-    return data;
-  }
-  return { call };
-}
 
 // —— What each chart plots ——
 const perSecond = (v) => (v == null ? null : v / 60);
@@ -279,8 +189,7 @@ function boot() {
   }
 
   // —— Over time ——
-  const geo = { left: 46, right: 14, top: 10, bottom: 22, height: 128 };
-  let views = []; // per chart: {svg, x(t), cross, dots[]}
+  let linked = { hide() {} }; // the crosshair and tooltip through the charts (charts.js linkCharts)
   function domain() {
     const d = state.data;
     const rows = state.rows;
@@ -289,161 +198,40 @@ function boot() {
     if (rows.length && rows[0].t > since) since = rows[0].t; // history starts later: the charts start with it
     return [since, Math.max(until, since + 60)];
   }
-  function lineChart(spec, [a, b], width) {
-    const rows = state.rows;
-    const h = geo.height;
-    const iw = width - geo.left - geo.right;
-    const ih = h - geo.top - geo.bottom;
-    const vals = [];
-    for (const r of rows) for (const s of spec.series) { const v = r[s.key]; if (v != null) vals.push(v); if (s.band && r[s.band] != null) vals.push(r[s.band]); }
-    const box = el('figure', { class: 'hz-chart', 'data-hz-chart': spec.id });
-    const legend = spec.series.length > 1 ? el('span', { class: 'hz-legend' }, ...spec.series.map((s) => el('span', { class: 'hz-key' }, el('i', { class: `hz-swatch ${s.cls}`, 'aria-hidden': 'true' }), s.label))) : null;
-    box.append(el('figcaption', {}, el('b', { text: spec.title }), el('span', { class: 'hz-note', text: spec.note }), legend));
-    if (!vals.length) {
-      box.append(el('p', { class: 'console-empty', text: 'Not read on this machine.' }));
-      return { box, x: null };
-    }
-    let top = spec.max ?? Math.max(...vals, spec.min || 0, ...(spec.ref ? spec.ref().map((r) => r.y) : []));
-    if (spec.int) top = Math.max(top, 4);
-    const ticks = niceTicks(top, 4);
-    top = spec.max ?? ticks[ticks.length - 1];
-    const x = (t) => geo.left + ((t - a) / (b - a)) * iw;
-    const y = (v) => geo.top + ih - (v / top) * ih;
-    const svg = sv('svg', { viewBox: `0 0 ${width} ${h}`, width, height: h, class: 'hz-svg', role: 'img', 'aria-label': `${spec.title}, ${when(a)} to ${when(b)}` });
-    for (const v of ticks) {
-      svg.append(sv('line', { x1: geo.left, x2: width - geo.right, y1: y(v), y2: y(v), class: 'hz-grid' }));
-      const label = spec.bytes ? bytes(v, true) : `${fmt(v, spec.dp ?? 0)}${spec.unit === '%' ? '%' : ''}`;
-      svg.append(sv('text', { x: geo.left - 6, y: y(v) + 4, class: 'hz-tick', 'text-anchor': 'end' }, label));
-    }
-    const tt = timeTicks(a, b, Math.max(2, Math.floor(iw / 90)));
-    for (const t of tt.ticks) {
-      const label = tt.unit === 'hour' ? new Date(t * 1000).toLocaleTimeString([], { hour: 'numeric' }) : new Date(t * 1000).toLocaleDateString([], tt.unit === 'month' ? { month: 'short', year: '2-digit' } : { month: 'short', day: 'numeric' });
-      svg.append(sv('line', { x1: x(t), x2: x(t), y1: geo.top + ih, y2: geo.top + ih + 4, class: 'hz-axis' }));
-      svg.append(sv('text', { x: x(t), y: h - 5, class: 'hz-tick', 'text-anchor': 'middle' }, label));
-    }
-    svg.append(sv('line', { x1: geo.left, x2: width - geo.right, y1: geo.top + ih, y2: geo.top + ih, class: 'hz-axis' }));
-    for (const r of spec.ref ? spec.ref() : []) {
-      if (r.y > top) continue;
-      svg.append(sv('line', { x1: geo.left, x2: width - geo.right, y1: y(r.y), y2: y(r.y), class: 'hz-ref' }));
-      svg.append(sv('text', { x: width - geo.right - 2, y: y(r.y) - 4, class: 'hz-ref-label', 'text-anchor': 'end' }, r.label));
-    }
-    // A step with no sample breaks the line (the server was down or not yet sampling).
-    const gap = Math.max(state.data.bucket * 2.5, 180);
-    for (const s of spec.series) {
-      let line = ''; let area = ''; let band = ''; let bandBack = []; let prev = null; let run = [];
-      const flush = () => {
-        if (run.length === 1) { const [t, v] = run[0]; svg.append(sv('circle', { cx: x(t), cy: y(v), r: 1.5, class: `hz-dot ${s.cls}` })); }
-        if (run.length && s.area) area += `M${x(run[0][0])},${y(0)}` + run.map(([t, v]) => `L${x(t)},${y(v)}`).join('') + `L${x(run[run.length - 1][0])},${y(0)}Z`;
-        if (bandBack.length) { band += bandBack.map((p, i) => `${i ? 'L' : 'M'}${p}`).join('') + run.slice().reverse().map(([t, v]) => `L${x(t)},${y(v)}`).join('') + 'Z'; }
-        run = []; bandBack = [];
-      };
-      for (const r of state.rows) {
-        const v = r[s.key];
-        if (v == null) { flush(); prev = null; continue; }
-        if (prev != null && r.t - prev > gap) flush();
-        line += `${run.length ? 'L' : 'M'}${x(r.t)},${y(v)}`;
-        run.push([r.t, v]);
-        if (s.band && r[s.band] != null) bandBack.push(`${x(r.t)},${y(Math.min(r[s.band], top))}`);
-        prev = r.t;
-      }
-      flush();
-      if (area) svg.append(sv('path', { d: area, class: `hz-area ${s.cls}` }));
-      if (band && state.data.bucket > 60) svg.append(sv('path', { d: band, class: `hz-band ${s.cls}` }));
-      svg.append(sv('path', { d: line, class: `hz-line ${s.cls}` }));
-    }
-    const cross = sv('line', { x1: 0, x2: 0, y1: geo.top, y2: geo.top + ih, class: 'hz-cross', visibility: 'hidden' });
-    const dots = spec.series.map((s) => { const c = sv('circle', { r: 4, class: `hz-mark ${s.cls}`, visibility: 'hidden' }); return { c, s }; });
-    svg.append(cross, ...dots.map((d) => d.c));
-    const hit = sv('rect', { x: geo.left, y: 0, width: iw, height: h, class: 'hz-hit', tabindex: '0', 'aria-label': `${spec.title}: arrow keys step through the values` });
-    svg.append(hit);
-    box.append(svg);
-    return { box, svg, x, y, iw, top, cross, dots, hit, a, b };
-  }
 
-  function nearest(t) {
-    const rows = state.rows;
-    let lo = 0; let hi = rows.length - 1;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (rows[mid].t < t) lo = mid; else hi = mid; }
-    return Math.abs(rows[lo].t - t) <= Math.abs(rows[hi].t - t) ? lo : hi;
-  }
-  function showAt(i, anchor) {
-    const r = state.rows[i];
-    if (!r) return hideTip();
-    state.hoverT = r.t;
-    for (const v of views) {
-      if (!v.x) continue;
-      const cx = v.x(r.t);
-      v.cross.setAttribute('x1', cx); v.cross.setAttribute('x2', cx); v.cross.setAttribute('visibility', 'visible');
-      for (const d of v.dots) {
-        const val = r[d.s.key];
-        if (val == null) { d.c.setAttribute('visibility', 'hidden'); continue; }
-        d.c.setAttribute('cx', cx); d.c.setAttribute('cy', v.y(Math.min(val, v.top))); d.c.setAttribute('visibility', 'visible');
-      }
-    }
+  /** The tooltip at one row: every value at that moment, the player count first. */
+  function tipAt(r) {
     const b = state.data.bucket;
     const head = b > 60 ? `${when(r.t)} – ${when(r.t + b, new Date(r.t * 1000).toDateString() !== new Date((r.t + b) * 1000).toDateString())}` : when(r.t);
-    const row = (value, label, cls) => el('div', { class: 'hz-tip-row' }, cls ? el('i', { class: `hz-key-line ${cls}`, 'aria-hidden': 'true' }) : el('i', { class: 'hz-key-line', 'aria-hidden': 'true' }), el('b', { text: value }), el('span', { text: label }));
-    const lines = [
-      row(fmt(r.p), b > 60 ? `players at most (mean ${fmt(r.pa, 1)})` : 'players online', 'hz-s2'),
-      row(r.c == null ? '–' : `${fmt(r.c, 1)}%`, b > 60 && r.cx != null ? `CPU (busiest ${fmt(r.cx, 1)}%)` : 'CPU', 'hz-s1'),
-      row(r.lpc == null ? '–' : fmt(r.lpc, 2), r.l1 == null ? 'load per core' : `load per core (load ${fmt(r.l1, 2)})`),
-      row(r.memp == null ? '–' : `${fmt(r.memp, 0)}%`, `memory${r.rss != null ? ` (this server ${bytes(r.rss * 1048576)})` : ''}`),
-      row(`${bytes(r.nis, true)} / ${bytes(r.nos, true)}`, 'network in / out'),
-      row(`${fmt(r.mi)} / ${fmt(r.mo)}`, 'frames a minute in / out'),
-      row(r.lag == null ? '–' : `${fmt(r.lag, 1)} ms`, 'slowest frame'),
-      row(`${fmt(r.s)}`, 'streets with players'),
-    ];
-    tip.replaceChildren(el('div', { class: 'hz-tip-head', text: head }), ...lines);
-    tip.hidden = false;
-    // Beside the pointer (or the focused chart), kept inside the panel.
-    const box = overTime.getBoundingClientRect();
-    const ax = anchor?.x ?? box.left + box.width / 2;
-    const ay = anchor?.y ?? box.top + 60;
-    const tw = tip.offsetWidth; const th = tip.offsetHeight;
-    let left = ax - box.left + 16;
-    if (left + tw > box.width - 8) left = ax - box.left - tw - 16;
-    tip.style.left = `${Math.max(8, left)}px`;
-    tip.style.top = `${Math.min(Math.max(8, ay - box.top - th / 2), box.height - th - 8)}px`;
-  }
-  function hideTip() {
-    tip.hidden = true;
-    state.hoverT = null;
-    for (const v of views) { if (!v.x) continue; v.cross.setAttribute('visibility', 'hidden'); for (const d of v.dots) d.c.setAttribute('visibility', 'hidden'); }
+    return {
+      head,
+      lines: [
+        [fmt(r.p), b > 60 ? `players at most (mean ${fmt(r.pa, 1)})` : 'players online', 'hz-s2'],
+        [r.c == null ? '–' : `${fmt(r.c, 1)}%`, b > 60 && r.cx != null ? `CPU (busiest ${fmt(r.cx, 1)}%)` : 'CPU', 'hz-s1'],
+        [r.lpc == null ? '–' : fmt(r.lpc, 2), r.l1 == null ? 'load per core' : `load per core (load ${fmt(r.l1, 2)})`, ''],
+        [r.memp == null ? '–' : `${fmt(r.memp, 0)}%`, `memory${r.rss != null ? ` (this server ${bytes(r.rss * 1048576)})` : ''}`, ''],
+        [`${bytes(r.nis, true)} / ${bytes(r.nos, true)}`, 'network in / out', ''],
+        [`${fmt(r.mi)} / ${fmt(r.mo)}`, 'frames a minute in / out', ''],
+        [r.lag == null ? '–' : `${fmt(r.lag, 1)} ms`, 'slowest frame', ''],
+        [`${fmt(r.s)}`, 'streets with players', ''],
+      ],
+    };
   }
 
   function drawCharts() {
     const d = state.data;
     charts.replaceChildren();
-    views = [];
-    hideTip();
+    linked.hide();
+    linked = { hide() {} };
     if (!d || d.server !== 'up' || !state.rows.length) return;
     const [a, b] = domain();
     span.textContent = `${when(a)} to ${when(b)} · ${d.bucket > 60 ? `each point is ${duration(d.bucket)}` : 'a point a minute'} · times in your time zone`;
     const width = Math.max(280, Math.floor(charts.clientWidth || overTime.clientWidth - 28));
-    for (const spec of CHARTS) {
-      const v = lineChart(spec, [a, b], width);
-      charts.append(v.box);
-      views.push(v);
-      if (!v.x) continue;
-      const at = (e) => {
-        const r = v.svg.getBoundingClientRect();
-        const px = ((e.clientX - r.left) / r.width) * width;
-        return v.a + ((px - geo.left) / v.iw) * (v.b - v.a);
-      };
-      v.hit.addEventListener('pointermove', (e) => showAt(nearest(at(e)), { x: e.clientX, y: e.clientY }));
-      v.hit.addEventListener('pointerleave', hideTip);
-      v.hit.addEventListener('blur', hideTip);
-      v.hit.addEventListener('focus', () => { const r = v.svg.getBoundingClientRect(); showAt(state.hoverT == null ? state.rows.length - 1 : nearest(state.hoverT), { x: r.left + r.width / 2, y: r.top + r.height / 2 }); });
-      v.hit.addEventListener('keydown', (e) => {
-        const step = { ArrowLeft: -1, ArrowRight: 1, PageUp: -10, PageDown: 10 }[e.key];
-        const jump = { Home: 0, End: state.rows.length - 1 }[e.key];
-        if (step === undefined && jump === undefined) { if (e.key === 'Escape') hideTip(); return; }
-        e.preventDefault();
-        const i = jump ?? Math.min(state.rows.length - 1, Math.max(0, (state.hoverT == null ? state.rows.length - 1 : nearest(state.hoverT)) + step));
-        const r = v.svg.getBoundingClientRect();
-        showAt(i, { x: r.left + (v.x(state.rows[i].t) / width) * r.width, y: r.top + r.height / 2 });
-      });
-    }
+    // A step with no sample breaks the line (the server was down or not yet sampling).
+    const opts = { gap: Math.max(d.bucket * 2.5, 180), band: d.bucket > 60 };
+    const views = CHARTS.map((spec) => lineChart(spec, state.rows, [a, b], width, opts));
+    charts.append(...views.map((v) => v.box));
+    linked = linkCharts(views, state.rows, { tip, frame: overTime, content: tipAt });
   }
 
   // —— Load against players ——

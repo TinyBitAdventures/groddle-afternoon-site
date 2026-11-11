@@ -919,6 +919,19 @@
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (id)",
       "KEY created_at (created_at)"
+    ],
+    "groddle_analytics_daily": [
+      "day date NOT NULL",
+      "metric varchar(16) NOT NULL",
+      "k varchar(64) NOT NULL DEFAULT ''",
+      "value bigint(20) NOT NULL DEFAULT 0",
+      "PRIMARY KEY  (day,metric,k)",
+      "KEY metric_day (metric,day)"
+    ],
+    "groddle_analytics_seen": [
+      "day date NOT NULL",
+      "user_id bigint(20) unsigned NOT NULL",
+      "PRIMARY KEY  (day,user_id)"
     ]
   }
 }

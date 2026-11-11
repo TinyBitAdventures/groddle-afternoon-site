@@ -87,3 +87,7 @@
   .hz-tile-value { font-size: 22px; }
   .hz-legend { margin-left: 0; }
 }
+
+/* Bars (console/charts.js lineChart: a series with bars, stacked or not; the Analytics tab's counts a day). */
+.hz-bar { fill: var(--hz-c); opacity: 0.85; stroke: none; }
+.hz-swatch-bar { width: 10px; height: 10px; border-radius: 2px; }

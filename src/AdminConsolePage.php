@@ -15,7 +15,7 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Eight tabs, nine with the level builder on: Players (who is online,
+ * /console/, the administrators' console. Nine tabs, ten with the level builder on: Players (who is online,
  * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
@@ -35,7 +35,10 @@ use Minn\Http\Route;
  * Grok Bot's token; #moderation opens it. Server (2026-11-11, console/server.js over AdminConsole::health):
  * the realtime server's health over time beside the players online at each moment (CPU, load per core, memory,
  * network, frames, the slowest frame), a load against players scatter with its trend, and the machine now;
- * #server opens it. Builder (only when AdminBuilder::enabled, the
+ * #server opens it. Analytics (2026-11-11, console/analytics.js over AdminConsole::analytics and Analytics): players
+ * over time, active players a day with the week's and month's, new and returning, peak online, play time, pageviews
+ * with the sections read most, and the world's tallies (Piggies nibbled, Rocks mined …) with their best days, all
+ * counts on UTC days; #analytics opens it. Builder (only when AdminBuilder::enabled, the
  * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
  * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
@@ -74,8 +77,11 @@ final readonly class AdminConsolePage
     /** Bumped when console.js or console.css changes. */
     public const ASSET_KEY = 'skin-5';
 
-    /** Bumped when console/server.js or console/server.css changes. */
-    public const SERVER_ASSET_KEY = 'server-1';
+    /** Bumped when console/server.js or console/server.css changes (console/charts.js has its key in their imports). */
+    public const SERVER_ASSET_KEY = 'server-2';
+
+    /** Bumped when console/analytics.js or console/analytics.css changes. */
+    public const ANALYTICS_ASSET_KEY = 'analytics-1';
 
     public function __construct(private Seams $minn)
     {
@@ -151,6 +157,9 @@ final readonly class AdminConsolePage
             // The Server tab (console/server.js, AdminConsole::health): its own files and key, so a change there leaves console.js's cache alone.
             . "<link rel=\"stylesheet\" href=\"{$a}server.css?v=" . self::SERVER_ASSET_KEY . "\" />\n"
             . "<script type=\"module\" src=\"{$a}server.js?v=" . self::SERVER_ASSET_KEY . "\"></script>\n"
+            // The Analytics tab (console/analytics.js, AdminConsole::analytics): the same chart kit (charts.js) and server.css's chart styles.
+            . "<link rel=\"stylesheet\" href=\"{$a}analytics.css?v=" . self::ANALYTICS_ASSET_KEY . "\" />\n"
+            . "<script type=\"module\" src=\"{$a}analytics.js?v=" . self::ANALYTICS_ASSET_KEY . "\"></script>\n"
             . ($builder ? "<script type=\"module\" src=\"{$a}builder-keys.js?v={$v}\"></script>\n" : '')
             . "</head>\n<body class=\"notes console-page\">\n"
             // The chat app's header (as /chat/ draws it): full width, the bell, and the Console link marked as the page being read.
@@ -169,6 +178,7 @@ final readonly class AdminConsolePage
     <button type="button" role="tab" id="console-tab-community" aria-controls="console-community" aria-selected="false" tabindex="-1" data-console-tab="community">Community <span class="console-count console-count-unread" data-console-community-reported></span></button>
     <button type="button" role="tab" id="console-tab-moderation" aria-controls="console-moderation" aria-selected="false" tabindex="-1" data-console-tab="moderation">Moderation</button>
     <button type="button" role="tab" id="console-tab-server" aria-controls="console-server" aria-selected="false" tabindex="-1" data-console-tab="server">Server</button>
+    <button type="button" role="tab" id="console-tab-analytics" aria-controls="console-analytics" aria-selected="false" tabindex="-1" data-console-tab="analytics">Analytics</button>
 HTML
             . ($builder ? "\n    <button type=\"button\" role=\"tab\" id=\"console-tab-builder\" aria-controls=\"console-builder\" aria-selected=\"false\" tabindex=\"-1\" data-console-tab=\"builder\">Builder</button>" : '')
             . <<<'HTML'
@@ -407,6 +417,7 @@ HTML
 
   <div class="console-community" id="console-moderation" role="tabpanel" aria-labelledby="console-tab-moderation" data-console-tabpanel="moderation" hidden></div>
   <div class="console-health" id="console-server" role="tabpanel" aria-labelledby="console-tab-server" data-console-tabpanel="server" hidden></div>
+  <div class="console-health console-analytics" id="console-analytics" role="tabpanel" aria-labelledby="console-tab-analytics" data-console-tabpanel="analytics" hidden></div>
 HTML
             . ($builder ? self::builderPanel() : '')
             . "\n  </div>\n </div>\n</main>\n</body>\n</html>\n";

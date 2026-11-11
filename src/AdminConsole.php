@@ -36,6 +36,18 @@ use Minn\RestError;
  *                                "machine":{host,os,cpus,mem,disk,version,started,uptime,boot},"now":Sample|null,
  *                                "fields":["t","p",…],"samples":[[…],…]}   the realtime server's health a minute
  *                               (groddle-afternoon-server health.go), bucketed by the server to at most HEALTH_POINTS rows
+ *   GET  admin/analytics?range=30d|90d|365d|all
+ *                               {"range","unit":"day"|"week"|"month","since","today","days":["Y-m-d",…] (each bucket's first day),
+ *                                "series":{"signups","players","active","active_new","returning","wau","mau","peak",
+ *                                          "play_seconds","pageviews"} (one value a bucket, null where nothing was counted yet),
+ *                                "totals":{"players","signups_today","active_today","active_week","active_month",
+ *                                          "pageviews_today","pageviews_range","play_today","peak_today"},
+ *                                "first":{"players","active","pageviews","tally","peak"} (the first day of each),
+ *                                "pages":[{"section","views","today"}] (the range's most read, at most 15),
+ *                                "counters":[{"key","label","today","total","series","record":{"n","day"}|null}],
+ *                                "records":{"peak","active","pageviews","signups"} ({"n","day"(,"at")}|null),
+ *                                "server":"up"|"down"|"off"}   the Analytics tab: daily counts, UTC days (Analytics),
+ *                               counts only; asks the realtime server's health for the days since the last peak kept
  *   GET  admin/catalog          {"items":[{"c","name","plural"}]}   what a give may carry (the ledger's tradeable classes)
  *   GET  admin/streets          {"streets":[{"tsid","label","hub"}]}  the game's street index, for teleport
  *   GET  admin/rooks            {"server":"up"|"down","attacks":[Rook]}   every Rook over a street now (the server's rooks)
@@ -70,6 +82,12 @@ use Minn\RestError;
  * a file a UTC month, kept forever). admin/health asks the server's signed health call for a range and
  * passes its rows on as they are (columns named by fields, nulls where the machine could not read a
  * value), so a year of history stays one small answer; the console's Server tab draws it.
+ *
+ * Analytics (Austin 2026-11-11: "players over time, active players per day, pageviews and even quirky things like
+ * trees harvested, mines mined, piggies nibbled, butterflies milked ... Lightweight, keep all history") are daily
+ * counts on the site (Analytics: who signed up, who played and for how long from the play-time batches, the pages'
+ * pageview beacon, the world's tallies the realtime server rides on those batches), kept forever; admin/analytics
+ * also keeps each day's peak online from the server's health. The console's Analytics tab draws them.
  *
  * A broadcast (Austin 2026-10-30: "a broadcast option, to blast everyone at
  * once") is admin/message to each player on the realtime server's online list
@@ -541,6 +559,22 @@ final readonly class AdminConsole
             'fields' => $fields,
             'samples' => $samples,
         ];
+    }
+
+    #[Route(Method::Get, '/groddle/v1/admin/analytics', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function analytics(Request $request): Response
+    {
+        $db = $this->minn->db;
+        $now = time();
+        // Each day's most players online at once: the realtime server's health from the start of the last day kept.
+        $answer = (new RealtimeCall($this->minn))->post('health', ['since' => Analytics::peakSince($db), 'until' => $now + 60, 'points' => self::HEALTH_POINTS], self::HEALTH_TIMEOUT, self::HEALTH_BYTES);
+        $health = self::healthAnswer($answer, 'custom');
+        if ($health['server'] === 'up') {
+            Analytics::keepPeaks($db, Analytics::peaksOf($health['fields'], $health['samples'], $health['bucket']));
+        }
+        $range = $request->query('range');
+        return Response::json(Analytics::report($db, is_string($range) ? $range : '30d', $now) + ['server' => $health['server']])
+            ->withHeader('Cache-Control', 'private, no-store');
     }
 
     #[Route(Method::Get, '/groddle/v1/admin/rooks', policy: new Policy(Access::Cap, self::ADMIN))]
