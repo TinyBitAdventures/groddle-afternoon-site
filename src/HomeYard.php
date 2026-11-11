@@ -497,7 +497,10 @@ final readonly class HomeYard
      * A plot as it stands at now: the stored one (a copy), the day's tending
      * flags gone when the owner's game has not turned the day over, then each
      * waiting act on it in turn, a tended or dug Patch going back to weeds
-     * when its time is up (patch.js onRegrowTimer / onFillTimer).
+     * when its time is up (patch.js onRegrowTimer / onFillTimer), and a
+     * Seedling petted three times growing into its tree when its least time is
+     * up (report #200: growTree below), so its tree takes a visitor's pet and
+     * water before the owner's game has come back to grow it.
      */
     public static function plotNow(?object $stored, string $key, array $waiting, int $nowMs, array $rules): ?object
     {
@@ -511,27 +514,46 @@ final readonly class HomeYard
             $s->petted = false;
             $s->watered = false;
         }
+        $pets = (int) $rules['seedling']['pets'];
         foreach ($waiting as $w) {
             if ((string) $w['target'] !== $key || (string) $w['kind'] === 'animal') {
                 continue;
             }
             $at = (int) $w['at_ms'];
             self::regrow($plot, $at);
+            if (self::growTree($plot, $at, $rules)) {
+                $s = $plot->tree->state;
+            }
             $verb = (string) $w['verb'];
             if ((string) $w['kind'] === 'plot') {
                 if ($verb === 'pet') {
                     if (($plot->stage ?? '') === 'seedling' && is_object($plot->seedling ?? null)) {
-                        $plot->seedling->petted = min((int) $rules['seedling']['pets'], (int) ($plot->seedling->petted ?? 0) + 1);
+                        $was = (int) ($plot->seedling->petted ?? 0);
+                        $plot->seedling->petted = min($pets, $was + 1);
+                        // onPetted: the third pet sets the grow level of the planter's card (the game's applyYardAct).
+                        if ($was < $pets && $plot->seedling->petted === $pets) {
+                            $plot->seedling->thirdPetAt = $at;
+                            $plot->seedling->growLevel = (int) ($plot->seedling->upgradeGrowLevel ?? 0);
+                        }
+                    }
+                    if (self::growTree($plot, $at, $rules)) {
+                        $s = $plot->tree->state;
                     }
                     continue;
                 }
                 if ($verb === 'plant') {
-                    $bean = explode(':', (string) ($w['what'] ?? ''))[0];
+                    [$bean, $card] = array_pad(explode(':', (string) ($w['what'] ?? '')), 2, '');
                     if (($plot->stage ?? '') === 'clean' && isset($rules['beans'][$bean])) {
+                        // plantBean: the planter's grow card sets its least time and grow level (patch_seedling.js setTimers 218-226).
+                        $grow = $rules['seedling']['grow'][$card] ?? null;
                         $plot->stage = 'seedling';
                         $plot->dueAt = 0;
                         $plot->since = $at;
-                        $plot->seedling = (object) ['trantClass' => $rules['beans'][$bean], 'beanClass' => $bean, 'plantedAt' => $at, 'petted' => 0];
+                        $plot->seedling = (object) [
+                            'trantClass' => $rules['beans'][$bean], 'beanClass' => $bean, 'plantedAt' => $at,
+                            'minAt' => $at + (int) ($grow['minMs'] ?? $rules['seedling']['minMs']), 'maxAt' => $at + (int) $rules['seedling']['maxMs'],
+                            'upgradeGrowLevel' => (int) ($grow['level'] ?? 0), 'petted' => 0, 'petters' => 0, 'growLevel' => 0, 'thirdPetAt' => 0,
+                        ];
                     }
                     continue;
                 }
@@ -564,7 +586,46 @@ final readonly class HomeYard
             }
         }
         self::regrow($plot, $nowMs);
+        self::growTree($plot, $nowMs, $rules);
         return $plot;
+    }
+
+    /**
+     * Report #200: a Seedling petted three times grows into its tree at
+     * max(least time, third pet), unless that is past its most time (the
+     * game's js/patches.js tickPlot and growTree, patch_seedling.js
+     * onMinTimePassed / growUp). The tree is the one the owner's game grows
+     * then: maturity the grow level (1 without a card), health 7, no fruit
+     * yet, untended; the game fills in the rest (js/yard-verbs-mp.js
+     * visitorTreeState). True when it grew.
+     */
+    private static function growTree(object $plot, int $at, array $rules): bool
+    {
+        $seed = $plot->seedling ?? null;
+        if (($plot->stage ?? '') !== 'seedling' || !is_object($seed) || (int) ($seed->petted ?? 0) < (int) $rules['seedling']['pets']) {
+            return false;
+        }
+        $class = is_string($seed->trantClass ?? null) ? $seed->trantClass : '';
+        $min = is_numeric($seed->minAt ?? null) ? (int) $seed->minAt : 0;
+        if ($class === '' || $min <= 0) {
+            return false;
+        }
+        $ready = max($min, is_numeric($seed->thirdPetAt ?? null) ? (int) $seed->thirdPetAt : 0);
+        $max = is_numeric($seed->maxAt ?? null) && (int) $seed->maxAt > 0 ? (int) $seed->maxAt : PHP_INT_MAX;
+        if ($ready > $at || $ready > $max) {
+            return false;
+        }
+        $level = is_numeric($seed->growLevel ?? null) ? (int) $seed->growLevel : 0;
+        $maturity = $level > 0 ? $level : 1;
+        $state = $class === 'wood_tree'
+            ? (object) ['maturity' => min(6, $maturity), 'harvestCount' => 0, 'harvestedToday' => false, 'totalHarvests' => 0, 'petted' => false, 'watered' => false]
+            : (object) ['classTsid' => $class, 'maturity' => $maturity, 'health' => is_numeric($seed->health ?? null) && (int) $seed->health > 0 ? (int) $seed->health : 7, 'fruitCount' => 0, 'harvestsToday' => 0, 'petted' => false, 'watered' => false];
+        $plot->stage = 'tree';
+        $plot->since = $ready;
+        $plot->dueAt = 0;
+        $plot->seedling = null;
+        $plot->tree = (object) ['classId' => $class, 'state' => $state, 'grownAt' => $ready, 'lastCycleAt' => $ready, 'resetAt' => $ready];
+        return true;
     }
 
     private static function regrow(object $plot, int $at): void
