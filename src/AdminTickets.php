@@ -25,13 +25,15 @@ use Minn\RestError;
  *   GET  admin/tickets/{id}        {"ticket":Row,"messages":[Message],"context":{..},"picture":{"url","width","height"}|null}   and marks it read
  *   POST admin/tickets/{id}/reply  {"message","email"?}  the thread + {"delivery","text"}; emails the player (below)
  *                                  unless "email" is false: a note (delivery note), for closing many related reports
- *   POST admin/tickets/{id}/close  the thread
- *   POST admin/tickets/{id}/reopen the thread (open, or answered when an administrator wrote last)
+ *   POST admin/tickets/{id}/close  the thread (closedBy admin)
+ *   POST admin/tickets/{id}/reopen the thread (open, or answered when an administrator wrote last; closedBy null again)
  *   POST admin/tickets/{id}/working {"working":bool}  the thread: Working on it (ticket 49, 2026-11-02), or
  *                                  taken off (open, or answered when an administrator wrote last). Read marks untouched;
  *                                  no email: a status, like Close, not a reply
  *   POST admin/tickets/migrate     {"made","already","posts","text"}   TicketMigration, once (safe again)
- *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"}}
+ *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"},"closedBy":"player"|"admin"|null,"closedAt":time|null}
+ *                                  closedBy: who closed it, the player (withdrew it) or an administrator; null while it is
+ *                                  not closed, and for reports closed before 2026-11-11 (unknown)
  *   Message: Tickets' Message; "edited" is when the player changed the report's words before it was read
  *
  * A reply emails the player (PlayerMail::ticketReply, in the site's look,
@@ -112,7 +114,7 @@ final readonly class AdminTickets
     {
         $admin = $this->admin();
         $row = $this->ticket((int) $id);
-        $this->store()->setStatus((int) $row['id'], TicketStore::CLOSED, time());
+        $this->store()->setStatus((int) $row['id'], TicketStore::CLOSED, time(), TicketStore::ADMIN);
         AdminConsole::recordAction($this->minn->db, $admin->id, (int) $row['player_user_id'], 'close', ['ticket' => (int) $row['id'], 'subject' => (string) $row['subject']], 'stored');
         return $this->thread((int) $row['id'], ['text' => 'Closed.']);
     }
@@ -211,7 +213,12 @@ final readonly class AdminTickets
     private function row(array $r, array $names): array
     {
         $player = (int) $r['player_user_id'];
-        return TicketStore::summary($r, TicketStore::ADMIN) + ['player' => ['id' => $player, 'name' => (string) ($names[$player] ?? "#{$player}")]];
+        $closedBy = TicketStore::closedBy($r);
+        return TicketStore::summary($r, TicketStore::ADMIN) + [
+            'player' => ['id' => $player, 'name' => (string) ($names[$player] ?? "#{$player}")],
+            'closedBy' => $closedBy,
+            'closedAt' => $closedBy !== null && ($r['closed_at'] ?? null) ? SaveShape::time((string) $r['closed_at']) : null,
+        ];
     }
 
     private function ticket(int $id): array

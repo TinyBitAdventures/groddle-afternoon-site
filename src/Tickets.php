@@ -27,7 +27,7 @@ use Minn\RestError;
  *   POST tickets                 {"message","context","picture"?} 201 {"status":"sent","id","ticket"}   a new report;
  *                                picture: a base64 JPEG of the game (ReportPicture), refused with a groddle_report_picture* code
  *   POST tickets/{id}/messages   {"message"}  {"ticket","messages"}    a reply; opens a closed ticket again
- *   POST tickets/{id}/close      {"ticket","messages"}
+ *   POST tickets/{id}/close      {"ticket","messages"}               withdrawn: closed_by player (the console's Row closedBy)
  *   POST tickets/{id}/edit       {"message"}  {"ticket","messages"}    new words for the report's first message, until an
  *                                administrator has read it (TicketStore::editable); after that 409 groddle_ticket_read
  *   Summary: {"id","status":"open"|"answered"|"working"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
@@ -125,7 +125,7 @@ final readonly class Tickets
         $me = $this->me();
         $row = $this->mine($me, (int) $id);
         $store = $this->store();
-        $store->setStatus((int) $row['id'], TicketStore::CLOSED, time());
+        $store->setStatus((int) $row['id'], TicketStore::CLOSED, time(), TicketStore::PLAYER);
         $store->markRead((int) $row['id'], TicketStore::PLAYER, time());
         return $this->thread((int) $row['id'], $me->id);
     }

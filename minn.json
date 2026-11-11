@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.47",
+  "version": "0.5.48",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -598,6 +598,8 @@
       "admin_read_at datetime NULL DEFAULT NULL",
       "context text NOT NULL",
       "legacy_post_id bigint(20) unsigned NULL DEFAULT NULL",
+      "closed_by varchar(8) NULL DEFAULT NULL",
+      "closed_at datetime NULL DEFAULT NULL",
       "PRIMARY KEY  (id)",
       "KEY player_updated (player_user_id,updated_at)",
       "KEY status_updated (status,updated_at)",

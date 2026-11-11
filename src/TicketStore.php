@@ -21,6 +21,12 @@ use Minn\Db;
  * (statusAfter): it is the administrators' mark, taken off with Not working
  * on it or Close, and the read marks below still say who has news.
  *
+ * Who closed it (Austin 2026-11-11): closed_by is player (they withdrew it,
+ * Tickets close) or admin (the console's Close), closed_at when; both NULL
+ * while a ticket is not closed, and cleared when it opens again (a message
+ * from either side, Reopen, Working on it). Tickets closed before the
+ * columns stay NULL: who closed them is unknown (closedBy null).
+ *
  * Unread: a side has unread news when the other side wrote last
  * (last_author_role) after it last read the thread (player_read_at,
  * admin_read_at; NULL is never). Writing counts as reading.
@@ -55,6 +61,8 @@ final readonly class TicketStore
 
     public const PLAYER = 'player';
     public const ADMIN = 'admin';
+    /** Who can close a ticket (closed_by; fits varchar(8)). */
+    public const CLOSERS = [self::PLAYER, self::ADMIN];
 
     public const MAX_MESSAGE = BugReports::MAX_MESSAGE;
     /** An administrator's reply: long combined answers to a batch of reports (console/console.js TICKET_MAX). */
@@ -112,6 +120,13 @@ final readonly class TicketStore
         return $read === null || (string) $read < $at;
     }
 
+    /** Who closed a ticket row: player, admin, or null (not closed, or closed before closed_by was kept). */
+    public static function closedBy(array $row): ?string
+    {
+        $by = $row['closed_by'] ?? null;
+        return ($row['status'] ?? '') === self::CLOSED && in_array($by, self::CLOSERS, true) ? $by : null;
+    }
+
     /** Whether $role has news in a ticket row it has not read. */
     public static function unreadFor(array $row, string $role): bool
     {
@@ -160,17 +175,23 @@ final readonly class TicketStore
             $id = $this->db->insertId();
             $read = $role === self::ADMIN ? 'admin_read_at' : 'player_read_at';
             $current = (string) ($this->db->value('SELECT status FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ? FOR UPDATE', [$ticket]) ?? '');
-            $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET status = ?, updated_at = ?, last_message_at = ?, last_author_role = ?, {$read} = ? WHERE id = ?", [self::statusAfter($role, $current), $at, $at, $role, $at, $ticket]);
+            $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET status = ?, updated_at = ?, last_message_at = ?, last_author_role = ?, {$read} = ?, closed_by = NULL, closed_at = NULL WHERE id = ?", [self::statusAfter($role, $current), $at, $at, $role, $at, $ticket]);
             return $id;
         });
     }
 
-    public function setStatus(int $ticket, string $status, int $now): void
+    /**
+     * A ticket's new status. Closing records who closed it ($by: PLAYER or
+     * ADMIN) and when; any other status clears both.
+     */
+    public function setStatus(int $ticket, string $status, int $now, ?string $by = null): void
     {
         if (!in_array($status, self::STATUSES, true)) {
             return;
         }
-        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET status = ?, updated_at = ? WHERE id = ?', [$status, self::stamp($now), $ticket]);
+        $closed = $status === self::CLOSED;
+        $at = self::stamp($now);
+        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET status = ?, updated_at = ?, closed_by = ?, closed_at = ? WHERE id = ?', [$status, $at, $closed && in_array($by, self::CLOSERS, true) ? $by : null, $closed ? $at : null, $ticket]);
     }
 
     /**
