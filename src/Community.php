@@ -224,10 +224,15 @@ final readonly class Community
         return self::fresh(Response::json(['unread' => $this->unread($me)]));
     }
 
-    /** The game's Activity: unread notices it has not shown, each handed over once. */
+    /**
+     * The game's Activity: unread notices it has not shown, each handed over once. A page
+     * still playing another character of the login is refused first (it would mark this
+     * character's notices shown).
+     */
     #[Route(Method::Post, '/groddle/v1/community/notices/game', policy: new Policy(Access::SignedIn))]
     public function gameRoute(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $me = $this->viewer()['id'];
         $list = $this->notices($me, true);
         if ($list !== []) {
