@@ -37,7 +37,7 @@ final readonly class AdminBuilderPage
     public const PATH = '/console/builder/';
     public const EDITOR = 'js/builder/editor.js';
     public const STYLES = 'css/builder.css';
-    public const PIXI = 'vendor/pixi/pixi-8.22.0.min.js';
+    public const PIXI = 'vendor/pixi/pixi-8.23.0.min.js';
 
     public function __construct(private Seams $minn)
     {
