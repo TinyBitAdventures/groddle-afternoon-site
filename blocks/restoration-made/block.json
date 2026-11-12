@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-made",
+	"title": "Restoration made for Groddle",
+	"category": "widgets",
+	"description": "The art made for Groddle rather than restored, from made.json: each piece beside the Tiny Speck original it comes from, with how it was made and checked.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"art",
+		"report"
+	]
+}

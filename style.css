@@ -760,3 +760,26 @@ a.cc-name:focus { outline: none; }
 .gaps-plain li::before { content: ''; position: absolute; left: 12px; top: 17px; width: 10px; height: 10px; border-radius: 50%; background: var(--tone, var(--stone)); }
 .gaps-plain b { margin-right: 4px; }
 @media (max-width: 640px) { .gaps-total b { font-size: 28px; } .gaps-area { padding: 14px 14px 4px; } }
+/* The restoration report's Made for Groddle band (src/RestorationMade.php, groddle-afternoon tools/made-art): a card per piece of art made for the remake, the Tiny Speck original beside it at the same display size (its pixels kept sharp, so the difference is honest), then the words. A one-row walk sheet steps through its frames where motion is welcome; everything reads without JavaScript. */
+.made-list { display: grid; gap: 22px; margin-top: 22px; }
+.made-piece { display: grid; grid-template-columns: minmax(0, calc(var(--pair) * 1px + 14px)) minmax(0, 1fr); gap: 18px 28px; align-items: start; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 22px; }
+.made-pair { display: flex; gap: 14px; max-width: calc(var(--pair) * 1px + 14px); align-items: flex-start; }
+.made-fig { margin: 0; min-width: 0; flex: var(--w) 1 0%; }
+.made-frame { position: relative; display: block; overflow: hidden; width: min(100%, calc(var(--w) * 1px)); aspect-ratio: var(--w) / var(--h); background: var(--track); border-radius: var(--radius); }
+.made-frame img { position: absolute; left: 0; top: 0; width: calc(var(--cols, 1) * 100%); height: calc(var(--rows, 1) * 100%); max-width: none; }
+.made-frame img.made-px { image-rendering: pixelated; }
+.made-fig figcaption { margin-top: 6px; font-size: 13px; line-height: 1.4; color: var(--muted); }
+.made-fig-made figcaption { color: var(--fg); font-weight: 700; }
+@keyframes made-walk { to { transform: translateX(-100%); } }
+@media (prefers-reduced-motion: no-preference) {
+  .made-walk img { animation: made-walk calc(var(--frames) / var(--fps) * 1s) steps(var(--frames)) infinite; }
+}
+.made-words h3 { margin: 0; }
+.made-when { margin: 2px 0 8px; font-size: 14px; color: var(--muted); }
+.made-caption { margin: 0 0 12px; font-size: 16px; line-height: 1.55; max-width: 40em; }
+.made-facts { margin: 0; display: grid; gap: 8px; max-width: 44em; }
+.made-facts > div { padding-top: 8px; border-top: 1px solid var(--row-line); }
+.made-facts dt { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--lead); }
+.made-facts dd { margin: 2px 0 0; font-size: 15px; line-height: 1.5; }
+@media (max-width: 860px) { .made-piece { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .made-piece { padding: 14px; } .made-pair { gap: 10px; } }
