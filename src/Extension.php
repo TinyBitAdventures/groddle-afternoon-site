@@ -13,7 +13,7 @@ use Minn\Extension\Seams;
  * while Groddle is the theme. The templates draw notes, pages and posts in
  * the site's look; this adds what templates cannot: the site's stylesheets,
  * the note blocks (Blocks), the restoration report's data sections
- * (Restoration) and its section menu (ReportMenu), the Musicblocks and Street music pages' players
+ * (Restoration) and its section menu (ReportMenu), the Known gaps list (RestorationGaps), the Musicblocks and Street music pages' players
  * (Musicblocks, StreetMusic), the Contribute page's shrine and open ledger
  * (Contribute) and its board of testers whose reports led to a change (ContributeCredits), the header's menu (SiteNav), and the built game
  * and generated pages served beside the content, with the old addresses of the
@@ -83,6 +83,7 @@ final class Extension implements MinnExtension
         Restoration::register($minn, $root);
         // The report's section menu, drawn over its rendered content (nothing is written to the page).
         $minn->filterContent(static fn (string $html): string => Restoration::drawn() ? ReportMenu::insert($html) : $html);
+        RestorationGaps::register($minn, $root);
         Musicblocks::register($minn, $root);
         StreetMusic::register($minn, $root);
         Codebase::register($minn, $root);

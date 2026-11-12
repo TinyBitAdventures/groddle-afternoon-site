@@ -1,0 +1,32 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-gaps",
+	"title": "Restoration known gaps",
+	"category": "widgets",
+	"description": "The Known gaps page's list from gaps.json: the counts, the gaps by area with their state, the differences on purpose, or what Glitch never built.",
+	"attributes": {
+		"part": {
+			"type": "string",
+			"enum": [
+				"all",
+				"summary",
+				"list",
+				"purpose",
+				"ideas"
+			],
+			"default": "all"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"gaps",
+		"report"
+	]
+}
