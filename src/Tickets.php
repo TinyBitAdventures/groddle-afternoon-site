@@ -31,6 +31,7 @@ use Minn\RestError;
  *   POST tickets/{id}/edit       {"message"}  {"ticket","messages"}    new words for the report's first message, until an
  *                                administrator has read it (TicketStore::editable); after that 409 groddle_ticket_read
  *   Summary: {"id","status":"open"|"answered"|"working"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
+ *            adminReplied: an administrator wrote in it at some point, kept after it closes (#225)
  *   Message: {"id","author":"player"|"admin","body","at","edited":time|null}   who wrote is a role, never a name
  *   editable: whether the first message can still be edited (every thread answer carries it)
  *

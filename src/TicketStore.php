@@ -227,10 +227,20 @@ final readonly class TicketStore
 
     // —— Reading ——
 
-    /** One ticket row, or null. */
+    /** One ticket row (with admin_replied, adminRepliedSql), or null. */
     public function find(int $ticket): ?array
     {
-        return $ticket > 0 ? $this->db->row('SELECT * FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ?', [$ticket]) : null;
+        return $ticket > 0 ? $this->db->row('SELECT *, ' . $this->adminRepliedSql() . ' AS admin_replied FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ?', [$ticket]) : null;
+    }
+
+    /**
+     * Whether an administrator ever wrote in the ticket, as a column of a ticket row
+     * (#225, Friendly 2026-11-12): the player's list marks a report that got a reply, so
+     * one closed after an answer reads apart from one closed with none.
+     */
+    private function adminRepliedSql(): string
+    {
+        return 'EXISTS (SELECT 1 FROM ' . $this->db->table(self::MESSAGES) . ' m WHERE m.ticket_id = ' . $this->db->table(self::TABLE) . ".id AND m.author_role = 'admin')";
     }
 
     /** One of this player's tickets, or null: the only way a player's route reads a ticket. */
@@ -288,7 +298,7 @@ final readonly class TicketStore
     public function listFor(int $player): array
     {
         $unread = "(last_author_role = 'admin' AND (player_read_at IS NULL OR player_read_at < last_message_at))";
-        return $this->db->rows('SELECT *, ' . $unread . ' AS player_unread FROM ' . $this->db->table(self::TABLE) . " WHERE player_user_id = ? ORDER BY player_unread DESC, FIELD(status, 'answered', 'open', 'working', 'closed'), updated_at DESC, id DESC LIMIT " . self::LIST_MAX, [$player]);
+        return $this->db->rows('SELECT *, ' . $unread . ' AS player_unread, ' . $this->adminRepliedSql() . ' AS admin_replied FROM ' . $this->db->table(self::TABLE) . " WHERE player_user_id = ? ORDER BY player_unread DESC, FIELD(status, 'answered', 'open', 'working', 'closed'), updated_at DESC, id DESC LIMIT " . self::LIST_MAX, [$player]);
     }
 
     /** How many of a player's tickets have an administrator's reply they have not read. */
@@ -360,6 +370,8 @@ final readonly class TicketStore
             'lastMessageAt' => SaveShape::time((string) $row['last_message_at']),
             'lastAuthor' => (string) $row['last_author_role'],
             'unread' => self::unreadFor($row, $role),
+            // #225: an administrator wrote in it at some point (rows from find and listFor carry it).
+            'adminReplied' => !empty($row['admin_replied']),
         ];
     }
 
