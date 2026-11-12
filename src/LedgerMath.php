@@ -54,17 +54,33 @@ final class LedgerMath
     public const FEAT_SLICE = 'solo-feats';
     public const FEAT_PREFIX = 'feat-';
 
-    /** Ours: purchases a day of one repeatable imagination card that are credited (more go through the budget). */
+    /**
+     * Ours: purchases a day of one repeatable imagination card that are
+     * credited. Purchases past the count wait for a later day's count, and
+     * up to CARD_WAIT of them stand in the save meanwhile (check: deferred,
+     * outside the ledger, so nothing can trade them on); more than that go
+     * through the budget.
+     */
     public const CARD_DAILY = 3;
+    public const CARD_WAIT = 30;
 
     /**
-     * Ours: level-ups credited a day. Levels and xp are the client's, so a
-     * script could step a character from 2 to 60 at once (1,441,400 currants
-     * in all); a few a day keeps that slower than real play ever was, and a
-     * level-up past the count is credited on a later day (the final level
-     * reached then, as the source pays a jump).
+     * Ours: paying level-ups credited a day (a level the economy table pays
+     * nothing for takes no place; report #246). Levels and xp are the
+     * client's, so a script could step a character from 2 to 60 at once
+     * (1,441,400 currants in all); a few a day keeps the ledger's side of
+     * that slower than real play ever was. A paying level past the count is
+     * remembered (credited kind lvlwait, ref the level, n its currants; 0
+     * once paid) and credited on a later day's count, and until then its
+     * currants stand in the save outside the ledger (check: deferred), so an
+     * honest pack is never corrected and nothing can trade them on before
+     * they are credited. Each level is credited once (the level row moves
+     * on when it is reached) and only when the xp reaches it.
      */
     public const LEVELS_DAILY = 3;
+
+    /** Credited kind of a paying level-up waiting for a later day's count. */
+    public const LEVEL_WAIT = 'lvlwait';
 
     /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups. */
     public const DAILY_KINDS = ['cap', 'cardday', 'lvlday'];
@@ -489,7 +505,7 @@ final class LedgerMath
      *
      * @param array<string, array<string,int>> $credited kind -> ref -> n (daily kinds: today's)
      * @param array{items: array<string,int>, currants: int}|null $receipts
-     * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>, allowed: array{items: array<string,int>, currants: int}}
+     * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>, allowed: array{items: array<string,int>, currants: int}, held: array{items: array<string,int>, currants: int}}
      */
     public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy, ?array $receipts = null): array
     {
@@ -516,6 +532,16 @@ final class LedgerMath
             $credits['rows'] = array_merge($credits['rows'], $kit['rows']);
             $credits['detail']['homeKit'] = (object) $kitIn['items'];
         }
+        // Report #246: a credit waiting for a later day's count (a paying level-up or card purchase past
+        // today's) is never clamped. As much of it as the write shows stands in the save, outside the
+        // ledger and the budget: it is in the view but not owed, so the ledger stays short of the save by
+        // that much until the later day credits it (then the two agree, and nothing is paid twice), and
+        // no trade, letter or sale can move it on before then (each checks the ledger).
+        $held = self::covered($view, $holdings, $credits['defer']);
+        foreach ($held['items'] as $c => $n) {
+            $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+        }
+        $view['currants'] += $held['currants'];
         $capsLeft = [];
         foreach ($credited['cap'] ?? [] as $c => $n) {
             $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
@@ -525,7 +551,7 @@ final class LedgerMath
         foreach ($r['capped'] as $c => $n) {
             $rows[] = ['cap', (string) $c, (int) ($credited['cap'][$c] ?? 0) + $n];
         }
-        return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed];
+        return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed, 'held' => $held];
     }
 
     /**
@@ -986,19 +1012,22 @@ final class LedgerMath
      * achievements.js unlockAchievement, inc_achievements.js:331, Completist
      * x level/4 past level 4); a level reached above the last one credited
      * whose xp agrees, the final level's currants only (js/progression.js
-     * reconcilePlayerProgression, inc_stats.js), at most LEVELS_DAILY a
-     * day; and each new purchase of an
-     * imagination card that hands out an item (reward type 8), at most
-     * CARD_DAILY a day for a repeatable card. Returns the goods (to add to
-     * the ledger before the write is compared), the rows to store
+     * reconcilePlayerProgression, inc_stats.js), at most LEVELS_DAILY
+     * paying ones a day, the rest waiting (LEVEL_WAIT) for a later day's
+     * count; and each new purchase of an imagination card that hands out an
+     * item (reward type 8), at most CARD_DAILY a day for a repeatable card,
+     * the rest waiting uncredited. Returns the goods (to add to the ledger
+     * before the write is compared), what waits (defer: check lets the save
+     * keep as much of it as it shows, outside the ledger), the rows to store
      * ([kind, ref, n], n the new total) and what was credited, for the log.
      *
-     * @return array{goods: array{items: array<string,int>, currants: int}, rows: list<array{0: string, 1: string, 2: int}>, detail: array}
+     * @return array{goods: array{items: array<string,int>, currants: int}, rows: list<array{0: string, 1: string, 2: int}>, detail: array, defer: array{items: array<string,int>, currants: int}}
      */
     public static function credits(array $entries, array $credited, Economy $economy): array
     {
         $m = self::markers($entries);
         $goods = ['items' => [], 'currants' => 0];
+        $defer = ['items' => [], 'currants' => 0];
         $rows = [];
         $detail = [];
         $put = static function (array $items) use (&$goods): void {
@@ -1041,17 +1070,41 @@ final class LedgerMath
             $detail['badges'][$b] = $c;
         }
         $was = (int) ($credited['level']['level'] ?? 1);
-        $today = (int) ($credited['lvlday']['level'] ?? 0);
-        if ($m['level'] > $was && self::levelFor($m['xp'], $economy) >= $m['level']) {
+        $day = (int) ($credited['lvlday']['level'] ?? 0);
+        $today = $day;
+        // Paying levels an earlier day's count left waiting, lowest first, while today's count lasts.
+        $waiting = [];
+        foreach ((array) ($credited[self::LEVEL_WAIT] ?? []) as $lv => $c) {
+            if ((int) $c > 0) {
+                $waiting[(int) $lv] = (int) $c;
+            }
+        }
+        ksort($waiting);
+        foreach ($waiting as $lv => $c) {
             if ($today >= self::LEVELS_DAILY) {
-                $detail['later'] = ['level' => $m['level']];
+                $defer['currants'] += $c;
+                continue;
+            }
+            $goods['currants'] += $c;
+            $today++;
+            $rows[] = [self::LEVEL_WAIT, (string) $lv, 0];
+            $detail['waited'][(string) $lv] = $c;
+        }
+        if ($m['level'] > $was && self::levelFor($m['xp'], $economy) >= $m['level']) {
+            $c = (int) (((array) ($economy->credits('levels') ?? []))[(string) $m['level']] ?? 0);
+            $rows[] = ['level', 'level', $m['level']];
+            if ($c > 0 && $today >= self::LEVELS_DAILY) {
+                $rows[] = [self::LEVEL_WAIT, (string) $m['level'], $c];
+                $defer['currants'] += $c;
+                $detail['deferred']['level'] = [$was, $m['level'], $c];
             } else {
-                $c = (int) (((array) ($economy->credits('levels') ?? []))[(string) $m['level']] ?? 0);
                 $goods['currants'] += $c;
-                $rows[] = ['level', 'level', $m['level']];
-                $rows[] = ['lvlday', 'level', $today + 1];
+                $today += $c > 0 ? 1 : 0;
                 $detail['level'] = [$was, $m['level'], $c];
             }
+        }
+        if ($today !== $day) {
+            $rows[] = ['lvlday', 'level', $today];
         }
         $cards = (array) ($economy->credits('cards') ?? []);
         foreach ($m['cards'] as $id => $n) {
@@ -1061,21 +1114,30 @@ final class LedgerMath
                 continue;
             }
             $add = $n - $had;
+            $per = max(1, (int) ($card['n'] ?? 1));
             if (!empty($card['k'])) {
+                $all = $add;
                 $add = min($add, max(0, self::CARD_DAILY - (int) ($credited['cardday'][$id] ?? 0)));
                 if ($add > 0) {
                     $rows[] = ['cardday', (string) $id, (int) ($credited['cardday'][$id] ?? 0) + $add];
+                }
+                // Purchases past today's count wait for a later day's (they stay uncredited); the save keeps their items meanwhile.
+                $wait = min($all - $add, self::CARD_WAIT);
+                if ($wait > 0) {
+                    $defer['items'][(string) $card['c']] = ($defer['items'][(string) $card['c']] ?? 0) + $wait * $per;
+                    $detail['deferred']['cards'][$id] = $wait;
                 }
             }
             if ($add <= 0) {
                 continue;
             }
-            $put([(string) $card['c'] => $add * max(1, (int) ($card['n'] ?? 1))]);
+            $put([(string) $card['c'] => $add * $per]);
             $rows[] = ['card', (string) $id, $had + $add];
             $detail['cards'][$id] = $add;
         }
         ksort($goods['items']);
-        return ['goods' => $goods, 'rows' => $rows, 'detail' => $detail];
+        ksort($defer['items']);
+        return ['goods' => $goods, 'rows' => $rows, 'detail' => $detail, 'defer' => $defer];
     }
 
     // —— Words ——
