@@ -38,7 +38,7 @@ const SAID = {
 let nonce = main?.dataset.nonce || '';
 /** Whether the chat app's socket is up (chat-app.js sets it): the topic's poll waits while it is. */
 export const live = { on: false };
-export { main, call, fromHtml, say, grow, sendKey, REACTIONS, SAID, openPicker, closePicker };
+export { main, call, fromHtml, say, grow, GROW_ROWS, sendKey, REACTIONS, SAID, openPicker, closePicker };
 
 async function freshNonce() {
   try {
@@ -83,14 +83,21 @@ function say(el, text, bad = false) {
   else delete el.dataset.tone;
 }
 
-/** The box grows with its words up to about ten lines, then scrolls (the game's chat box, longer). */
-function grow(field, maxRows = 10) {
+/**
+ * The box grows with its words up to GROW_ROWS lines or its CSS max-height (about half the screen),
+ * whichever is less, then scrolls, so a long post can be read back before it goes (Friendly's Bugs
+ * thread 6). The reply box, a new topic's box and an edit all grow.
+ */
+const GROW_ROWS = 18;
+function grow(field, maxRows = GROW_ROWS) {
+  if (!field) return () => {};
   const fit = () => {
     field.style.height = 'auto';
     const cs = getComputedStyle(field);
     const line = parseFloat(cs.lineHeight) || 22;
     const extra = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
-    const max = line * maxRows + extra;
+    const cap = parseFloat(cs.maxHeight);
+    const max = Math.min(line * maxRows + extra, Number.isFinite(cap) && cap > 0 ? cap : Infinity);
     field.style.height = `${Math.min(max, field.scrollHeight + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0))}px`;
     field.style.overflowY = field.scrollHeight + extra > max ? 'auto' : 'hidden';
   };
@@ -173,6 +180,8 @@ function wirePage() {
   if (newForm) {
     const board = newForm.dataset.communityNew;
     const note = newForm.querySelector('.csaid');
+    // The topic's words grow as the reply box's do (Friendly's Bugs thread 6).
+    grow(newForm.querySelector('textarea'));
     newForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const button = newForm.querySelector('button[type="submit"]');

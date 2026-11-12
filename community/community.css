@@ -197,7 +197,8 @@ a.cx-who:hover .cx-label { text-decoration: underline; }
 .cx-compose-bar { display: flex; justify-content: center; }
 .cx-say { display: flex; align-items: flex-end; gap: 4px; }
 .cx-field, .cx .cx-field { flex: 1 1 auto; box-sizing: border-box; min-width: 0; min-height: 36px; margin: 0; padding: 8px 14px; border: 1px solid var(--cx-strong); border-radius: 18px; background: var(--bg); color: var(--fg); font: inherit; font-size: 15px; line-height: 18px; resize: none; }
-textarea.cx-field { display: block; height: 36px; max-height: 40vh; overflow-y: hidden; }
+/* The box grows with its words (community.js grow) to about half the screen, then scrolls (Friendly's Bugs thread 6). */
+textarea.cx-field { display: block; height: 36px; max-height: 50vh; max-height: 50dvh; overflow-y: hidden; }
 .cx-title-field { margin-bottom: 6px; border-radius: 18px; border-color: var(--cx-strong); background: var(--bg); font-weight: 700; }
 .cx-send { display: grid; flex: none; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; color: var(--fg); cursor: pointer; }
 .cx-send:hover { background: var(--cx-parchment); }

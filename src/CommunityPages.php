@@ -80,7 +80,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-13';
+    public const ASSET_KEY = 'community-14';
 
     /** The words the pages share. */
     public const COPY = [
@@ -166,6 +166,8 @@ final readonly class CommunityPages
         $b = $community->board($board) ?? throw new RouteMiss();
         $viewer = $community->viewer();
         [$threads, $page, $pages] = $community->threads($board, (int) ($request->query('page') ?? '1'));
+        // Each topic's starter's picture, as their posts show it (Friendly's Bugs thread 8).
+        $authors = $community->authors(array_values(array_unique(array_filter(array_map(static fn (array $t): int => (int) $t['author_id'], $threads)))));
         $now = time();
         $rows = '';
         foreach ($threads as $t) {
@@ -174,7 +176,7 @@ final readonly class CommunityPages
             $marks = ((int) $t['pinned'] === 1 ? '<span class="ctag ctag-pin">Pinned</span>' : '') . ((int) $t['locked'] === 1 ? '<span class="ctag">Locked</span>' : '');
             $lastBy = (string) ($t['last_author_name'] ?? '');
             $rows .= "\n      <li class=\"cthread\"" . ((int) $t['pinned'] === 1 ? ' data-pinned=""' : '') . '><a class="cx-row cthread-row" href="' . Html::attr($url) . '">'
-                . self::avatar((string) $t['author_name'], 'cx-av-lg')
+                . self::avatar((string) $t['author_name'], 'cx-av-lg', $authors[(int) $t['author_id']]['tile'] ?? null)
                 . '<span class="cx-txt"><span class="cx-name"><span class="cx-label cthread-title">' . Html::esc((string) $t['title']) . '</span>' . $marks . '</span>'
                 . '<span class="cx-last">' . ($lastBy === '' ? '' : Html::esc($lastBy) . ': ') . Html::esc((string) ($t['last_snippet'] ?? '')) . '<span class="cthread-by"> Started by ' . Html::esc((string) $t['author_name']) . '</span></span></span>'
                 . '<span class="cx-meta"><span class="cthread-count">' . number_format($replies) . ' ' . ($replies === 1 ? 'reply' : 'replies') . '</span>' . self::time(Community::unix((string) $t['last_post_at']), $now) . '</span></a></li>';
@@ -317,8 +319,11 @@ final readonly class CommunityPages
             . ((int) $thread['locked'] === 1 ? ' · <span class="ctag">Locked</span>' : '') . ((int) $thread['pinned'] === 1 ? ' · <span class="ctag ctag-pin">Pinned</span>' : '')
             . ($thread['status'] !== 'open' ? ' · <span class="ctag ctag-bad">' . ($thread['status'] === 'removed' ? 'Removed' : 'Deleted') . '</span>' : '');
         $pagerLink = static fn (int $n): string => $canonical . ($n > 1 ? "?page={$n}" : '');
+        // The topic's head shows its starter (their picture, else their initial), not the subject's first letter.
+        $starter = (int) $thread['author_id'];
+        $face = self::avatar((string) $thread['author_name'], 'cx-av-md', $community->authors([$starter])[$starter]['tile'] ?? null);
         $main = '<section class="cx-conv cx-topic" aria-labelledby="cx-conv-title">'
-            . self::head((string) $thread['title'], (string) $thread['board_name'], 'cx-conv-title', '', true, '', "/chat/{$thread['board']}/", '<p class="cmeta">' . $meta . '</p>')
+            . self::head((string) $thread['title'], (string) $thread['board_name'], 'cx-conv-title', '', true, '', "/chat/{$thread['board']}/", '<p class="cmeta">' . $meta . '</p>', $face)
             . '<div class="cx-log" data-cx-log>'
             . self::pager($page, $pages, $pagerLink)
             . "<ol class=\"cposts\" data-community-posts>{$items}\n    </ol>\n"
@@ -552,19 +557,25 @@ final readonly class CommunityPages
         return $h % 8;
     }
 
-    /** A round avatar: the name's first letter in its colour (the drawer's .social-av). */
-    public static function avatar(string $name, string $cls = ''): string
+    /**
+     * A round avatar: the name's first letter in its colour (the drawer's .social-av), or the player's
+     * picture when $tile (Community::authors, the one their posts show) is given (chat-app.js avatar()).
+     */
+    public static function avatar(string $name, string $cls = '', ?string $tile = null): string
     {
         $s = trim($name) === '' ? '?' : trim($name);
-        return '<span class="cx-av' . ($cls === '' ? '' : ' ' . $cls) . '" data-hue="' . self::hue($s) . '" aria-hidden="true">' . Html::esc(mb_strtoupper(mb_substr($s, 0, 1))) . '</span>';
+        $inner = $tile !== null && $tile !== ''
+            ? '<img src="' . Html::attr($tile) . '" alt="" loading="lazy" decoding="async" />'
+            : Html::esc(mb_strtoupper(mb_substr($s, 0, 1)));
+        return '<span class="cx-av' . ($cls === '' ? '' : ' ' . $cls) . '" data-hue="' . self::hue($s) . '" aria-hidden="true">' . $inner . '</span>';
     }
 
-    /** The bar over a conversation: back to the list (phones), its avatar and name, a note, its buttons. */
-    private static function head(string $name, string $note, string $id, string $actions, bool $back, string $about = '', string $backTo = '/chat/', string $extra = ''): string
+    /** The bar over a conversation: back to the list (phones), its avatar ($face, else $name's) and name, a note, its buttons. */
+    private static function head(string $name, string $note, string $id, string $actions, bool $back, string $about = '', string $backTo = '/chat/', string $extra = '', string $face = ''): string
     {
         return '<header class="cx-head">'
             . ($back ? '<a class="cx-back" href="' . Html::attr($backTo) . '" data-cx-back>' . self::ICON_BACK . '<span>Chats</span></a>' : '')
-            . self::avatar($name, 'cx-av-md')
+            . ($face !== '' ? $face : self::avatar($name, 'cx-av-md'))
             . '<div class="cx-head-txt"><h2 class="cx-head-name" id="' . Html::attr($id) . '" data-cx-head-name>' . Html::esc($name) . '</h2>'
             . ($note !== '' ? '<small class="cx-note" data-cx-head-note>' . Html::esc($note) . '</small>' : '')
             . ($about !== '' ? '<p class="cx-about">' . Html::esc($about) . '</p>' : '') . $extra . '</div>'
