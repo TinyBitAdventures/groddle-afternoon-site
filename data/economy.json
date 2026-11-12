@@ -982,7 +982,7 @@
 {"s":"recipe:piggy_egg","i":{"apple":3,"egg_plain":1,"hard_bubble":7,"potato":2},"o":{"piggy_egg":1}},
 {"s":"recipe:piggy_feeder","i":{"plain_metal":1,"tin":2},"o":{"piggy_feeder":1}},
 {"s":"recipe:pinch_of_salt","i":{"all_spice":1},"o":{"pinch_of_salt":1}},
-{"s":"recipe:plain_crystal","i":{"barnacle_talc":7,"firefly_jar":7},"o":{"plain_crystal":1}},
+{"s":"recipe:plain_crystal","i":{"barnacle_talc":7},"o":{"plain_crystal":1}},
 {"s":"recipe:plain_metal","i":{"metal_rock":5},"o":{"plain_metal":1}},
 {"s":"recipe:plain_noodles","i":{"flour":1,"rice":1},"o":{"plain_noodles":1}},
 {"s":"recipe:potato_patty","i":{"butterfly_butter":1,"onion":1,"potato":1},"o":{"potato_patty":1}},
