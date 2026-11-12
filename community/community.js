@@ -127,8 +127,12 @@ function wireSignIn(root) {
     toggle.setAttribute('aria-expanded', 'false');
     const form = document.createElement('form');
     form.className = 'csignin-form';
+    // Password managers (Proton Pass among them) read a sign-in by its method, action and the
+    // identifier's autocomplete: it posts to the route the script calls (the script still sends it).
+    form.method = 'post';
+    form.action = '/wp-json/groddle/v1/session';
     form.hidden = true;
-    form.innerHTML = '<label class="clabel" for="csignin-email">Email</label><input class="cinput" id="csignin-email" name="email" type="email" autocomplete="email" required />'
+    form.innerHTML = '<label class="clabel" for="csignin-email">Email</label><input class="cinput" id="csignin-email" name="email" type="email" autocomplete="username" required />'
       + '<label class="clabel" for="csignin-pass">Password</label><input class="cinput" id="csignin-pass" name="password" type="password" autocomplete="current-password" required />'
       + '<div class="cform-row"><button class="cbutton" type="submit">Sign in</button><a class="cquoting-off" href="/play/online/">Forgot your password?</a></div><p class="csaid" role="status" aria-live="polite"></p>';
     box.querySelector('.cbutton')?.replaceWith(toggle);
