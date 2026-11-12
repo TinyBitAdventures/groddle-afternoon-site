@@ -90,7 +90,8 @@ final readonly class PlayerAccount
         'signup_used' => 'This link was already used. Sign in with your email and password.',
         'signup_expired' => 'This link has expired. We can send you a new one.',
         'signup_wait' => 'We just sent one. Wait a minute, then ask again.',
-        'signup_spent' => 'That\'s all the emails we can send for this sign-up. Sign up again tomorrow.',
+        // Signups: a spent row waits out its day's link and then KEEP (7 days) before it is let go.
+        'signup_spent' => 'That\'s all the emails we can send for this sign-up. You can sign up again with this email in about 8 days.',
         'signup_busy' => 'Too many new characters from here. Try again in an hour.',
         'mail_busy' => MailLimits::BUSY,
         'reset_wait' => MailLimits::RESET_WAIT,
