@@ -166,7 +166,8 @@ final readonly class LedgerMail
     public const TEXT_BUSY = "You've sent a lot of mail this hour. Try again a little later.";
     public const TEXT_EARLY = 'That letter is still on its way.';
     public const TEXT_NOTHING = 'There is nothing to collect.';
-    public const TEXT_RETURN_GONE = 'Your letter to %s came back: there is nobody at that address any more. Here are your things.';
+    // No name: "gone" means the recipient's account is gone, so there is no name left to show (G318).
+    public const TEXT_RETURN_GONE = 'Your letter came back: there is nobody at that address any more. Here are your things.';
     public const TEXT_RETURN_BLOCKED = 'Your letter to %s came back: they would not take it. Here are your things.';
 
     public function __construct(private Seams $minn)
