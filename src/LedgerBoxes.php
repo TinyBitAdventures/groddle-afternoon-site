@@ -569,8 +569,8 @@ final readonly class LedgerBoxes
     }
 
     /**
-     * #108: whether a take of $class would reach a stored bag that holds something or has a
-     * name (js/home-storage.js slotHoldsBag): the slot named, or any slot of the class.
+     * #108: whether a take of $class would reach a stored bag that holds something, has a
+     * name or a sort (js/home-storage.js slotHoldsBag): the slot named, or any slot of the class.
      */
     public static function holdsBag(object $row, string $class, ?int $slot): bool
     {
@@ -578,7 +578,8 @@ final readonly class LedgerBoxes
             if (!is_object($s) || (string) ($s->classTsid ?? '') !== $class || ($slot !== null && $slot !== $i)) {
                 continue;
             }
-            if ((is_array($s->contents ?? null) && $s->contents !== []) || (is_string($s->name ?? null) && trim($s->name) !== '')) {
+            if ((is_array($s->contents ?? null) && $s->contents !== []) || (is_string($s->name ?? null) && trim($s->name) !== '')
+                || (is_string($s->sort ?? null) && $s->sort !== '')) {
                 return true;
             }
         }
