@@ -123,7 +123,8 @@ final readonly class HomeYard
     public const AK_NO_WARMUP = 6;
 
     public const TEXT_GONE = 'That is not there any more.';
-    public const TEXT_BUSY = 'Their yard has had a lot of help today. Try again later.';
+    // WAITING_MAX acts wait until the owner's own game applies them, not until tomorrow.
+    public const TEXT_BUSY = 'Their yard has had a lot of help. Try again after they next play.';
     public const TEXT_BLOCKED = 'You can\'t do that here.';
     public const TEXT_NEEDS_PET = 'Give that Piggy some love first!'; // js/animal-kinship.js
     public const TEXT_NEEDS_MASSAGE = 'What? No warmup? Massage this Butterfly first.'; // js/animal-kinship.js

@@ -75,7 +75,8 @@ final readonly class HomeTending
 
     /** GardenManager.as FERTILIZE_PERC: how much of the watering must be left for Guano. */
     public const FERTILIZE_PERC = 0.8;
-    public const TEXT_BUSY = 'Their gardens have had a lot of help today. Try again later.';
+    // WAITING_MAX acts wait until the owner's own game applies them, not until tomorrow.
+    public const TEXT_BUSY = 'Their gardens have had a lot of help. Try again after they next play.';
 
     public function __construct(private Seams $minn)
     {
