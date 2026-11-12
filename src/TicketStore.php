@@ -34,6 +34,14 @@ use Minn\Db;
  * A new report may carry a picture of the game (ReportPicture): kept with
  * the ticket in PICTURES, written in the same transaction as the ticket.
  *
+ * Read by the team (Austin 2026-11-12): the player's list and thread say
+ * when an administrator first opened the thread after the player's latest
+ * message (readByTeamAt). admin_read_at is that mark: opening it again while
+ * nothing new came keeps the first time (markRead), and a new message from
+ * the player leaves it older than last_message_at, so the mark goes until an
+ * administrator opens the thread again. Unread and editable read the same
+ * column and are unchanged by keeping the earlier time.
+ *
  * Edit until read (ticket 49): the player may change the words of a report's
  * first message until an administrator has read the thread (editable: admin_read_at
  * NULL, or older than the message as it now stands). The edit is stored in
@@ -137,6 +145,21 @@ final readonly class TicketStore
         return $read === null || (string) $read < (string) $row['last_message_at'];
     }
 
+    /**
+     * When the team read the player's latest message (Read by the team, Austin 2026-11-12): the
+     * administrators' read mark while the player wrote last and an administrator has opened the
+     * thread since; null otherwise. A thread an administrator wrote in last has none: their reply
+     * is its own news (Answered), and writing counts as reading.
+     */
+    public static function readByTeamAt(array $row): ?string
+    {
+        $read = $row['admin_read_at'] ?? null;
+        if (($row['last_author_role'] ?? '') !== self::PLAYER || $read === null || $read === '') {
+            return null;
+        }
+        return (string) $read >= (string) ($row['last_message_at'] ?? '') ? SaveShape::time((string) $read) : null;
+    }
+
     // —— Writing ——
 
     /**
@@ -218,11 +241,18 @@ final readonly class TicketStore
         });
     }
 
-    /** $role has read the ticket now. */
+    /**
+     * $role has read the ticket now. An administrator's mark keeps its time while it already covers
+     * the newest message (Read by the team: when they first read it), so opening the thread again
+     * changes nothing the player sees.
+     */
     public function markRead(int $ticket, string $role, int $now): void
     {
-        $read = $role === self::ADMIN ? 'admin_read_at' : 'player_read_at';
-        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET {$read} = ? WHERE id = ?", [self::stamp($now), $ticket]);
+        if ($role === self::ADMIN) {
+            $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET admin_read_at = IF(admin_read_at IS NOT NULL AND admin_read_at >= last_message_at, admin_read_at, ?) WHERE id = ?', [self::stamp($now), $ticket]);
+            return;
+        }
+        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET player_read_at = ? WHERE id = ?', [self::stamp($now), $ticket]);
     }
 
     /**
@@ -383,6 +413,8 @@ final readonly class TicketStore
             'unread' => self::unreadFor($row, $role),
             // #225: an administrator wrote in it at some point (rows from find and listFor carry it).
             'adminReplied' => !empty($row['admin_replied']),
+            // Read by the team: when an administrator first opened it after the player's latest message, or null.
+            'readByTeamAt' => self::readByTeamAt($row),
         ];
     }
 

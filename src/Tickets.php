@@ -34,6 +34,10 @@ use Minn\RestError;
  *                                2026-11-12): only on a report an administrator wrote in last, else nothing changes
  *   Summary: {"id","status":"open"|"answered"|"working"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
  *            adminReplied: an administrator wrote in it at some point, kept after it closes (#225)
+ *            readByTeamAt: time|null, when an administrator first opened it after the player's latest
+ *            message (the console's GET admin/tickets/{id}, also how /groddle-check reads one); null
+ *            while the player wrote last and no administrator has opened it since, and whenever an
+ *            administrator wrote last (Read by the team, Austin 2026-11-12; TicketStore::readByTeamAt)
  *   Message: {"id","author":"player"|"admin","body","at","edited":time|null}   who wrote is a role, never a name
  *   editable: whether the first message can still be edited (every thread answer carries it)
  *
