@@ -134,6 +134,7 @@ final readonly class MultiplayerSave
     #[Route(Method::Put, '/groddle/v1/save', policy: new Policy(Access::SignedIn))]
     public function write(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         self::refuseSuspended($this->minn->db, (int) $this->minn->reader->userId);
         $body = $request->json();
         $version = $body['version'] ?? null;

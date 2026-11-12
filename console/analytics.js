@@ -168,6 +168,7 @@ function boot() {
     const counting = (first) => (first ? `counting since ${dayWords(first)}` : 'nothing counted yet');
     tiles.append(
       tile('Players', fmt(t.players), t.signups_today ? `${fmt(t.signups_today)} new today` : 'characters made, all time'),
+      tile('Logins', fmt(d.logins?.total ?? t.players), f.active ? `${fmt(d.logins?.active_today ?? 0)} played today` : 'one email and password each'),
       tile('Active today', f.active ? fmt(t.active_today) : '–', f.active ? 'played today' : counting(f.active)),
       tile('Active this week', f.active ? fmt(t.active_week) : '–', f.active ? 'in the last 7 days' : counting(f.active)),
       tile('Active this month', f.active ? fmt(t.active_month) : '–', f.active ? 'in the last 30 days' : counting(f.active)),

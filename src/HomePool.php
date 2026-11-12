@@ -257,6 +257,7 @@ final readonly class HomePool
     #[Route(Method::Post, '/groddle/v1/homes/pool/collect', policy: new Policy(Access::SignedIn))]
     public function collect(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $db = $this->minn->db;
         $me = $this->minn->reader->userId;
         $day = self::today();

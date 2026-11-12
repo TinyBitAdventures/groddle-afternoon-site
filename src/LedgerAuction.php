@@ -219,6 +219,7 @@ final readonly class LedgerAuction
     #[Route(Method::Post, '/groddle/v1/auctions', policy: new Policy(Access::SignedIn))]
     public function start(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $body = $request->json();
         $id = $body['id'] ?? null;
         $c = $body['c'] ?? null;
@@ -272,6 +273,7 @@ final readonly class LedgerAuction
     #[Route(Method::Post, '/groddle/v1/auctions/{id:[0-9a-f]+}/buy', policy: new Policy(Access::SignedIn))]
     public function buy(Request $request, string $id): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         self::mustBeId($id);
         $me = $this->me();
         $out = Ledger::atomically($this->minn->db, fn () => $this->purchase($id, $me, time()));
@@ -325,6 +327,7 @@ final readonly class LedgerAuction
     #[Route(Method::Post, '/groddle/v1/auctions/{id:[0-9a-f]+}/cancel', policy: new Policy(Access::SignedIn))]
     public function cancel(Request $request, string $id): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         self::mustBeId($id);
         $me = $this->me();
         $out = Ledger::atomically($this->minn->db, function () use ($id, $me): array {
@@ -355,6 +358,7 @@ final readonly class LedgerAuction
     #[Route(Method::Post, '/groddle/v1/auctions/{id:[0-9a-f]+}/collect', policy: new Policy(Access::SignedIn))]
     public function collect(Request $request, string $id): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         self::mustBeId($id);
         $me = $this->me();
         $out = Ledger::atomically($this->minn->db, function () use ($id, $me): array {

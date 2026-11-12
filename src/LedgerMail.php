@@ -204,6 +204,7 @@ final readonly class LedgerMail
     #[Route(Method::Post, '/groddle/v1/mail', policy: new Policy(Access::SignedIn))]
     public function send(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $body = $request->json();
         $call = is_array($body) ? self::call($body) : null;
         if ($call === null) {
@@ -368,6 +369,7 @@ final readonly class LedgerMail
     #[Route(Method::Post, '/groddle/v1/mail/{id:[0-9a-f]+}/collect', policy: new Policy(Access::SignedIn))]
     public function collect(Request $request, string $id): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         if (!self::isId($id)) {
             throw new RestError('groddle_mail_unknown', self::TEXT_NOTHING, 404);
         }

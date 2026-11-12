@@ -128,6 +128,7 @@ final readonly class LedgerBoxes
     #[Route(Method::Put, '/groddle/v1/homes/boxes', policy: new Policy(Access::SignedIn))]
     public function priceRoute(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $body = $request->json();
         $uid = $body['uid'] ?? null;
         $price = $body['price'] ?? null;
@@ -143,6 +144,7 @@ final readonly class LedgerBoxes
     #[Route(Method::Delete, '/groddle/v1/homes/boxes/{uid:\d+}', policy: new Policy(Access::SignedIn))]
     public function stopRoute(Request $request, string $uid): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $db = $this->minn->db;
         $me = $this->minn->reader->userId;
         Ledger::atomically($db, fn () => self::setPrice($db, $me, (int) $uid, 0, time()));
@@ -153,6 +155,7 @@ final readonly class LedgerBoxes
     #[Route(Method::Post, '/groddle/v1/homes/boxes/{uid:\d+}/collect', policy: new Policy(Access::SignedIn))]
     public function collectRoute(Request $request, string $uid): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $op = $request->json()['op'] ?? null;
         if (!is_string($op) || preg_match('/^sdbc-[0-9a-f]{16}$/', $op) !== 1) {
             throw new RestError('groddle_box_invalid', 'Name the collection.', 400);

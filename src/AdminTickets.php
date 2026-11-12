@@ -186,7 +186,8 @@ final readonly class AdminTickets
     private function mail(int $player, int $ticket, string $subject, string $message, int $now): string
     {
         $db = $this->minn->db;
-        $email = (string) ($db->value('SELECT user_email FROM ' . $db->table('users') . ' WHERE ID = ?', [$player]) ?? '');
+        // The login's address (Logins): an extra character's own is never delivered.
+        $email = (string) ($db->value('SELECT user_email FROM ' . $db->table('users') . ' WHERE ID = ?', [(new Logins($db))->loginOf($player)]) ?? '');
         if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
             return 'failed';
         }

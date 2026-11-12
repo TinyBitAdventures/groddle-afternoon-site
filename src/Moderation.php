@@ -34,7 +34,9 @@ use Minn\RestError;
  *                                                       channel, group and party lines for 30 days; never an IM)
  *   GET  mod/reports/{id}                              {"report":Report}  one row of the queue (a flag)
  *   GET  mod/players?id=7 | ?q=name                    {"players":[Player]}  name, level, account age, administrator,
- *                                                       banned, restrictions, open flags
+ *                                                       banned, restrictions, open flags, and "login": {id, accountDays,
+ *                                                       characters:[{id,name,first,retired}]}: the login it belongs to
+ *                                                       (Logins). A ban, silence or IM pause covers the whole login.
  *   GET  mod/actions?before=<id>&actor=token|admin     {"actions":[Action],"more":bool}  the moderators' log
  * Act (capability "moderate"; every one names a reason, refuses administrators and answers what it did):
  *   POST mod/reports/{id}/resolve {"outcome","note"}   outcome: OUTCOMES
@@ -138,7 +140,11 @@ final readonly class Moderation
             $this->refused($actor, $action, is_int($id) ? $id : 0, 'no player');
             throw new RestError('groddle_mod_no_player', 'No player has that id.', 404);
         }
-        if (Capabilities::fromDb($db)->can($id, self::ADMIN) || ($actor['kind'] === 'admin' && (int) $actor['id'] === $id)) {
+        // A login (Logins) with an administrator among its characters, or the acting administrator's own, is never acted on.
+        $caps = Capabilities::fromDb($db);
+        $logins = new Logins($db);
+        $adminLogin = array_filter($logins->siblings($id), static fn (int $c): bool => $caps->can($c, self::ADMIN)) !== [];
+        if ($adminLogin || ($actor['kind'] === 'admin' && $logins->sameLogin((int) $actor['id'], $id))) {
             $this->refused($actor, $action, $id, 'administrator');
             throw new RestError('groddle_mod_admin', "{$name} is an administrator. Moderation never acts on administrators.", 409);
         }
@@ -205,7 +211,8 @@ final readonly class Moderation
         if ($user <= 0) {
             return $out;
         }
-        $rows = $db->rows('SELECT kind, scope, expires_at FROM ' . $db->table(self::RESTRICTIONS) . ' WHERE user_id = ? AND lifted_at IS NULL AND (expires_at IS NULL OR expires_at > ?) ORDER BY id DESC', [$user, gmdate('Y-m-d H:i:s')]);
+        // A restriction on any character of the login (Logins) holds for every one of them.
+        $rows = $db->rows('SELECT kind, scope, expires_at FROM ' . $db->table(self::RESTRICTIONS) . ' WHERE user_id IN (?) AND lifted_at IS NULL AND (expires_at IS NULL OR expires_at > ?) ORDER BY id DESC', [(new Logins($db))->siblings($user), gmdate('Y-m-d H:i:s')]);
         foreach ($rows as $r) {
             $until = $r['expires_at'] === null ? 0 : (int) strtotime((string) $r['expires_at'] . ' UTC') * 1000;
             if ($r['kind'] === 'silence' && $out['silence'] === []) {
@@ -217,6 +224,32 @@ final readonly class Moderation
             }
         }
         return $out;
+    }
+
+    /**
+     * A character's login as moderators see it (mod/players, the queue's rows, the console):
+     * its id, its age in days, and every character of it (retired ones marked). Never sent to a player.
+     *
+     * @return array{id: int, accountDays: ?int, characters: list<array{id: int, name: string, first: bool, retired: bool}>}
+     */
+    public static function loginOut(Db $db, int $user): array
+    {
+        $logins = new Logins($db);
+        $login = $logins->loginOf($user);
+        $characters = $logins->charactersOf($login);
+        $names = (new Characters($db))->namesOf(array_map(static fn (array $c): int => $c['id'], $characters));
+        $reg = $db->value('SELECT user_registered FROM ' . $db->table('users') . ' WHERE ID = ?', [$login]);
+        $out = [];
+        foreach ($characters as $c) {
+            if (isset($names[$c['id']])) {
+                $out[] = ['id' => $c['id'], 'name' => $names[$c['id']], 'first' => $c['first'], 'retired' => $c['retiredAt'] !== null];
+            }
+        }
+        return [
+            'id' => $login,
+            'accountDays' => $reg === null ? null : (int) floor((time() - (int) strtotime((string) $reg . ' UTC')) / 86400),
+            'characters' => $out,
+        ];
     }
 
     /** A ticket's "mod" claim (RealtimeTicket), or null when nothing stands. @return array<string, mixed>|null */
@@ -253,15 +286,22 @@ final readonly class Moderation
     private function push(int $user): string
     {
         $s = self::standing($this->minn->db, $user);
-        $answer = (new RealtimeCall($this->minn))->post('mod_restrict', ['player' => $user, 'silence' => implode(',', $s['silence']), 'silence_until' => $s['silenceUntil'], 'im' => $s['im'], 'im_until' => $s['imUntil']]);
-        return ($answer['status'] ?? null) === 'ok' ? (($answer['online'] ?? false) === true ? 'live' : 'stored') : 'down';
+        $call = new RealtimeCall($this->minn);
+        $out = 'down';
+        // Every character of the login (Logins): whichever one is playing gets it now.
+        foreach ((new Logins($this->minn->db))->siblings($user) as $id) {
+            $answer = $call->post('mod_restrict', ['player' => $id, 'silence' => implode(',', $s['silence']), 'silence_until' => $s['silenceUntil'], 'im' => $s['im'], 'im_until' => $s['imUntil']]);
+            $got = ($answer['status'] ?? null) === 'ok' ? (($answer['online'] ?? false) === true ? 'live' : 'stored') : 'down';
+            $out = $got === 'live' || ($got === 'stored' && $out === 'down') ? $got : $out;
+        }
+        return $out;
     }
 
     /** Ends the restrictions of a kind that stand (lifted_by: who); how many. */
     private function liftKind(int $user, string $kind, string $by): int
     {
         $db = $this->minn->db;
-        return $db->execute('UPDATE ' . $db->table(self::RESTRICTIONS) . ' SET lifted_at = ?, lifted_by = ? WHERE user_id = ? AND kind = ? AND lifted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)', [gmdate('Y-m-d H:i:s'), mb_substr($by, 0, 80), $user, $kind, gmdate('Y-m-d H:i:s')]);
+        return $db->execute('UPDATE ' . $db->table(self::RESTRICTIONS) . ' SET lifted_at = ?, lifted_by = ? WHERE user_id IN (?) AND kind = ? AND lifted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)', [gmdate('Y-m-d H:i:s'), mb_substr($by, 0, 80), (new Logins($db))->siblings($user), $kind, gmdate('Y-m-d H:i:s')]);
     }
 
     private function restrict(array $actor, array $player, string $kind, string $scope, int $hours, string $reason, string $action): Response
@@ -391,6 +431,8 @@ final readonly class Moderation
                 'silence' => $s['silence'] === [] ? null : ['scope' => implode(',', $s['silence']), 'until' => $s['silenceUntil'] ?: null],
                 'im' => $s['im'] === '' ? null : ['scope' => $s['im'], 'until' => $s['imUntil'] ?: null],
                 'openFlags' => (int) $db->value("SELECT COUNT(*) FROM {$r} WHERE reported_id = ? AND status = 'open' AND kind = 'flag'", [$pid]),
+                // The login it belongs to (Logins): its age and every character of it, for moderators only.
+                'login' => self::loginOut($db, $pid),
             ];
         }
         $this->log($actor, 'read_players', count($ids) === 1 ? $ids[0] : 0, '', ['found' => count($out)], 'ok');
@@ -583,8 +625,9 @@ final readonly class Moderation
         $player = $this->target($actor, $body['player'] ?? null, 'ban');
         $reason = $this->reason($actor, $body, 'ban', $player['id']);
         $db = $this->minn->db;
-        $db->execute('INSERT INTO ' . $db->table(AdminConsole::BANS) . ' (user_id, reason, admin_user_id, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), admin_user_id = VALUES(admin_user_id)', [$player['id'], $actor['kind'] === 'token' ? mb_substr("{$actor['name']}: {$reason}", 0, AdminConsole::REASON_MAX) : $reason, $actor['by'], gmdate('Y-m-d H:i:s')]);
-        $answer = (new RealtimeCall($this->minn))->post('ban', ['player' => $player['id'], 'reason' => $reason]);
+        // The login's ban (Logins), sent as the login: the server boots whichever character plays and refuses them all.
+        $login = AdminConsole::banLogin($db, $player['id'], $actor['kind'] === 'token' ? mb_substr("{$actor['name']}: {$reason}", 0, AdminConsole::REASON_MAX) : $reason, $actor['by']);
+        $answer = (new RealtimeCall($this->minn))->post('ban', ['player' => $login, 'reason' => $reason]);
         $delivery = ($answer['status'] ?? null) === 'sent' ? 'live' : 'stored';
         $id = $this->log($actor, 'ban', $player['id'], $reason, [], $delivery);
         return $this->answer($id, $player, $delivery, $delivery === 'live' ? "Banned {$player['name']} and signed them out." : "Banned {$player['name']}.");
@@ -602,9 +645,8 @@ final readonly class Moderation
 
     private function unbanAs(array $actor, array $player, string $reason, int $undoOf): Response
     {
-        $db = $this->minn->db;
-        $db->execute('DELETE FROM ' . $db->table(AdminConsole::BANS) . ' WHERE user_id = ?', [$player['id']]);
-        $answer = (new RealtimeCall($this->minn))->post('unban', ['player' => $player['id']]);
+        $login = AdminConsole::unbanLogin($this->minn->db, $player['id']);
+        $answer = (new RealtimeCall($this->minn))->post('unban', ['player' => $login]);
         $delivery = ($answer['status'] ?? null) === 'unbanned' ? 'live' : 'stored';
         $id = $this->log($actor, $undoOf > 0 ? 'undo' : 'unban', $player['id'], $reason, $undoOf > 0 ? ['undid' => 'ban'] : [], $delivery, $undoOf);
         return $this->answer($id, $player, $delivery, "{$player['name']} can play again.");

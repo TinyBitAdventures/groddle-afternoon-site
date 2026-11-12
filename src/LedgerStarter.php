@@ -85,6 +85,7 @@ final readonly class LedgerStarter
     #[Route(Method::Post, self::ROUTE, policy: new Policy(Access::SignedIn))]
     public function ask(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $user = $this->minn->reader->userId;
         if (!is_int($user) || $user <= 0) {
             throw new RestError('groddle_starter_signed_out', 'Sign in first.', 401);

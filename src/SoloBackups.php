@@ -19,6 +19,7 @@ use Minn\RestError;
  * to another browser or come back after one is cleared. A backup is only
  * ever restored into a browser as a solo game: nothing here reads or
  * writes the multiplayer save, and a backup takes only a solo save's shape.
+ * Backups are the login's (Logins): its characters share the same slots.
  */
 final readonly class SoloBackups
 {
@@ -36,7 +37,7 @@ final readonly class SoloBackups
     public function list(Request $request): Response
     {
         $table = $this->minn->db->table(self::TABLE);
-        $rows = $this->minn->db->rows("SELECT slot, made_at, game_day, size FROM {$table} WHERE user_id = ? ORDER BY made_at DESC, slot ASC", [$this->minn->reader->userId]);
+        $rows = $this->minn->db->rows("SELECT slot, made_at, game_day, size FROM {$table} WHERE user_id = ? ORDER BY made_at DESC, slot ASC", [$this->owner()]);
         return Response::json(['slots' => self::SLOTS, 'maxBytes' => SaveShape::MAX_BYTES, 'backups' => array_map(self::meta(...), $rows)]);
     }
 
@@ -45,7 +46,7 @@ final readonly class SoloBackups
     public function read(Request $request, string $slot): Response
     {
         $table = $this->minn->db->table(self::TABLE);
-        $row = $this->minn->db->row("SELECT slot, data, made_at, game_day, size FROM {$table} WHERE user_id = ? AND slot = ?", [$this->minn->reader->userId, self::slot($slot)]);
+        $row = $this->minn->db->row("SELECT slot, data, made_at, game_day, size FROM {$table} WHERE user_id = ? AND slot = ?", [$this->owner(), self::slot($slot)]);
         if ($row === null) {
             throw new RestError('groddle_backup_missing', 'There is no backup in that slot.', 404);
         }
@@ -65,7 +66,7 @@ final readonly class SoloBackups
         }
         $now = gmdate('Y-m-d H:i:s');
         $table = $this->minn->db->table(self::TABLE);
-        $this->minn->db->execute("REPLACE INTO {$table} (user_id, slot, data, made_at, game_day, size) VALUES (?, ?, ?, ?, ?, ?)", [$this->minn->reader->userId, $number, $json, $now, $day, strlen($json)]);
+        $this->minn->db->execute("REPLACE INTO {$table} (user_id, slot, data, made_at, game_day, size) VALUES (?, ?, ?, ?, ?, ?)", [$this->owner(), $number, $json, $now, $day, strlen($json)]);
         return Response::json(self::meta(['slot' => $number, 'made_at' => $now, 'game_day' => $day, 'size' => strlen($json)]));
     }
 
@@ -75,10 +76,16 @@ final readonly class SoloBackups
     {
         $number = self::slot($slot);
         $table = $this->minn->db->table(self::TABLE);
-        if ($this->minn->db->execute("DELETE FROM {$table} WHERE user_id = ? AND slot = ?", [$this->minn->reader->userId, $number]) === 0) {
+        if ($this->minn->db->execute("DELETE FROM {$table} WHERE user_id = ? AND slot = ?", [$this->owner(), $number]) === 0) {
             throw new RestError('groddle_backup_missing', 'There is no backup in that slot.', 404);
         }
         return Response::json(['deleted' => true, 'slot' => $number]);
+    }
+
+    /** Whose backups these are: the login's (Logins), so every character of a login shares its slots. */
+    private function owner(): int
+    {
+        return (new Logins($this->minn->db))->loginOf((int) $this->minn->reader->userId);
     }
 
     private static function slot(string $slot): int

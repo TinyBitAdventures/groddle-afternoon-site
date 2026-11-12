@@ -33,8 +33,10 @@ use Minn\Http\Route;
  *                 tally.go: 'pig:nibble', 'rock:mine', 'quoin:xp' …), everyone together
  *
  * Players (sign-ups and the running total) are read from the characters themselves (groddle_players.created_at),
- * so their whole history is there from the first sign-up. Who counts as a player, everywhere here: an account
- * that still exists, is not an administrator (manage_options by role) and is not a QA account (an email starting
+ * so their whole history is there from the first sign-up. A login with alternate characters (Logins) is one login
+ * and several characters: "players" counts characters, "logins" counts logins (a first character is its login), and
+ * active_logins counts the logins that played that day; a character is a QA account by its login's email.
+ * Who counts as a player, everywhere here: an account that still exists, is not an administrator (manage_options by role) and is not a QA account (an email starting
  * "zz-" or a character name starting "Zz", the local test scripts' accounts).
  *
  * Active players come from the realtime server's play-time batches (PlayTime::record calls fromBatch in its
@@ -222,6 +224,7 @@ final readonly class Analytics
             foreach (array_keys($days) as $day) {
                 self::set($db, $day, 'wau', '', self::distinct($db, $day, 7));
                 self::set($db, $day, 'mau', '', self::distinct($db, $day, 30));
+                self::set($db, $day, 'active_logins', '', self::distinctLogins($db, $day));
             }
             $db->execute("DELETE FROM {$seen} WHERE day < ? LIMIT 500", [gmdate('Y-m-d', $now - self::SEEN_KEEP * 86400)]);
         }
@@ -251,7 +254,8 @@ final readonly class Analytics
         if ($ids === []) {
             return [];
         }
-        $rows = $db->rows('SELECT u.ID, u.user_email, c.name, c.created_at FROM ' . $db->table('users') . ' u LEFT JOIN ' . $db->table(Characters::TABLE) . ' c ON c.user_id = u.ID WHERE u.ID IN (?)', [$ids]);
+        $rows = $db->rows('SELECT u.ID, COALESCE(lu.user_email, u.user_email) AS user_email, c.name, c.created_at FROM ' . $db->table('users') . ' u LEFT JOIN ' . $db->table(Characters::TABLE) . ' c ON c.user_id = u.ID'
+            . ' LEFT JOIN ' . $db->table(Logins::TABLE) . ' l ON l.user_id = u.ID LEFT JOIN ' . $db->table('users') . ' lu ON lu.ID = l.login_id WHERE u.ID IN (?)', [$ids]);
         $admins = self::adminIds($db, $ids);
         $out = [];
         foreach ($rows as $r) {
@@ -401,7 +405,7 @@ final readonly class Analytics
         ];
         // The records are of all time: every day's peak (and when), active players and pageviews.
         $bests = $db->rows("SELECT day, metric, value FROM {$t} WHERE metric IN ('peak', 'peak_at', 'active', 'pageviews') AND k = '' ORDER BY day");
-        return self::shape($range, $since, $today, $signups, $rows, $tallies, $firsts, $live, $bests);
+        return self::shape($range, $since, $today, $signups, $rows, $tallies, $firsts, $live, $bests, self::signupDays($db, true));
     }
 
     /**
@@ -409,17 +413,27 @@ final readonly class Analytics
      *
      * @return list<string>
      */
-    public static function signupDays(Db $db): array
+    public static function signupDays(Db $db, bool $loginsOnly = false): array
     {
-        $rows = $db->rows('SELECT c.user_id, c.name, c.created_at, u.user_email FROM ' . $db->table(Characters::TABLE) . ' c JOIN ' . $db->table('users') . ' u ON u.ID = c.user_id ORDER BY c.created_at');
+        $rows = $db->rows('SELECT c.user_id, c.name, c.created_at, COALESCE(lu.user_email, u.user_email) AS user_email, l.user_id AS extra FROM ' . $db->table(Characters::TABLE) . ' c JOIN ' . $db->table('users') . ' u ON u.ID = c.user_id'
+            . ' LEFT JOIN ' . $db->table(Logins::TABLE) . ' l ON l.user_id = c.user_id LEFT JOIN ' . $db->table('users') . ' lu ON lu.ID = l.login_id ORDER BY c.created_at');
         $admins = self::adminIds($db);
         $out = [];
         foreach ($rows as $r) {
+            if ($loginsOnly && $r['extra'] !== null) {
+                continue;
+            }
             if (!isset($admins[(int) $r['user_id']]) && !self::isQa((string) $r['user_email'], (string) $r['name'])) {
                 $out[] = substr((string) $r['created_at'], 0, 10);
             }
         }
         return $out;
+    }
+
+    /** The logins that played on a day (several characters of one login count once). */
+    public static function distinctLogins(Db $db, string $day): int
+    {
+        return (int) $db->value('SELECT COUNT(DISTINCT COALESCE(l.login_id, s.user_id)) FROM ' . $db->table(self::SEEN) . ' s LEFT JOIN ' . $db->table(Logins::TABLE) . ' l ON l.user_id = s.user_id WHERE s.day = ?', [$day]);
     }
 
     /** PURE: the bucket for a span of days: a day up to 120 days, a week (from Monday) up to 730, else a month. */
@@ -454,8 +468,10 @@ final readonly class Analytics
      * @param list<array<string, mixed>> $bests
      * @return array<string, mixed>
      */
-    public static function shape(string $range, string $since, string $today, array $signups, array $rows, array $tallies, array $firsts, array $live, array $bests = []): array
+    public static function shape(string $range, string $since, string $today, array $signups, array $rows, array $tallies, array $firsts, array $live, array $bests = [], ?array $logins = null): array
     {
+        // Logins (Logins): their own sign-up days; without them (an older caller) every character is its own login.
+        $logins ??= $signups;
         $unit = self::unit($since, $today);
         // The buckets, oldest first, and each day's bucket.
         $buckets = [];
@@ -507,9 +523,24 @@ final readonly class Analytics
             $running += $v;
             $players[] = $running;
         }
+        $loginSeries = $zeros;
+        $loginsBefore = 0;
+        foreach ($logins as $day) {
+            if ($day < $since) {
+                $loginsBefore++;
+            } elseif ($day <= $today && ($i = $at($day)) !== null) {
+                $loginSeries[$i]++;
+            }
+        }
+        $loginTotals = [];
+        $running = $loginsBefore;
+        foreach ($loginSeries as $v) {
+            $running += $v;
+            $loginTotals[] = $running;
+        }
 
         // A bucket of daily values: summed, the most, or the last day's (the days come oldest first).
-        foreach (['active', 'active_new', 'play_seconds', 'pageviews', 'wau', 'mau', 'peak', 'peak_at'] as $m) {
+        foreach (['active', 'active_new', 'active_logins', 'play_seconds', 'pageviews', 'wau', 'mau', 'peak', 'peak_at'] as $m) {
             $by[$m] ??= [];
             ksort($by[$m]);
         }
@@ -539,11 +570,14 @@ final readonly class Analytics
         }
         $activeAll = $fold('active', 'sum');
         $activeNew = $fold('active_new', 'sum');
+        $loginsAll = $fold('active_logins', 'sum');
         $active = [];
+        $activeLogins = [];
         $returning = [];
         foreach ($activeAll as $i => $v) {
             $known = $counted[$i] > 0;
             $active[] = !$known ? null : ($unit === 'day' ? $v : round($v / $counted[$i], 1));
+            $activeLogins[] = !$known ? null : ($unit === 'day' ? $loginsAll[$i] : round($loginsAll[$i] / $counted[$i], 1));
             $returning[] = !$known ? null : max(0, $v - $activeNew[$i]);
             if (!$known) {
                 $activeNew[$i] = null;
@@ -554,6 +588,8 @@ final readonly class Analytics
             'players' => $players,
             'active' => $active,
             'active_new' => $activeNew,
+            'logins' => $loginTotals,
+            'active_logins' => $activeLogins,
             'returning' => $returning,
             'wau' => $fold('wau', 'last'),
             'mau' => $fold('mau', 'last'),
@@ -647,6 +683,8 @@ final readonly class Analytics
                 'tally' => $firsts['tally'] ?? null,
                 'peak' => $firsts['peak'] ?? null,
             ],
+            // Logins (Logins): one email and password, up to three characters; players above count characters.
+            'logins' => ['total' => count($logins), 'today' => count(array_filter($logins, static fn (string $d): bool => $d === $today)), 'active_today' => $todays['active_logins'] ?? 0],
             'pages' => array_slice($pages, 0, 15),
             'counters' => $counters,
             'records' => $records,

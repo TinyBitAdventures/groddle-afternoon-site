@@ -203,6 +203,7 @@ final readonly class ButlerGifts
     #[Route(Method::Post, '/groddle/v1/butler/stock', policy: new Policy(Access::SignedIn))]
     public function give(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $body = json_decode($request->body, true);
         $op = is_array($body) ? ($body['op'] ?? null) : null;
         $class = is_array($body) ? ($body['c'] ?? null) : null;
@@ -267,6 +268,7 @@ final readonly class ButlerGifts
     #[Route(Method::Post, '/groddle/v1/butler/stock/adopt', policy: new Policy(Access::SignedIn))]
     public function adopt(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $me = $this->minn->reader->userId;
         $out = Ledger::atomically($this->minn->db, fn () => $this->adoptFor($me, time()));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);

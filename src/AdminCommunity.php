@@ -214,7 +214,8 @@ final readonly class AdminCommunity
         $admin = $this->admin();
         [$id, $name] = $this->player($request->json()['player'] ?? null);
         $db = $this->minn->db;
-        $db->execute('DELETE FROM ' . $db->table(Community::BANS) . ' WHERE user_id = ?', [$id]);
+        // A stop covers the login (Logins), so lifting it lifts any on its other characters too.
+        $db->execute('DELETE FROM ' . $db->table(Community::BANS) . ' WHERE user_id IN (?)', [(new Logins($db))->siblings($id)]);
         AdminConsole::recordAction($db, $admin, $id, 'comm_unstop', [], 'stored');
         return Response::json(['player' => ['id' => $id, 'name' => $name], 'text' => "{$name} can post on the boards again.", 'stopped' => $this->stops()]);
     }

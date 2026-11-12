@@ -132,6 +132,8 @@ final readonly class PlayerPages
         $saves = $db->table(MultiplayerSave::TABLE);
         // Only characters at Profiles::LISTED_LEVEL or above are listed.
         $listed = "JOIN {$saves} s ON s.user_id = c.user_id AND " . Profiles::levelSql('s') . ' >= ' . Profiles::LISTED_LEVEL;
+        // Retired characters (Logins) are hidden.
+        $listed .= ' AND NOT EXISTS (SELECT 1 FROM ' . $db->table(Logins::TABLE) . ' rl WHERE rl.user_id = c.user_id AND rl.retired_at IS NOT NULL)';
         $total = (int) $db->value("SELECT COUNT(*) FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id {$listed}");
         $pages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min($page, $pages);
@@ -605,7 +607,21 @@ final readonly class PlayerPages
         if (preg_match('/^(.+)\.(\d+)$/', $slug, $m) === 1 && isset($slugs[(int) $m[2]]) && str_starts_with($slugs[(int) $m[2]], $m[1])) {
             return [(int) $m[2], $slugs[(int) $m[2]]];
         }
-        return null;
+        // A character an administrator renamed (AdminConsole::rename): its old address finds it, and the
+        // caller answers a 301 to the new one. A path someone holds now (above) always wins.
+        return self::renamed($this->minn->db, $slug, $slugs);
+    }
+
+    /**
+     * The character a renamed path belonged to, with its path now: [id, slug], or null.
+     *
+     * @param array<int, string> $slugs
+     * @return array{0: int, 1: string}|null
+     */
+    public static function renamed(\Minn\Db $db, string $slug, array $slugs): ?array
+    {
+        $id = $db->value('SELECT user_id FROM ' . $db->table(AdminConsole::RENAMES) . ' WHERE old_slug = ? ORDER BY id DESC LIMIT 1', [$slug]);
+        return $id !== null && isset($slugs[(int) $id]) ? [(int) $id, $slugs[(int) $id]] : null;
     }
 
     /**

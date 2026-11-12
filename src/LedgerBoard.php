@@ -368,7 +368,8 @@ final readonly class LedgerBoard
             throw new RestError('groddle_board_no_note', 'That note is no longer on the board.', 404);
         }
         $reports = $db->table(self::REPORTS);
-        if ($db->value("SELECT 1 FROM {$reports} WHERE note_id = ? AND reporter_id = ?", [$id, $user->id]) !== null) {
+        // Once a login a note (Logins): another character of the same login has already reported it.
+        if ($db->value("SELECT 1 FROM {$reports} WHERE note_id = ? AND reporter_id IN (?) LIMIT 1", [$id, (new Logins($db))->siblings($user->id)]) !== null) {
             return Response::json(['status' => 'already']);
         }
         $store = new TicketStore($db);

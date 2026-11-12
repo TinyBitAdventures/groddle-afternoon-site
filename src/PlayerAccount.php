@@ -444,11 +444,17 @@ final readonly class PlayerAccount
         if ($user instanceof Refusal) {
             return self::fromRefusal($user);
         }
+        // The login's other characters are signed out everywhere too (the reset ended the login's own sessions).
+        $this->endSessions((new Logins($this->minn->db))->siblings($user->id));
         $signedIn = $accounts->signInRemembered(Response::json([]), $user->email, $password);
         return $signedIn instanceof SignedIn ? $this->answer($signedIn, 200) : self::fromRefusal($signedIn);
     }
 
-    /** A new password, once the current one checks out: the player stays signed in here, everywhere else is signed out. */
+    /**
+     * A new password, once the current one checks out: the player stays signed in here, everywhere
+     * else is signed out. The password is the login's (Logins): an extra character changes its
+     * login's, and every character of the login is signed out everywhere but here.
+     */
     #[Route(Method::Put, '/groddle/v1/account/password', policy: new Policy(Access::SignedIn))]
     public function changePassword(Request $request): Response
     {
@@ -458,9 +464,22 @@ final readonly class PlayerAccount
             $words = 'Passwords need at least ' . self::MIN_PASSWORD . ' characters.';
             return self::refused('groddle_invalid', $words, ['password' => $words], 400);
         }
+        $me = $this->minn->user();
+        $login = $this->loginUser($me);
         $notice = $this->notice(static fn (string $home, string $from, string $character): array => PlayerMail::passwordChanged($home, $from, $character));
-        $result = $this->minn->accounts()->changePassword(Response::json([]), $this->minn->user(), (string) ($body['current'] ?? ''), $password, $notice);
-        return $result instanceof SignedIn ? $this->answer($result, 200) : self::fromRefusal($result);
+        $accounts = $this->minn->accounts();
+        $result = $accounts->changePassword(Response::json([]), $login, (string) ($body['current'] ?? ''), $password, $notice);
+        if (!$result instanceof SignedIn) {
+            return self::fromRefusal($result);
+        }
+        $siblings = (new Logins($this->minn->db))->siblings($login->id);
+        if ($me === null || $me->id === $login->id) {
+            $this->endSessions(array_values(array_diff($siblings, [$login->id])));
+            return $this->answer($result, 200);
+        }
+        // Changed from an extra character: every session of the login ends (the one just opened as the login too), then this window plays on as the character.
+        $this->endSessions($siblings);
+        return $this->answer($accounts->signInVerified(Response::json([]), $me), 200);
     }
 
     /** A new email, once the current password checks out; the old address is told. */
@@ -471,7 +490,8 @@ final readonly class PlayerAccount
         $email = trim((string) ($body['email'] ?? ''));
         $contact = (string) ($this->minn->site->option('admin_email') ?? '');
         $notice = $this->notice(static fn (string $home, string $from, string $character): array => PlayerMail::emailChanged($home, $from, $character, $email, $contact));
-        $result = $this->minn->accounts()->changeEmail($this->minn->user(), (string) ($body['current'] ?? ''), $email, $notice);
+        // The email is the login's (Logins): an extra character changes its login's.
+        $result = $this->minn->accounts()->changeEmail($this->loginUser($this->minn->user()), (string) ($body['current'] ?? ''), $email, $notice);
         return $result instanceof Refusal ? self::fromRefusal($result) : Response::json(['email' => $result->email]);
     }
 
@@ -488,6 +508,25 @@ final readonly class PlayerAccount
         $user = $this->minn->user();
         $character = $user === null ? '' : (new Characters($this->minn->db))->nameOf($user);
         return static fn (string $shown): array => $mail($home, $from, $character !== '' ? $character : $shown);
+    }
+
+    /** The account a character signs in with: the login's own row (Logins), the character's own for a first character. */
+    private function loginUser(?\Minn\Content\UserRecord $user): ?\Minn\Content\UserRecord
+    {
+        if ($user === null) {
+            return null;
+        }
+        $login = (new Logins($this->minn->db))->loginOf($user->id);
+        return $login === $user->id ? $user : ((new \Minn\Content\Users($this->minn->db))->find($login) ?? $user);
+    }
+
+    /** Every session of these accounts ends (a password change or reset reaches the whole login). @param list<int> $ids */
+    private function endSessions(array $ids): void
+    {
+        $sessions = new \Minn\Auth\Sessions(new \Minn\Content\Users($this->minn->db));
+        foreach ($ids as $id) {
+            $sessions->destroyAll($id);
+        }
     }
 
     /** The signed-in answer: who, with the session's cookies. */

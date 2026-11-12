@@ -111,6 +111,7 @@ final class CommunityText
         'groddle_community_too_late' => 'A post can only be edited for 15 minutes after it goes up.',
         'groddle_community_reaction' => 'That reaction isn\'t one of the set.',
         'groddle_community_react_slow' => 'Slow down a little with the reactions.',
+        'groddle_community_react_login' => 'One of your other characters already gave this reaction.',
         'groddle_community_report_slow' => 'Thanks! You have sent a few reports just now. Try again in a little while.',
         'groddle_community_failed' => 'That didn\'t work. Try again in a moment.',
         'groddle_community_nonce' => 'This page was open a long time. Try again.',

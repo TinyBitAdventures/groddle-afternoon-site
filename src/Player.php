@@ -49,13 +49,23 @@ final readonly class Player
             'signedIn' => true,
             'player' => self::describe($user, new Characters($this->minn->db)),
             'backups' => ['slots' => SoloBackups::SLOTS, 'maxBytes' => SaveShape::MAX_BYTES],
-            // The caller's own sign-in email, for the Account panel (nobody else's is ever sent).
-            'account' => ['email' => $user->email],
+            // The caller's own sign-in email, for the Account panel (nobody else's is ever sent): the login's (Logins), which an extra character signs in with.
+            'account' => ['email' => self::loginEmail($this->minn->db, $user)],
             // A suspended account (AdminConsole bans): /play/online/ says so and does not load the game.
             'suspended' => AdminConsole::banned($this->minn->db, $user->id) !== null,
             // An administrator: the game shows Delete line on channel lines (the route checks again).
             'admin' => self::isAdmin($this->minn->db, $user->id),
         ]);
+    }
+
+    /** The email a character signs in with: its login's (Logins), its own for a first character. */
+    public static function loginEmail(Db $db, UserRecord $user): string
+    {
+        $login = (new Logins($db))->loginOf($user->id);
+        if ($login === $user->id) {
+            return $user->email;
+        }
+        return (string) ($db->value('SELECT user_email FROM ' . $db->table('users') . ' WHERE ID = ?', [$login]) ?? '');
     }
 
     /** Whether an account is an administrator (manage_options); false for nobody (0). */

@@ -68,10 +68,13 @@ final readonly class ModReports
         return $db->execute("INSERT INTO {$t} (kind, status, reported_id, signal_name, signal_n, signal_window, created_at, updated_at) VALUES ('flag', 'open', ?, ?, ?, ?, ?, ?)", [$player, $signal, max(0, $n), max(0, $window), $stamp, $stamp]);
     }
 
-    /** Buddies, after a block: a flag when BLOCK_FLAG different players blocked $player within BLOCK_WINDOW. */
+    /**
+     * Buddies, after a block: a flag when BLOCK_FLAG different players blocked $player within BLOCK_WINDOW.
+     * Players are logins (Logins): several characters of one login blocking count once.
+     */
     public static function afterBlock(Db $db, int $player): void
     {
-        $n = (int) $db->value('SELECT COUNT(*) FROM ' . $db->table(Buddies::IGNORES) . ' WHERE ignored_id = ? AND added_at >= ?', [$player, gmdate('Y-m-d H:i:s', time() - self::BLOCK_WINDOW)]);
+        $n = (int) $db->value('SELECT COUNT(DISTINCT COALESCE(l.login_id, i.user_id)) FROM ' . $db->table(Buddies::IGNORES) . ' i LEFT JOIN ' . $db->table(Logins::TABLE) . ' l ON l.user_id = i.user_id WHERE i.ignored_id = ? AND i.added_at >= ?', [$player, gmdate('Y-m-d H:i:s', time() - self::BLOCK_WINDOW)]);
         if ($n >= self::BLOCK_FLAG) {
             self::flag($db, $player, 'blocked', $n, self::BLOCK_WINDOW);
         }
@@ -107,7 +110,7 @@ final readonly class ModReports
                 'id' => (int) $r['id'],
                 'kind' => (string) $r['kind'],
                 'status' => (string) $r['status'],
-                'player' => $who($reported) + ['accountDays' => $age[$reported] ?? null, 'newAccount' => isset($age[$reported]) && $age[$reported] < self::NEW_ACCOUNT_DAYS],
+                'player' => $who($reported) + ['accountDays' => $age[$reported] ?? null, 'newAccount' => isset($age[$reported]) && $age[$reported] < self::NEW_ACCOUNT_DAYS, 'login' => $reported > 0 ? Moderation::loginOut($db, $reported) : null],
                 'createdAt' => SaveShape::time((string) $r['created_at']),
                 'updatedAt' => SaveShape::time((string) $r['updated_at']),
                 'outcome' => (string) $r['outcome'] === '' ? null : ['outcome' => (string) $r['outcome'], 'note' => (string) $r['outcome_note'], 'by' => (string) $r['resolved_by'], 'at' => $r['resolved_at'] === null ? null : SaveShape::time((string) $r['resolved_at'])],

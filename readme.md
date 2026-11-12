@@ -63,6 +63,12 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `POST tickets/{id}/messages`, `POST tickets/{id}/close` | A reply (it opens a closed report again) and closing your own report |
 | `GET admin/tickets`, `GET admin/tickets/{id}`, `POST admin/tickets/{id}/reply\|close\|reopen`, `POST admin/tickets/migrate` | The console's Reports tab, `manage_options` only, each action in the console's activity log |
 
+A login (an email and a password) may have up to 3 characters, each its own account: `groddle_character_logins`
+ties an extra character to its login (a character with no row is its own login), and `GET/POST characters`,
+`POST characters/{id}/play|retire|restore` are the player's own (src/CharacterRoutes.php). Bans, silences and
+community stops cover the whole login; only administrators and the mod API see who shares one. An administrator's
+rename (`POST admin/players/{id}/rename`) keeps the old `/players/` address in `groddle_player_renames` for a 301.
+
 The tables are declared in `minn.json`: `groddle_players` (each player's character name, unique),
 `groddle_mp_saves`, `groddle_solo_backups`, `groddle_buddies` and `groddle_ignores` (with the site's
 table prefix). Each buddies answer carries a list signed with the realtime secret, which the server

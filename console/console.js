@@ -315,6 +315,23 @@ export function menuFor(player, { me = 0, online = false } = {}) {
   return items.map((i) => ({ reason: '', ...i }));
 }
 
+/**
+ * The account entries after menuFor's (Austin 2026-11-12, alternate characters): every character of the
+ * player's login (admin/players/{id}, administrators only; players never see who shares a login) and Rename.
+ */
+export function accountMenuFor() {
+  return [
+    { id: 'characters', label: 'Characters on this login', enabled: true, reason: '' },
+    { id: 'rename', label: 'Rename…', enabled: true, reason: '' },
+  ];
+}
+
+/** One line of the Characters on this login list. */
+export function characterLine(c) {
+  const tags = [c.first ? 'first' : '', c.retired ? 'retired' : '', c.banned ? 'banned' : ''].filter(Boolean);
+  return `${c.name}, level ${c.level ?? 1}${tags.length ? ` (${tags.join(', ')})` : ''}`;
+}
+
 /** Search over the street index: whole-word starts first, then anywhere; tsid exact too. */
 export function findStreets(streets, query, limit = 12) {
   const q = String(query || '').toLowerCase().replace(/[’'"`]/g, '').replace(/\s+/g, ' ').trim();
@@ -360,6 +377,7 @@ export function logWords(line) {
     case 'boot': return `signed ${who} out${d.reason ? `: ${d.reason}` : ''}${how}`;
     case 'ban': return `banned ${who}${d.reason ? `: ${d.reason}` : ''}${how}`;
     case 'unban': return `unbanned ${who}`;
+    case 'rename': return `renamed ${d.from || who} to ${d.to || who}`;
     case 'give': return `gave ${who} ${d.text || 'something'}${how}`;
     case 'refill': return `refilled ${who}'s mood and energy${how}`;
     // An administrator who sent themselves went there (the room only takes administrators, so this is the usual line).
@@ -718,7 +736,7 @@ function boot() {
     closeMenu(false);
     const online = state.onlineIds.has(p.id);
     const fresh = state.online.find((o) => o.id === p.id) || state.found.find((o) => o.id === p.id) || p;
-    const entries = menuFor({ ...p, ...fresh }, { me: state.me, online });
+    const entries = [...menuFor({ ...p, ...fresh }, { me: state.me, online }), ...accountMenuFor()];
     const node = el('div', { class: 'console-menu', role: 'menu', 'aria-label': `Actions for ${p.name}` },
       el('p', { class: 'console-menu-head', text: p.name, 'aria-hidden': 'true' }));
     const buttons = entries.map((m) => el('button', { type: 'button', role: 'menuitem', 'aria-disabled': m.enabled ? null : 'true', title: m.reason || null, 'data-menu-item': m.id,
@@ -837,6 +855,18 @@ function boot() {
     return { input, node: el('div', { class: 'console-picker' }, el('label', { for: id, text: label }), input, list) };
   }
 
+  /** Characters on this login: every character of the player's login, its age, and which one this is. */
+  async function showLogin(p) {
+    const r = await api.call(`admin/players/${p.id}`);
+    const login = r.login || { characters: [] };
+    const items = login.characters.map((c) => el('li', { 'data-character': c.id }, el(c.id === p.id ? 'b' : 'span', { text: characterLine(c) })));
+    const age = login.accountDays == null ? '' : ` The login is ${login.accountDays} day${login.accountDays === 1 ? '' : 's'} old.`;
+    dialog(`Characters on ${p.name}'s login`, [
+      el('ul', { class: 'console-characters' }, ...items),
+      el('p', { class: 'console-sub', text: `${login.characters.length} of 3.${age} A ban covers every one of them. Players never see this list.` }),
+    ], 'Close', async () => {});
+  }
+
   function pick(kind, p, opener) {
     if (kind === 'message') {
       const text = el('textarea', { name: 'text', rows: '5', maxlength: String(TEXT_MAX), required: true, placeholder: 'Plain text. It shows in their game as "Message from an administrator".' });
@@ -880,6 +910,18 @@ function boot() {
       act('unban', p, {}).catch(failed);
     } else if (kind === 'chatlog') {
       openChat(p);
+    } else if (kind === 'characters') {
+      showLogin(p).catch(failed);
+    } else if (kind === 'rename') {
+      const name = el('input', { type: 'text', name: 'name', maxlength: '19', required: true, value: p.name, autocomplete: 'off', spellcheck: 'false' });
+      dialog(`Rename ${p.name}`, [el('label', { text: 'New name' }, name), el('p', { class: 'console-sub', text: 'The sign-up rules apply. Their old /players/ page sends visitors to the new one; chat, posts and Hi signs keep the old name.' })], 'Rename', async () => {
+        const r = await api.call(`admin/players/${p.id}/rename`, { method: 'POST', body: { name: name.value } });
+        say(r.text || 'Renamed.');
+        for (const list of [state.online, state.found]) for (const o of list) if (o.id === p.id) o.name = r.player.name;
+        renderOnline();
+        renderFound();
+        loadLog();
+      });
     }
     void opener;
   }

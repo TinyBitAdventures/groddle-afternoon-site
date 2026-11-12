@@ -107,6 +107,7 @@ final readonly class LedgerFurniture
     #[Route(Method::Put, '/groddle/v1/homes/sales', policy: new Policy(Access::SignedIn))]
     public function price(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $body = $request->json();
         $uid = $body['uid'] ?? null;
         $price = $body['price'] ?? null;
@@ -150,6 +151,7 @@ final readonly class LedgerFurniture
     #[Route(Method::Delete, '/groddle/v1/homes/sales/{uid:\d+}', policy: new Policy(Access::SignedIn))]
     public function dontSell(Request $request, string $uid): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $me = $this->minn->reader->userId;
         $this->stop($me, (int) $uid);
         return $this->ownerAnswer($me);
@@ -159,6 +161,7 @@ final readonly class LedgerFurniture
     #[Route(Method::Post, '/groddle/v1/homes/sales/{op:furn-[0-9a-f]+}/collect', policy: new Policy(Access::SignedIn))]
     public function collect(Request $request, string $op): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         if (!self::opId($op)) {
             throw new RestError('groddle_sale_pile', self::TEXT_NO_PILE, 404);
         }

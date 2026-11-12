@@ -37,6 +37,12 @@ use Minn\RestError;
  * A body {"via":"web"} asks for the website's ticket (the /chat/ page,
  * Austin 2026-11-04): "via":"web" opens a light socket beside the game's
  * (groddle-afternoon-server web.go), never replacing it.
+ *
+ * "acct" is the character's login (Logins::loginOf; its own id for a first
+ * character): the server lets one character of a login play at a time (a
+ * second one closes the first with 4012) and refuses every character of a
+ * banned login. A page that names another character than the signed-in one
+ * (X-Groddle-Character, Logins::guard) gets 409 character_changed.
  */
 final readonly class RealtimeTicket
 {
@@ -51,6 +57,7 @@ final readonly class RealtimeTicket
     #[Route(Method::Post, '/groddle/v1/realtime', policy: new Policy(Access::SignedIn))]
     public function ticket(Request $request): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         $user = $this->minn->user();
         $secret = $this->secret();
         if ($user === null) {
@@ -72,6 +79,8 @@ final readonly class RealtimeTicket
             'iat' => $now,
             'exp' => $now + self::TTL,
             'jti' => bin2hex(random_bytes(8)),
+            // The login the character belongs to (Logins): one character of a login plays at a time, and a ban covers the login.
+            'acct' => (new Logins($this->minn->db))->loginOf($user->id),
         ];
         $body = $request->body === '' ? [] : $request->json();
         if (is_array($body) && ($body['via'] ?? null) === 'web') {

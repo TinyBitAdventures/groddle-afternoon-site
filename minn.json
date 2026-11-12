@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.48",
+  "version": "0.5.49",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -485,6 +485,26 @@
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (user_id)",
       "UNIQUE KEY name_key (name_key)"
+    ],
+    "groddle_character_logins": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "login_id bigint(20) unsigned NOT NULL",
+      "created_at datetime NOT NULL",
+      "retired_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (user_id)",
+      "KEY login_id (login_id)"
+    ],
+    "groddle_player_renames": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "user_id bigint(20) unsigned NOT NULL",
+      "old_name varchar(32) NOT NULL",
+      "old_slug varchar(64) NOT NULL",
+      "new_name varchar(32) NOT NULL",
+      "admin_user_id bigint(20) unsigned NOT NULL DEFAULT 0",
+      "renamed_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "KEY old_slug (old_slug)",
+      "KEY user_id (user_id)"
     ],
     "groddle_signups": [
       "token_hash char(64) NOT NULL",

@@ -288,6 +288,7 @@ final readonly class ButlerParcels
     #[Route(Method::Post, '/groddle/v1/butler/{id:butler-[0-9a-f]+}/take', policy: new Policy(Access::SignedIn))]
     public function takeOne(Request $request, string $id): Response
     {
+        Logins::guard($request, (int) $this->minn->reader->userId); // 409 character_changed from a page of another character
         if (!self::opId($id)) {
             throw new RestError('groddle_butler_parcel', 'The Butler has nothing like that for you.', 404);
         }

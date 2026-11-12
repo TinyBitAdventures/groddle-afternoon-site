@@ -26,6 +26,11 @@ use Minn\RestError;
  *   GET  admin/online           {"server":"up"|"down","players":[Row + {"since":unix}]}   who is connected now
  *                               ?sync=1 first sends the server the whole ban list (admin.go "bans")
  *   GET  admin/players?q=…      {"players":[Row]}  characters by name (the start of it), online or not
+ *   GET  admin/players/{id}     {"player":Row,"login":{"id","accountDays","characters":[{id,name,first,retired,level,savedAt,banned}]}}
+ *                               one character and every character of its login (Logins; administrators only)
+ *   POST admin/players/{id}/rename {"name":"…"}               {"player":{id,name},"was","text"}  the sign-up's name rules; the old
+ *                               /players/ address answers a 301 to the new one (groddle_player_renames, PlayerPages);
+ *                               chat lines, community posts and Hi signs said under the old name keep it (copies)
  *   GET  admin/bans             {"bans":[{"player":{id,name},"reason","by":{id,name},"at"}]}
  *   GET  admin/log?before=<id>  {"lines":[{"id","at","kind","by":{id,name},"player":{id,name},"detail","delivery"}],"more":bool}
  *   GET  admin/chatlog?player=&q=&kind=&since=&until=&refused=1&before=
@@ -100,7 +105,9 @@ use Minn\RestError;
  * broadcast a minute (BROADCAST_GAP), for the whole site. One log line (kind
  * broadcast, player 0, the text and the counts).
  *
- * Bans (groddle_bans, one row per suspended account): a banned account gets
+ * Bans (groddle_bans, one row per suspended login: a ban is the login's, Logins, stored on the login's id and sent
+ * to the realtime server as it, whichever character it was given from; banned() reads every character's row, so a
+ * row from before on an extra character still counts): a banned account gets
  * no realtime ticket (RealtimeTicket), cannot load or write its multiplayer
  * save (MultiplayerSave), is told so by groddle/v1/me (Player: suspended),
  * and the realtime server refuses it at auth and signs it out if connected.
@@ -139,6 +146,7 @@ final readonly class AdminConsole
 {
     public const ACTIONS = 'groddle_admin_actions';
     public const BANS = 'groddle_bans';
+    public const RENAMES = 'groddle_player_renames';
 
     public const GIVE_PREFIX = 'admin-give-';
 
@@ -193,8 +201,7 @@ final readonly class AdminConsole
     {
         $call = new RealtimeCall($this->minn);
         if ($request->query('sync') === '1') {
-            $ids = array_map(static fn (array $r): int => (int) $r['user_id'], $this->minn->db->rows('SELECT user_id FROM ' . $this->minn->db->table(self::BANS)));
-            $call->post('bans', ['players' => $ids]);
+            $call->post('bans', ['players' => self::bannedLogins($this->minn->db)]);
         }
         $answer = $call->post('online', []);
         if (!is_array($answer['players'] ?? null)) {
@@ -236,6 +243,81 @@ final readonly class AdminConsole
             $ids = [...$ids, ...array_map(static fn (array $r): int => (int) $r['ID'], $more)];
         }
         return Response::json(['players' => $this->rows($ids)]);
+    }
+
+    /** One character and every character of its login (Logins): the console's "Characters on this login". */
+    #[Route(Method::Get, '/groddle/v1/admin/players/{id:\d+}', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function player(Request $request, string $id): Response
+    {
+        $row = $this->rows([(int) $id])[0] ?? null;
+        if ($row === null) {
+            throw new RestError('groddle_admin_no_player', 'No player has that id.', 404);
+        }
+        $login = Moderation::loginOut($this->minn->db, (int) $id);
+        $rows = [];
+        foreach ($this->rows(array_map(static fn (array $c): int => $c['id'], $login['characters'])) as $r) {
+            $rows[$r['id']] = $r;
+        }
+        foreach ($login['characters'] as $i => $c) {
+            $r = $rows[$c['id']] ?? [];
+            $login['characters'][$i] += ['level' => $r['level'] ?? 1, 'savedAt' => $r['savedAt'] ?? null, 'banned' => $r['banned'] ?? false];
+        }
+        return Response::json(['player' => $row, 'login' => $login])->withHeader('Cache-Control', 'private, no-store');
+    }
+
+    /**
+     * An administrator renames a character (Austin 2026-11-12: admin-only for now): the sign-up's rules
+     * (PlayerAccount::NAME, WordFilter, no other character or account has it), the character's row and its
+     * account's display name; the old /players/ address is remembered (groddle_player_renames) and answers a
+     * 301 to the new one (PlayerPages). What was said under the old name keeps it.
+     */
+    #[Route(Method::Post, '/groddle/v1/admin/players/{id:\d+}/rename', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function rename(Request $request, string $id): Response
+    {
+        $admin = $this->minn->user() ?? throw new RestError('rest_not_logged_in', 'You are not currently logged in.', 401);
+        $player = (int) $id;
+        $db = $this->minn->db;
+        $characters = new Characters($db);
+        $was = $characters->namesOf([$player])[$player] ?? null;
+        if ($was === null) {
+            throw new RestError('groddle_admin_no_player', 'No player has that id.', 404);
+        }
+        $name = trim(preg_replace('/\s+/', ' ', is_string($request->json()['name'] ?? null) ? $request->json()['name'] : '') ?? '');
+        $refusal = self::renameRefusal($db, $player, $was, $name);
+        if ($refusal !== null) {
+            throw new RestError($refusal[0], $refusal[1], $refusal[2]);
+        }
+        $oldSlug = Profiles::slugs($db)[$player] ?? Profiles::slug($was);
+        if (!$characters->rename($player, $name)) {
+            throw new RestError('groddle_admin_name_taken', 'Someone already has that name.', 409);
+        }
+        $now = time();
+        $db->execute('INSERT INTO ' . $db->table(self::RENAMES) . ' (user_id, old_name, old_slug, new_name, admin_user_id, renamed_at) VALUES (?, ?, ?, ?, ?, ?)', [$player, mb_substr($was, 0, 32), substr($oldSlug, 0, 64), $name, $admin->id, gmdate('Y-m-d H:i:s', $now)]);
+        self::recordAction($db, $admin->id, $player, 'rename', ['from' => $was, 'to' => $name], 'stored', $now);
+        return Response::json(['player' => ['id' => $player, 'name' => $name], 'was' => $was, 'text' => "Renamed {$was} to {$name}."]);
+    }
+
+    /**
+     * Why a rename may not go ahead: [code, message, status], or null. The sign-up's rules; the same name
+     * (or only its letter case changed) is fine for the character itself.
+     *
+     * @return array{0: string, 1: string, 2: int}|null
+     */
+    public static function renameRefusal(Db $db, int $player, string $was, string $name): ?array
+    {
+        if (preg_match(PlayerAccount::NAME, $name) !== 1) {
+            return ['groddle_admin_name', 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.', 400];
+        }
+        if (WordFilter::has($name)) {
+            return ['groddle_admin_name', WordFilter::NAME_REFUSED, 400];
+        }
+        if ($name === $was) {
+            return ['groddle_admin_name_same', "{$was} already has that name.", 409];
+        }
+        if (strtolower($name) !== strtolower($was) && (new Characters($db))->taken($name)) {
+            return ['groddle_admin_name_taken', 'Someone already has that name.', 409];
+        }
+        return null;
     }
 
     #[Route(Method::Get, '/groddle/v1/admin/bans', policy: new Policy(Access::Cap, self::ADMIN))]
@@ -728,18 +810,25 @@ final readonly class AdminConsole
     public function ban(Request $request): Response
     {
         [$admin, $player, $body] = $this->target($request);
-        if ($player['id'] === $admin->id) {
+        $db = $this->minn->db;
+        $logins = new Logins($db);
+        // Nor any character of your own login (Logins).
+        if ($player['id'] === $admin->id || $logins->sameLogin($player['id'], $admin->id)) {
             throw new RestError('groddle_admin_self', 'You cannot ban yourself.', 409);
         }
-        if (Capabilities::fromDb($this->minn->db)->can($player['id'], self::ADMIN)) {
+        $caps = Capabilities::fromDb($db);
+        // A login with an administrator among its characters is never banned.
+        if ($caps->can($player['id'], self::ADMIN) || array_filter($logins->siblings($player['id']), static fn (int $id): bool => $caps->can($id, self::ADMIN)) !== []) {
             throw new RestError('groddle_admin_ban_admin', "{$player['name']} is an administrator and cannot be banned.", 409);
         }
         $reason = self::reasonText($body['reason'] ?? '');
-        $db = $this->minn->db;
-        $db->execute('INSERT INTO ' . $db->table(self::BANS) . ' (user_id, reason, admin_user_id, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), admin_user_id = VALUES(admin_user_id)', [$player['id'], $reason, $admin->id, gmdate('Y-m-d H:i:s')]);
-        $answer = (new RealtimeCall($this->minn))->post('ban', ['player' => $player['id'], 'reason' => $reason]);
+        // A ban is the login's (Logins): stored on the login's id and sent to the realtime server as it, whichever
+        // character it was given from; the server boots whichever character plays and refuses them all (the ticket's acct).
+        $login = $logins->loginOf($player['id']);
+        $db->execute('INSERT INTO ' . $db->table(self::BANS) . ' (user_id, reason, admin_user_id, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), admin_user_id = VALUES(admin_user_id)', [$login, $reason, $admin->id, gmdate('Y-m-d H:i:s')]);
+        $answer = (new RealtimeCall($this->minn))->post('ban', ['player' => $login, 'reason' => $reason]);
         $delivery = ($answer['status'] ?? null) === 'sent' ? 'live' : 'stored';
-        $this->record($admin, $player['id'], 'ban', ['reason' => $reason], $delivery);
+        $this->record($admin, $player['id'], 'ban', ['reason' => $reason] + ($login === $player['id'] ? [] : ['login' => $login]), $delivery);
         return $this->done($player, $delivery, $delivery === 'live' ? "Banned {$player['name']} and signed them out." : "Banned {$player['name']}.");
     }
 
@@ -747,9 +836,8 @@ final readonly class AdminConsole
     public function unban(Request $request): Response
     {
         [$admin, $player] = $this->target($request);
-        $db = $this->minn->db;
-        $db->execute('DELETE FROM ' . $db->table(self::BANS) . ' WHERE user_id = ?', [$player['id']]);
-        $answer = (new RealtimeCall($this->minn))->post('unban', ['player' => $player['id']]);
+        $login = self::unbanLogin($this->minn->db, $player['id']);
+        $answer = (new RealtimeCall($this->minn))->post('unban', ['player' => $login]);
         $delivery = ($answer['status'] ?? null) === 'unbanned' ? 'live' : 'stored';
         $this->record($admin, $player['id'], 'unban', [], $delivery);
         return $this->done($player, $delivery, "{$player['name']} can play again.");
@@ -876,14 +964,47 @@ final readonly class AdminConsole
 
     // —— Shared ——
 
-    /** Whether an account is suspended, and why: null when it is not. @return array{reason: string}|null */
+    /**
+     * Whether an account is suspended, and why: null when it is not. A ban covers the whole login
+     * (Logins): any character of it banned (a row on the login, or one on a character from before)
+     * suspends them all.
+     *
+     * @return array{reason: string}|null
+     */
     public static function banned(Db $db, int $user): ?array
     {
         if ($user <= 0) {
             return null;
         }
-        $reason = $db->value('SELECT reason FROM ' . $db->table(self::BANS) . ' WHERE user_id = ?', [$user]);
+        $reason = $db->value('SELECT reason FROM ' . $db->table(self::BANS) . ' WHERE user_id IN (?) ORDER BY created_at DESC LIMIT 1', [(new Logins($db))->siblings($user)]);
         return $reason === null ? null : ['reason' => (string) $reason];
+    }
+
+    /** Bans the login a character belongs to (one row, on the login): the login's id. */
+    public static function banLogin(Db $db, int $player, string $reason, int $by): int
+    {
+        $login = (new Logins($db))->loginOf($player);
+        $db->execute('INSERT INTO ' . $db->table(self::BANS) . ' (user_id, reason, admin_user_id, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE reason = VALUES(reason), admin_user_id = VALUES(admin_user_id)', [$login, $reason, $by, gmdate('Y-m-d H:i:s')]);
+        return $login;
+    }
+
+    /** Lifts every ban on a character's login (its own row and any on its characters): the login's id. */
+    public static function unbanLogin(Db $db, int $player): int
+    {
+        $logins = new Logins($db);
+        $db->execute('DELETE FROM ' . $db->table(self::BANS) . ' WHERE user_id IN (?)', [$logins->siblings($player)]);
+        return $logins->loginOf($player);
+    }
+
+    /**
+     * The banned logins, as the realtime server's bans list takes them (a row on a character counts as its login).
+     *
+     * @return list<int>
+     */
+    public static function bannedLogins(Db $db): array
+    {
+        $ids = array_map(static fn (array $r): int => (int) $r['user_id'], $db->rows('SELECT user_id FROM ' . $db->table(self::BANS)));
+        return array_values(array_unique(array_values((new Logins($db))->loginsOf($ids))));
     }
 
     /** One audit line (every console action and the teleport). */
@@ -1075,7 +1196,7 @@ final readonly class AdminConsole
                 'level' => max(1, (int) ($r['level'] ?? 1)),
                 'street' => $tsid === null ? null : ['tsid' => $tsid, 'label' => (string) ($index[$tsid]['label'] ?? $tsid)],
                 'savedAt' => $r['updated_at'] === null ? null : SaveShape::time((string) $r['updated_at']),
-                'banned' => $r['banned'] !== null,
+                'banned' => $r['banned'] !== null || self::banned($db, $id) !== null,
                 'admin' => $caps->can($id, self::ADMIN),
             ];
         }

@@ -594,15 +594,16 @@ final readonly class Community
     public function stopped(int $user): ?int
     {
         $db = $this->minn->db;
-        $row = $db->row('SELECT until FROM ' . $db->table(self::BANS) . ' WHERE user_id = ?', [$user]);
-        if ($row === null) {
-            return null;
+        // A stop covers the login (Logins): any character of it stopped stops them all, until the longest ends.
+        $longest = null;
+        foreach ($db->rows('SELECT until FROM ' . $db->table(self::BANS) . ' WHERE user_id IN (?)', [(new Logins($db))->siblings($user)]) as $row) {
+            if ($row['until'] === null) {
+                return 0;
+            }
+            $until = self::unix((string) $row['until']);
+            $longest = $until > time() && $until > (int) $longest ? $until : $longest;
         }
-        if ($row['until'] === null) {
-            return 0;
-        }
-        $until = self::unix((string) $row['until']);
-        return $until > time() ? $until : null;
+        return $longest;
     }
 
     /**
@@ -786,6 +787,11 @@ final readonly class Community
             if ((int) $db->value("SELECT COUNT(*) FROM {$r} WHERE user_id = ? AND created_at >= ?", [$viewer['id'], gmdate('Y-m-d H:i:s', $now - 60)]) >= CommunityText::REACTIONS_PER_MINUTE) {
                 throw self::refuse('groddle_community_react_slow', 429);
             }
+            // One reaction of a kind a login (Logins): another character of it giving the same one would count twice.
+            $others = array_values(array_diff((new Logins($db))->siblings((int) $viewer['id']), [(int) $viewer['id']]));
+            if ($others !== [] && $db->value("SELECT 1 FROM {$r} WHERE post_id = ? AND reaction = ? AND user_id IN (?) LIMIT 1", [$id, $key, $others]) !== null) {
+                throw self::refuse('groddle_community_react_login', 409);
+            }
             $changed = $db->execute("INSERT IGNORE INTO {$r} (post_id, user_id, reaction, created_at) VALUES (?, ?, ?, ?)", [$id, $viewer['id'], $key, gmdate('Y-m-d H:i:s', $now)]);
         } else {
             $changed = $db->execute("DELETE FROM {$r} WHERE post_id = ? AND user_id = ? AND reaction = ?", [$id, $viewer['id'], $key]);
@@ -814,7 +820,8 @@ final readonly class Community
             throw self::refuse('groddle_community_gone', 404);
         }
         $reports = $db->table(self::REPORTS);
-        if ($db->value("SELECT 1 FROM {$reports} WHERE post_id = ? AND reporter_id = ?", [$id, $viewer['id']]) !== null) {
+        // Once a login a post (Logins): another character of the same login has already reported it.
+        if ($db->value("SELECT 1 FROM {$reports} WHERE post_id = ? AND reporter_id IN (?) LIMIT 1", [$id, (new Logins($db))->siblings((int) $viewer['id'])]) !== null) {
             return 0;
         }
         $store = new TicketStore($db);

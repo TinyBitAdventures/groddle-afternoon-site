@@ -261,7 +261,8 @@ final readonly class Profiles
      */
     public static function slugs(Db $db): array
     {
-        $rows = $db->rows('SELECT c.user_id, c.name FROM ' . $db->table(Characters::TABLE) . ' c JOIN ' . $db->table('users') . ' u ON u.ID = c.user_id ORDER BY c.created_at ASC, c.user_id ASC');
+        // A retired character (Logins) has no page: it is hidden, and its name may go to someone else after the hold.
+        $rows = $db->rows('SELECT c.user_id, c.name FROM ' . $db->table(Characters::TABLE) . ' c JOIN ' . $db->table('users') . ' u ON u.ID = c.user_id LEFT JOIN ' . $db->table(Logins::TABLE) . ' l ON l.user_id = c.user_id WHERE l.retired_at IS NULL ORDER BY c.created_at ASC, c.user_id ASC');
         $owner = [];
         $out = [];
         foreach ($rows as $row) {
