@@ -19,7 +19,9 @@ use Minn\RestError;
 /**
  * A login's characters (Logins), for the signed-in player only:
  *
- *   GET  characters               {"login","current","limit","canCreate","nextCreateAt","characters":[Character]}
+ *   GET  characters               {"login","current","limit","canCreate","nextCreateAt","refusal","characters":[Character]}
+ *                                 refusal: why canCreate is false (character_limit, character_daily,
+ *                                 groddle_suspended) or null, so the card says the true reason
  *   POST characters {"name"}      201 {"character":Character}; 409 character_limit (3, a retired character
  *                                 counting until its 30 day name hold ends), 429 character_daily
  *                                 (with nextCreateAt), 422 groddle_invalid / name_taken (fields.name)
@@ -42,8 +44,8 @@ final readonly class CharacterRoutes
     private const NAME_WORDS = 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
 
     private const WORDS = [
-        'character_limit' => 'You have as many characters as a login can have.',
-        'character_daily' => 'You can make one new character a day.',
+        'character_limit' => 'You have as many characters as a login can have. A retired character keeps its place for 30 days.',
+        'character_daily' => 'You can make one new character a day. Try again tomorrow.',
         'name_taken' => 'Someone already has that name. Try another.',
         'name_needed' => 'Someone else has this character\'s name now. Choose a new name to bring them back.',
         'groddle_character_missing' => 'That character isn\'t one of yours.',
@@ -74,6 +76,7 @@ final readonly class CharacterRoutes
             'limit' => Logins::LIMIT,
             'canCreate' => $refusal === null && !$banned,
             'nextCreateAt' => $logins->nextCreateAt($login, $now),
+            'refusal' => $banned ? 'groddle_suspended' : ($refusal['code'] ?? null),
             'characters' => $this->described($logins->charactersOf($login)),
         ])->withHeader('Cache-Control', 'private, no-store');
     }
