@@ -263,6 +263,11 @@ final class LedgerMath
         $gain = [];
         foreach (array_unique(array_merge(array_keys($view['items']), array_keys($holdings['items']))) as $c) {
             $c = (string) $c;
+            // #217: a letter's receipt may carry a class the ledger does not carry (LedgerMail unpriced);
+            // holdings never count one, so it is no loss or gain here.
+            if (!$economy->tradeable($c)) {
+                continue;
+            }
             $d = ($holdings['items'][$c] ?? 0) - ($view['items'][$c] ?? 0);
             if ($d < 0) {
                 $delta['items'][$c] = $d;

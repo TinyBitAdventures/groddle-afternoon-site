@@ -340,7 +340,8 @@ final readonly class Ledger
     /**
      * Settled trades this character has not applied, as LedgerMath::view
      * takes them, after stamping those the save lists as applied and those
-     * older than PENDING_FOR. $applied: the save's applied trade ids, or
+     * older than PENDING_FOR (never an administrator's give or a letter's
+     * receipt with an unpriced class: they wait). $applied: the save's applied trade ids, or
      * null to stamp nothing (a read).
      *
      * @return list<array{trade: string, gave: array, got: array}>
@@ -356,7 +357,8 @@ final readonly class Ledger
             $gaveB = LedgerMath::goods(json_decode((string) $r['b_gave'], true));
             $id = (string) $r['trade_id'];
             // An administrator's give (AdminConsole) waits however long the player is away: nothing else delivers it.
-            $old = !AdminConsole::isGive($id) && strtotime((string) $r['created_at'] . ' UTC') < $now - self::PENDING_FOR;
+            // So does a letter's receipt carrying a class the ledger does not carry (#217): only the receipt moves it.
+            $old = !AdminConsole::isGive($id) && !LedgerMail::waitsForSave($id, $gaveA, $gaveB, $this->economy) && strtotime((string) $r['created_at'] . ' UTC') < $now - self::PENDING_FOR;
             if ($applied !== null && (in_array($id, $applied, true) || $old)) {
                 $this->stamp($id, $mine, $now);
                 continue;
@@ -421,6 +423,14 @@ final readonly class Ledger
             $entries = LedgerMath::remove($entries, $r['clamped']);
             $text = LedgerMath::correctedText($r['clamped'], $this->economy);
             $this->logClamp($user, ['clamped' => ['items' => (object) $r['clamped']['items'], 'currants' => $r['clamped']['currants']], 'budget' => round($budget, 1), 'kept' => round($r['gained'], 1), 'made' => (object) $r['made']], $now);
+        }
+        // #217: a letter that took an unpriced class is applied to the stored copy at once, as a load
+        // would (catchUp), and listed there as applied; the game's copy still applies its receipt.
+        // So the stored save never holds what a letter carries, however long the game waits.
+        foreach ($pending as $p) {
+            if (self::givesUnpriced($p, $this->economy)) {
+                $entries = $this->applyOne($entries, $user, $p);
+            }
         }
         return ['entries' => $entries, 'clamped' => $r['clamped'], 'text' => $text];
     }
@@ -520,6 +530,27 @@ final readonly class Ledger
             $this->log($user, 'credit', ['trade' => $id, 'applied' => 'on takeover'], $now);
         }
         return $entries;
+    }
+
+    /**
+     * #217: a pending move that gives away a class the ledger does not carry, which a stored save
+     * write applies at once (write): a letter's send receipt (LedgerMail::waitsForSave).
+     *
+     * @param array{trade: string, gave: array, got: array} $p
+     */
+    public static function givesUnpriced(array $p, Economy $economy): bool
+    {
+        return LedgerMail::waitsForSave($p['trade'], $p['gave'], ['items' => [], 'currants' => 0], $economy);
+    }
+
+    /**
+     * The time reapply goes back to on a takeover: the client's (when this copy was last saved),
+     * never after the stored copy's own save, which came after it (a later one would skip trades).
+     */
+    public static function takeoverSince(int $since, ?string $storedAt): int
+    {
+        $at = $storedAt === null || $storedAt === '' ? false : strtotime($storedAt . ' UTC');
+        return $at === false ? $since : min($since, $at);
     }
 
     /** One settled trade applied to a stored save, the way its kind needs. */

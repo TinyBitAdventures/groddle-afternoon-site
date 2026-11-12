@@ -164,7 +164,8 @@ final readonly class MultiplayerSave
             $entries = $save['entries'];
             if ($did === 'takeover') {
                 // Kept over a copy saved elsewhere: what trades moved since this copy was last saved comes first.
-                $entries = $ledger->reapply($user, $entries, is_int($since) ? $since : 0, time());
+                // The client names when this copy was last saved; never later than the stored copy's own save.
+                $entries = $ledger->reapply($user, $entries, Ledger::takeoverSince(is_int($since) ? $since : 0, $row === null ? null : (string) $row['updated_at']), time());
             }
             $checked = $ledger->write($user, $entries, time());
             $json = SaveShape::encode(['kind' => $save['kind'], 'format' => $save['format'], 'entries' => $checked['entries']]);

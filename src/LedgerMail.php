@@ -57,12 +57,39 @@ use Minn\RestError;
  *   carries the words it answers, one level (build_mail_check_msg 1403-1429).
  *
  * Limits: one stack a letter (build_mail_check_msg 1363-1364), of at most
- * 999 (MailItemSlot.as:167), a class the ledger carries; at most 999,999
+ * 999 (MailItemSlot.as:167); at most 999,999
  * currants (MailReplyUI.as:352); at most 300 characters (MailComposeUI.as:39);
  * something in it (MailComposeUI.as:527). Nobody mails a player who blocks
  * them or whom they block (mail_can_receive 210-216); a plain letter from
  * someone the receiver has since blocked is not shown (build_mail_check_msg
  * 1356-1358, mail_count_messages 175).
+ *
+ * What may go in a letter (#217, Austin 2026-11-12 "allow it, as Glitch did"):
+ * Glitch's server refused only a bag with things in it (inc_mail.js
+ * mail_can_send 26-29, doMailSend main.js 6663-6665 and 6691-6693 "Item is
+ * not allowed to be mailed"), and its client also refused items tagged
+ * no_mail and stacks soulbound to the sender (AbstractMailUI.as isDroppable
+ * 60-74; no_mail is conch and faded_heart, items/catalog_tags.js 2198-2201;
+ * soulbound are play_cube and greeter_twig) and never let a hogtied piggy be
+ * dragged in (RESTRICTED_ITEMS, AbstractMailUI.as:22 and 80). No no_trade
+ * rule: a Crabpod Headphones (crabphones.js 102, no_trade) went by mail. So
+ * data/mail.json (the game repo's tools/build-mail.mjs) lists the refused
+ * classes and the unpriced ones: pack items the ledger does not carry
+ * (no_trade) that a letter may still hold. The game refuses a bag with
+ * things in it before it asks (player-mail.js composeRefusal).
+ *
+ * An unpriced class moves exactly once without the ledger: the ledger keeps
+ * no count of it (the save alone holds it, Ledger's class comment), so a
+ * letter takes it only when the stored save holds that many beyond what its
+ * mail receipts not yet applied already took (unpricedShort; the game saves
+ * before it sends), and the receipt (op -s, then -c) carries it, so the
+ * sender's save loses it and the receiver's gains it once each (the trade
+ * slice's applied list, Ledger::catchUp on a load). The ledger's comparison
+ * never counts it (LedgerMath::reconcile skips a class it does not carry).
+ * Such a receipt is never counted applied by age (waitsForSave: Ledger::pending
+ * and receipts keep it until a save applies it), and a save write applies a
+ * send receipt to the stored copy at once (Ledger::write), so the stored save
+ * never holds what a letter took while the game's tab waits to apply it.
  *
  * Ours, where the source had nothing (its mail lived on one game server and
  * a player never went away):
@@ -129,7 +156,7 @@ final readonly class LedgerMail
     public const TEXT_SELF = "You can't send mail to yourself.";
     public const TEXT_BLOCKED_BY = 'You are blocked by that player and cannot send them mail.';
     public const TEXT_BLOCKING = 'You are blocking that player and cannot send them mail.';
-    public const TEXT_TYPE = "That can't be sent by mail."; // main.js 6672 "Item is not allowed to be mailed"
+    public const TEXT_TYPE = "That can't be sent by mail."; // main.js 6665 "Item is not allowed to be mailed", AbstractMailUI.as:66
     public const TEXT_COUNT = 'Choose how many to send, from 1 to 999.';
     public const TEXT_CURRANTS = 'Enclose from 0 to 999,999 currants.';
     public const TEXT_SHORT = "You don't have that any more.";
@@ -239,7 +266,7 @@ final readonly class LedgerMail
             return ['bad_currants', self::TEXT_CURRANTS];
         }
         if ($item !== null) {
-            if (!Economy::shared()->tradeable($item['c'])) {
+            if (!self::mailable($item['c'])) {
                 return ['type', self::TEXT_TYPE];
             }
             if ($item['n'] < 1 || $item['n'] > self::COUNT_MAX) {
@@ -410,26 +437,49 @@ final readonly class LedgerMail
     {
         $db = $minn->db;
         $trades = $db->table(Ledger::TRADES);
+        $economy = Economy::shared();
+        $unpriced = [];
+        foreach ($gave['items'] as $c => $n) {
+            if (!$economy->tradeable((string) $c)) {
+                $unpriced[(string) $c] = $n;
+            }
+        }
+        // #217: the save row first, then the trade and ledger rows, as a save write takes them
+        // (MultiplayerSave, Ledger::write; LedgerUse inserts trade rows under it).
+        $save = $unpriced === [] ? null : self::lockSave($db, $user);
         $held = $db->row("SELECT status FROM {$trades} WHERE trade_id = ? FOR UPDATE", [$op]);
         if ($held !== null) {
             return $held['status'] === 'settled' ? null : 'void';
         }
+        foreach (array_keys($unpriced) as $c) {
+            if (!self::unpriced((string) $c)) {
+                return (string) $c;
+            }
+        }
         $ledger = Ledger::fromSeams($minn);
         $state = $ledger->lock($user, $now);
+        if ($save !== null && ($short = self::unpricedShort($db, $user, $save, $unpriced)) !== null) {
+            return $short;
+        }
         foreach ($gave['items'] as $c => $n) {
-            if (!Economy::shared()->tradeable((string) $c) || ($state['items'][$c] ?? 0) < $n) {
+            if ($economy->tradeable((string) $c) && ($state['items'][$c] ?? 0) < $n) {
                 return (string) $c;
             }
         }
         if ($state['currants'] < $gave['currants']) {
             return 'currants';
         }
+        // #217: only the classes the ledger carries move in it; an unpriced one moves in the saves, by the receipt.
         $delta = ['items' => [], 'currants' => $got['currants'] - $gave['currants']];
         foreach ($gave['items'] as $c => $n) {
-            $delta['items'][$c] = ($delta['items'][$c] ?? 0) - $n;
+            if ($economy->tradeable((string) $c)) {
+                $delta['items'][$c] = ($delta['items'][$c] ?? 0) - $n;
+            }
         }
         foreach ($got['items'] as $c => $n) {
-            $delta['items'][$c] = ($delta['items'][$c] ?? 0) + $n;
+            if ($economy->tradeable((string) $c)) {
+                $delta['items'][$c] = ($delta['items'][$c] ?? 0) + $n;
+            }
         }
         $after = LedgerMath::add(['items' => $state['items'], 'currants' => $state['currants']], $delta);
         $stamp = gmdate('Y-m-d H:i:s', $now);
@@ -448,6 +498,70 @@ final readonly class LedgerMail
         return null;
     }
 
+    /**
+     * #217: the stored save's entries, its row locked (FOR UPDATE), so two letters cannot both take
+     * the last one and a save write waits for the letter.
+     *
+     * @return array<string, mixed>
+     */
+    private static function lockSave(Db $db, int $user): array
+    {
+        $stored = $db->value('SELECT data FROM ' . $db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ? FOR UPDATE', [$user]);
+        $save = is_string($stored) ? json_decode($stored, true) : null;
+        return is_array($save['entries'] ?? null) ? $save['entries'] : [];
+    }
+
+    /**
+     * #217: the first unpriced class the stored save ($entries, locked by lockSave) does not hold
+     * enough of, or null. What the save holds is its pack (playerState inventory) less what this
+     * character's settled moves the save has not applied yet give away (a letter sent a moment ago;
+     * those it gets are not counted until the save shows them). Called with the save and ledger rows
+     * locked: the trade rows are read FOR UPDATE, so a letter another request settled after this
+     * transaction's snapshot is seen (a plain read would miss it), in the order a save write takes
+     * them (save, ledger, trades). Only a letter's -s receipt can give an unpriced class (Ledger::settle
+     * refuses one, and -s is always a_id = sender, b_id = 0), so one read of those rows by the a_id
+     * index: no gap lock on the b_id index, where every settleAlone, use and yard receipt inserts.
+     *
+     * @param array<string, mixed> $entries
+     * @param array<string,int> $want class -> count
+     */
+    private static function unpricedShort(Db $db, int $user, array $entries, array $want): ?string
+    {
+        $state = is_string($entries['playerState'] ?? null) ? json_decode($entries['playerState'], true) : null;
+        $inv = is_array($state['inventory'] ?? null) ? $state['inventory'] : [];
+        $applied = LedgerMath::applied($entries);
+        $gone = [];
+        $t = $db->table(Ledger::TRADES);
+        $rows = $db->rows("SELECT trade_id, a_gave AS gave FROM {$t} WHERE a_id = ? AND trade_id LIKE 'mail-%-s' AND status = 'settled' AND a_applied_at IS NULL FOR UPDATE", [$user]);
+        foreach ($rows as $r) {
+            if (in_array((string) $r['trade_id'], $applied, true)) {
+                continue;
+            }
+            foreach (LedgerMath::goods(json_decode((string) $r['gave'], true))['items'] as $c => $n) {
+                $gone[$c] = ($gone[$c] ?? 0) + $n;
+            }
+        }
+        return self::unpricedLacking($inv, $gone, $want);
+    }
+
+    /**
+     * The pure part of unpricedShort (tests share it): the first class of $want the pack holds fewer
+     * of, after $gone, than wanted; null when all are there.
+     *
+     * @param array<string,mixed> $inv the save's inventory
+     * @param array<string,int> $gone
+     * @param array<string,int> $want
+     */
+    public static function unpricedLacking(array $inv, array $gone, array $want): ?string
+    {
+        foreach ($want as $c => $n) {
+            if (LedgerMath::count($inv[$c] ?? 0) - ($gone[$c] ?? 0) < $n) {
+                return (string) $c;
+            }
+        }
+        return null;
+    }
+
     /** One recorded move as a save applies it, or null. */
     private function receipt(string $op): ?array
     {
@@ -455,12 +569,46 @@ final readonly class LedgerMail
         return $r === null ? null : self::receiptOf($r);
     }
 
-    /** The mail moves this character's save has not applied yet. */
+    /**
+     * The mail moves this character's save has not applied yet: those of the last PENDING_FOR, and
+     * before them any older one with an unpriced class, which waits until the save applies it
+     * (waitsForSave, as Ledger::pending keeps it).
+     */
     private function receipts(int $me): array
     {
         $db = $this->minn->db;
-        $rows = $db->rows('SELECT trade_id, a_gave, b_gave FROM ' . $db->table(Ledger::TRADES) . " WHERE a_id = ? AND b_id = 0 AND status = 'settled' AND a_applied_at IS NULL AND trade_id LIKE 'mail-%' AND created_at >= ? ORDER BY created_at, trade_id LIMIT 60", [$me, gmdate('Y-m-d H:i:s', time() - Ledger::PENDING_FOR)]);
-        return array_map(self::receiptOf(...), $rows);
+        $t = $db->table(Ledger::TRADES);
+        $cut = gmdate('Y-m-d H:i:s', time() - Ledger::PENDING_FOR);
+        $where = "WHERE a_id = ? AND b_id = 0 AND status = 'settled' AND a_applied_at IS NULL AND trade_id LIKE 'mail-%'";
+        $economy = Economy::shared();
+        $old = array_values(array_filter(
+            $db->rows("SELECT trade_id, a_gave, b_gave FROM {$t} {$where} AND created_at < ? ORDER BY created_at, trade_id LIMIT 1000", [$me, $cut]),
+            static fn (array $r): bool => self::waitsForSave((string) $r['trade_id'], LedgerMath::goods(json_decode((string) $r['a_gave'], true)), LedgerMath::goods(json_decode((string) $r['b_gave'], true)), $economy),
+        ));
+        $rows = $db->rows("SELECT trade_id, a_gave, b_gave FROM {$t} {$where} AND created_at >= ? ORDER BY created_at, trade_id LIMIT 60", [$me, $cut]);
+        return array_map(self::receiptOf(...), array_slice([...$old, ...$rows], 0, 60));
+    }
+
+    /**
+     * #217: whether a settled move waits for the save however long that takes (Ledger::pending
+     * never counts it applied by age, receipts keeps listing it, as an administrator's give):
+     * a letter's receipt (mail-<id>-s or -c) that carries a class the ledger does not carry, which
+     * nothing but the receipt moves. Forgiven, a sender's save would keep what the receiver got.
+     *
+     * @param array{items: array<string,int>, currants: int} $gave
+     * @param array{items: array<string,int>, currants: int} $got
+     */
+    public static function waitsForSave(string $trade, array $gave, array $got, Economy $economy): bool
+    {
+        if (preg_match('/^mail-[0-9a-f]{16}-[sc]$/', $trade) !== 1) {
+            return false;
+        }
+        foreach ([...array_keys($gave['items']), ...array_keys($got['items'])] as $c) {
+            if (!$economy->tradeable((string) $c)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function receiptOf(array $r): array
@@ -581,14 +729,42 @@ final readonly class LedgerMail
     /** A class's base_cost (data/mail.json, the game repo's tools/build-mail.mjs), 0 when it has none. */
     public static function baseCost(string $class): float
     {
-        static $base = null;
-        if ($base === null) {
+        $v = self::table()['base'][$class] ?? 0;
+        return is_int($v) || is_float($v) ? (float) $v : 0.0;
+    }
+
+    /**
+     * #217: whether a letter may hold this class: one the ledger carries or an unpriced one
+     * (data/mail.json), and never one Glitch refused (no_mail, soulbound, the hogtied piggy).
+     */
+    public static function mailable(string $class): bool
+    {
+        if (isset(self::table()['refused'][$class])) {
+            return false;
+        }
+        return Economy::shared()->tradeable($class) || self::unpriced($class);
+    }
+
+    /** #217: a pack class the ledger does not carry that a letter may still hold (data/mail.json unpriced). */
+    public static function unpriced(string $class): bool
+    {
+        return !isset(self::table()['refused'][$class]) && in_array($class, self::table()['unpriced'], true);
+    }
+
+    /** @return array{base: array<string, int|float>, unpriced: list<string>, refused: array<string, string>} */
+    private static function table(): array
+    {
+        static $table = null;
+        if ($table === null) {
             $file = dirname(__DIR__) . '/data/mail.json';
             $raw = json_decode(is_file($file) ? (string) file_get_contents($file) : '', true);
-            $base = is_array($raw['base'] ?? null) ? $raw['base'] : [];
+            $table = [
+                'base' => is_array($raw['base'] ?? null) ? $raw['base'] : [],
+                'unpriced' => is_array($raw['unpriced'] ?? null) ? array_values(array_filter($raw['unpriced'], 'is_string')) : [],
+                'refused' => is_array($raw['refused'] ?? null) ? $raw['refused'] : [],
+            ];
         }
-        $v = $base[$class] ?? 0;
-        return is_int($v) || is_float($v) ? (float) $v : 0.0;
+        return $table;
     }
 
     /** The ledger record of one move: mail-<id>-s (sent), -c (collected). */
