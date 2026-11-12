@@ -68,6 +68,7 @@ final readonly class PatchPayout
     public const REFUND_TEXT = 'Good news: street Patches are now shared! Everyone on a street now sees and tends the same Patch, so your own copy of a Patch you had planted there was cleared. Here is its bean back, with what was growing on it. Happy planting!';
     /** Their subjects in the mailbox (G570). */
     public const WIN_SUBJECT = 'Your Patch tree is shared';
+    public const WIN_SEEDLING_SUBJECT = 'Your Patch Seedling is shared';
     public const REFUND_SUBJECT = 'Your Patch beans';
 
     /** The plot keys a win can take: the layout's own Patches. */
@@ -309,7 +310,11 @@ final readonly class PatchPayout
         if ($text === self::REFUND_TEXT) {
             return self::REFUND_SUBJECT;
         }
-        return str_starts_with($text, self::WIN_START) ? self::WIN_SUBJECT : null;
+        if (!str_starts_with($text, self::WIN_START)) {
+            return null;
+        }
+        // A Seedling winner's letter (WIN_SEEDLING) is about a Seedling, not a tree.
+        return str_contains($text, ' is now a shared Seedling ') ? self::WIN_SEEDLING_SUBJECT : self::WIN_SUBJECT;
     }
 
     /**
