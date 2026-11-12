@@ -144,6 +144,8 @@ svg.profile-avatar-art { width: 140px; height: 202px; }
 .profile-section h2 { margin: 0 0 14px; overflow-wrap: anywhere; }
 .profile-home { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
 .profile-home img { display: block; width: 100%; height: auto; }
+/* HOMESHOT: an upright phone's tall picture in the landscape frame (HomeLayout FRAME_W / FRAME_H), its foot kept. */
+.profile-home img.profile-home-tall { aspect-ratio: 1680 / 720; object-fit: cover; object-position: 50% 100%; }
 /* The home street as a diorama (src/HomeLayout.php): every box is in % of the stage, so the
    whole street scales with the column; z-index carries the game's paint order. */
 .home-diorama .hd-stage { position: relative; width: 100%; overflow: hidden; container-type: inline-size; background: #8ec8e8; }

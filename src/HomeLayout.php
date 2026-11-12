@@ -58,6 +58,16 @@ final class HomeLayout
     public const STREET_MAX_SPOTS = 160;
     public const MAX_LAYERS = 24;
 
+    /**
+     * HOMESHOT (Austin 2026-11-12: after a visit on an iPhone held upright, a profile drew a tall,
+     * narrow slice of the home street): the frame a computer shows a home street in (the game's
+     * js/home-layout.js homeViewFrame, 1680 x 720), and the narrowest shape a stored layout may
+     * have before the page draws it in that frame instead (framed).
+     */
+    public const FRAME_W = 1680;
+    public const FRAME_H = 720;
+    public const MIN_ASPECT = 1.6;
+
     /** The versions accept() takes (the profile answer names them, so the game sends the newest). */
     public const VERSIONS = [1, 2];
 
@@ -444,6 +454,7 @@ final class HomeLayout
      */
     public static function render(array $layout, array $ctx): string
     {
+        $layout = self::framed($layout);
         if (($layout['v'] ?? null) === self::STREET_VERSION) {
             return self::renderStreet($layout, $ctx);
         }
@@ -477,6 +488,58 @@ final class HomeLayout
             . "\n      </div>"
             . "\n      <figcaption class=\"hd-caption\">{$owner}'s home street, drawn from the game's own art. Point at anything to see what it is.{$things}</figcaption>"
             . "\n    </figure>";
+    }
+
+    /**
+     * HOMESHOT: a layout as the page draws it. One taken in a view taller than about wide (an
+     * upright phone, or a tall window, before the game took every layout in homeViewFrame) is drawn
+     * in the standard landscape frame instead of as a tall slice: at most FRAME_H tall with its foot
+     * kept (the field and the soil, where a computer's camera rests), as wide as FRAME_W / FRAME_H
+     * allows inside the street, centred where the game's view was centred. Version 2 holds the
+     * whole street to widen into; version 1 only its view, so it is cut to the shape from the
+     * foot up. The sky is stretched to the new frame. A landscape layout comes back unchanged.
+     *
+     * @param array<string, mixed> $layout as accept() returned it
+     * @return array<string, mixed>
+     */
+    public static function framed(array $layout): array
+    {
+        $W = (int) $layout['w'];
+        $H = (int) $layout['h'];
+        if ($W >= $H * self::MIN_ASPECT) {
+            return $layout;
+        }
+        $street = ($layout['v'] ?? null) === self::STREET_VERSION;
+        $SW = $street ? (int) $layout['sw'] : $W;
+        $h = min($H, self::FRAME_H);
+        $w = min($SW, (int) round($h * self::FRAME_W / self::FRAME_H));
+        // Too narrow a street (or view) for that shape: shorter, never narrower than it has.
+        if ($w < $h * self::MIN_ASPECT) {
+            $h = max(self::MIN_H, min($h, (int) round($w * self::FRAME_H / self::FRAME_W)));
+        }
+        $dy = $H - $h;
+        $move = static function (array $d) use ($dy, $w, $h, $H): array {
+            if (isset($d['sky'])) {
+                // The gradient fills the frame and the allowance under it, as it filled the view.
+                return ['x' => 0, 'y' => 0, 'w' => $w, 'h' => $h + max(0, (int) $d['h'] - $H)] + $d;
+            }
+            $d['y'] -= $dy;
+            return $d;
+        };
+        foreach ($layout['spots'] as $i => $spot) {
+            $layout['spots'][$i]['b'][1] -= $dy;
+        }
+        $layout['w'] = $w;
+        $layout['h'] = $h;
+        if (!$street) {
+            $layout['draw'] = array_map($move, $layout['draw']);
+            return $layout;
+        }
+        foreach ($layout['layers'] as $li => $layer) {
+            $layout['layers'][$li]['draw'] = array_map($move, $layer['draw']);
+        }
+        $layout['cx'] = max(0, min($SW - $w, (int) round((int) $layout['cx'] + ($W - $w) / 2)));
+        return $layout;
     }
 
     /**

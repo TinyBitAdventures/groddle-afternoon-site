@@ -412,7 +412,9 @@ final readonly class PlayerPages
     /**
      * The home street's <img>: its size when known (no jump as it loads)
      * and, when the site made a phone copy (HomePicture::SMALL_W), a srcset
-     * so a phone fetches that and a wide screen the full picture.
+     * so a phone fetches that and a wide screen the full picture. A tall
+     * one (an upright phone's view, before the game took every picture in
+     * the layout's frame) is cut to that frame's shape (style.css).
      */
     private static function homeImg(int $id, string $name, string $at, array $profile): string
     {
@@ -426,6 +428,10 @@ final readonly class PlayerPages
         }
         if ($w > 0 && $h > 0) {
             $attrs .= " width=\"{$w}\" height=\"{$h}\"";
+            // HOMESHOT: a picture taken on an upright phone (a tall slice) shows in the landscape frame, its foot kept.
+            if ($w < $h * HomeLayout::MIN_ASPECT) {
+                $attrs .= ' class="profile-home-tall"';
+            }
         }
         return '<img' . $attrs . ' alt="' . Html::attr("{$name}'s home street") . '" loading="lazy" decoding="async" />';
     }
