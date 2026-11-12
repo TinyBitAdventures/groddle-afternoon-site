@@ -23,7 +23,8 @@
  *   with how many will see it and a confirm step; one a minute.
  * - Bans with Unban, and the activity log of every administrator's action.
  * - Reports (the second tab; src/AdminTickets.php): players' bug reports as
- *   threads, unread first, with a status filter; a thread shows what the game
+ *   threads, unread first, with a status filter; the header counts every report the filter
+ *   holds (reportsCount), a page of 200 at a time with Show older for the next; a thread shows what the game
  *   knew, the picture of the game when the report carries one (a click opens it
  *   full size in a popup, Cmd-click in a tab; pictureSrc), the messages, a reply box (the player is emailed, or with Don't
  *   email ticked it is a note they only see in the game; the box stays
@@ -209,6 +210,15 @@ export function boardWho(n) {
   if (n?.remake) return 'The remake\'s own notice';
   const by = n?.author?.name || n?.poster?.name || 'Someone';
   return n?.poster && n?.author && n.poster.id !== n.author.id ? `${by}, pinned by ${n.poster.name}` : by;
+}
+
+/**
+ * The Reports header's number: every ticket for the filter (the route's total),
+ * or the rows loaded from a site that gives none; '' when there are none.
+ */
+export function reportsCount({ total = null, list = [] } = {}) {
+  const n = Number.isFinite(total) ? total : list.length;
+  return n > 0 ? String(n) : '';
 }
 
 /** "Reported by 2", or ''. */
@@ -1139,7 +1149,8 @@ function boot() {
   }
 
   // == Reports ==
-  const tickets = { list: [], counts: {}, status: 'all', open: 0, thread: null };
+  // total: every ticket for the filter (the header's number); more: an older page waits (Show older).
+  const tickets = { list: [], counts: {}, status: 'all', open: 0, thread: null, total: null, more: false };
   function chip(status) {
     return el('span', { class: `console-chip console-chip-${status}`, text: TICKET_STATUS[status] || status });
   }
@@ -1159,15 +1170,35 @@ function boot() {
     }));
     $('[data-console-tickets-empty]').hidden = tickets.list.length > 0;
     const c = tickets.counts;
-    $('[data-console-tickets-count]').textContent = tickets.list.length ? String(tickets.list.length) : '';
+    $('[data-console-tickets-count]').textContent = reportsCount(tickets);
+    $('[data-console-tickets-more]').hidden = !tickets.more;
     for (const k of ['open', 'working', 'answered', 'closed']) $(`[data-console-status-count="${k}"]`).textContent = c[k] ? String(c[k]) : '';
     $('[data-console-reports-unread]').textContent = c.unread ? String(c.unread) : '';
     $('[data-console-tab="reports"]').setAttribute('aria-label', c.unread ? `Reports, ${c.unread} unread` : 'Reports');
   }
-  async function loadTickets() {
+  // older (Show older): the next page, offset = the rows loaded, added to the end. A refresh (the poll,
+  // an action, the tab) asks again from the top for as many rows as are shown, so older pages stay put.
+  let ticketsAsked = 0;
+  async function loadTickets(older = false) {
+    const ask = ++ticketsAsked;
+    const status = tickets.status;
+    const keep = older ? 0 : tickets.list.length;
+    const rows = older ? tickets.list.slice() : [];
     let r;
-    try { r = await api.call(`admin/tickets?status=${tickets.status}`); } catch (err) { return failed(err); }
-    tickets.list = r.tickets || [];
+    try {
+      do {
+        r = await api.call(`admin/tickets?status=${status}${rows.length ? `&offset=${rows.length}` : ''}`);
+        // A filter switch or a newer load since this one asked: its rows belong to another list.
+        if (ask !== ticketsAsked || status !== tickets.status) return;
+        const seen = new Set(rows.map((t) => t.id));
+        const page = (r.tickets || []).filter((t) => !seen.has(t.id));
+        rows.push(...page);
+        if (!page.length || !Number.isFinite(r.total)) break;
+      } while (r.more && rows.length < keep);
+    } catch (err) { return failed(err); }
+    tickets.list = rows;
+    tickets.more = Boolean(r.more);
+    tickets.total = Number.isFinite(r.total) ? r.total : null;
     tickets.counts = r.counts || {};
     const legacy = Number(r.legacy) || 0;
     $('[data-console-legacy]').hidden = legacy === 0;
@@ -1179,7 +1210,16 @@ function boot() {
     if (!b) return;
     tickets.status = b.dataset.status;
     for (const o of e.currentTarget.querySelectorAll('button')) o.setAttribute('aria-pressed', String(o === b));
+    Object.assign(tickets, { list: [], more: false, total: null });
     loadTickets();
+  });
+  $('[data-console-tickets-more]').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const had = tickets.list.length;
+    btn.disabled = true;
+    try { await loadTickets(true); } finally { btn.disabled = false; }
+    // The keyboard goes on to the first row the page added (the button may have gone).
+    if (tickets.list.length > had) $('[data-console-tickets]').children[had]?.querySelector('button')?.focus();
   });
   $('[data-console-migrate]').addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;

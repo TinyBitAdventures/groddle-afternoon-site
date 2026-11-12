@@ -300,15 +300,24 @@ final readonly class TicketStore
     /**
      * Every ticket for the administrators: unread first, then open, working,
      * answered, closed, the newest news first in each. $status narrows it to one.
+     * A page of LIST_MAX from $offset (the console's Show older asks with the
+     * rows it has); more: a later page holds some; total: all for $status.
      *
-     * @return array{rows: list<array<string, mixed>>, more: bool}
+     * @return array{rows: list<array<string, mixed>>, more: bool, total: int}
      */
-    public function listAll(?string $status): array
+    public function listAll(?string $status, int $offset = 0): array
     {
+        $offset = max(0, $offset);
         $where = $status !== null && in_array($status, self::STATUSES, true) ? 'WHERE status = ?' : '';
+        $args = $where === '' ? [] : [$status];
+        $t = $this->db->table(self::TABLE);
         $unread = "(last_author_role = 'player' AND (admin_read_at IS NULL OR admin_read_at < last_message_at))";
-        $rows = $this->db->rows('SELECT *, ' . $unread . ' AS admin_unread FROM ' . $this->db->table(self::TABLE) . " {$where} ORDER BY admin_unread DESC, FIELD(status, 'open', 'working', 'answered', 'closed'), last_message_at DESC, id DESC LIMIT " . (self::LIST_MAX + 1), $where === '' ? [] : [$status]);
-        return ['rows' => array_slice($rows, 0, self::LIST_MAX), 'more' => count($rows) > self::LIST_MAX];
+        $rows = $this->db->rows('SELECT *, ' . $unread . " AS admin_unread FROM {$t} {$where} ORDER BY admin_unread DESC, FIELD(status, 'open', 'working', 'answered', 'closed'), last_message_at DESC, id DESC LIMIT " . (self::LIST_MAX + 1) . ' OFFSET ' . $offset, $args);
+        return [
+            'rows' => array_slice($rows, 0, self::LIST_MAX),
+            'more' => count($rows) > self::LIST_MAX,
+            'total' => (int) $this->db->value("SELECT COUNT(*) FROM {$t} {$where}", $args),
+        ];
     }
 
     /** Tickets by status, and how many hold a player's message no administrator has read. @return array<string, int> */

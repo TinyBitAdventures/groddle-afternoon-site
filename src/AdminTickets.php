@@ -20,8 +20,11 @@ use Minn\RestError;
  * console's other routes, each action a line in groddle_admin_actions
  * (AdminConsole::recordAction: reply, close, reopen, working, migrate).
  *
- *   GET  admin/tickets?status=open|answered|working|closed|all   {"tickets":[Row],"counts":{open,answered,working,closed,unread},"more":bool,"legacy":n}
- *                                  unread first, then open, working, answered, closed, the newest news first; legacy: old report posts not brought in yet
+ *   GET  admin/tickets?status=open|answered|working|closed|all&offset=n   {"tickets":[Row],"counts":{open,answered,working,closed,unread},"more":bool,"total":n,"legacy":n}
+ *                                  unread first, then open, working, answered, closed, the newest news first; a page of
+ *                                  TicketStore::LIST_MAX from offset (0 when left out; digits only, else 400); more: a
+ *                                  later page holds some (Show older); total: every ticket for that status (or all);
+ *                                  legacy: old report posts not brought in yet
  *   GET  admin/tickets/{id}        {"ticket":Row,"messages":[Message],"context":{..},"picture":{"url","width","height"}|null}   and marks it read
  *   POST admin/tickets/{id}/reply  {"message","email"?}  the thread + {"delivery","text"}; emails the player (below)
  *                                  unless "email" is false: a note (delivery note), for closing many related reports
@@ -57,8 +60,12 @@ final readonly class AdminTickets
     public function index(Request $request): Response
     {
         $status = (string) ($request->query('status') ?? 'all');
+        $offset = (string) ($request->query('offset') ?? '0');
+        if (!ctype_digit($offset) || strlen($offset) > 9) {
+            throw new RestError('groddle_ticket_offset', 'The offset is a whole number, 0 or more.', 400);
+        }
         $store = $this->store();
-        $list = $store->listAll(in_array($status, TicketStore::STATUSES, true) ? $status : null);
+        $list = $store->listAll(in_array($status, TicketStore::STATUSES, true) ? $status : null, (int) $offset);
         $names = (new Characters($this->minn->db))->namesOf(array_map(static fn (array $r): int => (int) $r['player_user_id'], $list['rows']));
         $out = [];
         foreach ($list['rows'] as $r) {
@@ -68,6 +75,7 @@ final readonly class AdminTickets
             'tickets' => $out,
             'counts' => $store->counts(),
             'more' => $list['more'],
+            'total' => $list['total'],
             'legacy' => (new TicketMigration($this->minn->db))->pending(),
         ])->withHeader('Cache-Control', 'no-store');
     }

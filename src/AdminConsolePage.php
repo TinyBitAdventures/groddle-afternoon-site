@@ -271,6 +271,7 @@ HTML
       </div>
       <p class="console-legacy" data-console-legacy hidden><span data-console-legacy-text></span> <button type="button" class="console-small" data-console-migrate>Bring in old reports</button></p>
       <ul class="console-list console-ticketlist" data-console-tickets aria-label="Reports"></ul>
+      <button type="button" class="console-more" data-console-tickets-more hidden>Show older</button>
       <p class="console-empty" data-console-tickets-empty hidden>No reports here.</p>
     </section>
     <section class="console-panel console-thread" aria-labelledby="console-thread-title" data-console-thread>
