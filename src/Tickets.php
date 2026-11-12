@@ -30,6 +30,8 @@ use Minn\RestError;
  *   POST tickets/{id}/close      {"ticket","messages"}               withdrawn: closed_by player (the console's Row closedBy)
  *   POST tickets/{id}/edit       {"message"}  {"ticket","messages"}    new words for the report's first message, until an
  *                                administrator has read it (TicketStore::editable); after that 409 groddle_ticket_read
+ *   POST tickets/{id}/unread     {"ticket","unread":n}               the new reply dot back (the game's Reports list menu,
+ *                                2026-11-12): only on a report an administrator wrote in last, else nothing changes
  *   Summary: {"id","status":"open"|"answered"|"working"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
  *            adminReplied: an administrator wrote in it at some point, kept after it closes (#225)
  *   Message: {"id","author":"player"|"admin","body","at","edited":time|null}   who wrote is a role, never a name
@@ -146,6 +148,25 @@ final readonly class Tickets
             throw new RestError('groddle_ticket_read', 'An administrator has read this report, so it can no longer be changed. Write a reply to add to it.', 409);
         }
         return $this->thread((int) $row['id'], $me->id);
+    }
+
+    /**
+     * Mark as unread (the Reports list's row menu, Austin 2026-11-12): the player's own read mark
+     * goes back to just before the newest message, so the reply they already read shows as new
+     * again. Only the player's mark is touched (the administrators' decides Edit until read), and
+     * only when an administrator wrote last; anything else is left as it is.
+     */
+    #[Route(Method::Post, '/groddle/v1/tickets/{id:\d+}/unread', policy: new Policy(Access::SignedIn))]
+    public function markUnread(Request $request, string $id): Response
+    {
+        $me = $this->me();
+        $row = $this->mine($me, (int) $id);
+        $store = $this->store();
+        $store->markUnreadForPlayer((int) $row['id']);
+        return Response::json([
+            'ticket' => TicketStore::summary((array) $store->find((int) $row['id']), TicketStore::PLAYER),
+            'unread' => $store->unreadCount($me->id),
+        ])->withHeader('Cache-Control', 'no-store');
     }
 
     private function thread(int $id, int $player): Response

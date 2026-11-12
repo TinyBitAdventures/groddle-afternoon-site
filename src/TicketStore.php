@@ -225,6 +225,17 @@ final readonly class TicketStore
         $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET {$read} = ? WHERE id = ?", [self::stamp($now), $ticket]);
     }
 
+    /**
+     * The player's reply dot back on a ticket (Tickets::markUnread): their read mark one second
+     * before the newest message, only while an administrator wrote last (a player's own message is
+     * never news to them). A mark, not NULL, so AdminTickets::mailWaiting still counts only the
+     * mailed replies since then.
+     */
+    public function markUnreadForPlayer(int $ticket): void
+    {
+        $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET player_read_at = DATE_SUB(last_message_at, INTERVAL 1 SECOND) WHERE id = ? AND last_author_role = 'admin'", [$ticket]);
+    }
+
     // —— Reading ——
 
     /** One ticket row (with admin_replied, adminRepliedSql), or null. */
