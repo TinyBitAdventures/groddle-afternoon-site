@@ -193,6 +193,8 @@ a.cx-who:hover .cx-label { text-decoration: underline; }
 .cx-log { display: flex; flex: 1 1 auto; flex-direction: column; gap: 6px; min-height: 0; padding: 12px 18px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .cx-list-log { padding: 8px 10px; }
 .cx-time { align-self: center; padding: 4px 0; font-size: 13px; font-weight: 700; color: var(--muted); }
+.cx-day { display: flex; align-items: center; gap: 12px; padding: 12px 0 4px; font-size: 13px; font-weight: 800; color: var(--fg); }
+.cx-day::before, .cx-day::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 .cx-compose { flex: none; padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--bg); }
 .cx-compose-bar { display: flex; justify-content: center; }
 .cx-say { display: flex; align-items: flex-end; gap: 4px; }

@@ -102,6 +102,21 @@ function avatar(name, cls = 'cx-av-lg', { tile = null, status = '' } = {}) {
 function clockLabel(ms) {
   return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
+// Austin 2026-11-12: a day line where the day changes ("Today", "Yesterday", "Wednesday, Nov 11"; the year when not this one).
+function dayKey(ms) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+function dayLabel(ms, now = Date.now()) {
+  const d = new Date(ms);
+  const today = new Date(now);
+  const y = new Date(now - 86400000);
+  if (dayKey(ms) === dayKey(today.getTime())) return 'Today';
+  if (dayKey(ms) === dayKey(y.getTime())) return 'Yesterday';
+  const o = { weekday: 'long', month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== today.getFullYear()) o.year = 'numeric';
+  return d.toLocaleDateString([], o);
+}
 
 // Links in what was said (the game's js/chat-links.js: http and https only; another site asks first).
 let links = null;
@@ -226,7 +241,16 @@ function drawLines(list, c, lines, opts = {}) {
   for (const n of list.children) if (n.dataset.sig) had.set(n.dataset.sig, n);
   const out = [];
   let last = 0;
+  let lastDay = '';
   for (const l of lines) {
+    const day = dayKey(l.at);
+    if (day !== lastDay) {
+      const label = dayLabel(l.at);
+      const sig = `d:${day}:${label}`;
+      out.push(had.get(sig) || el('li', { class: 'cx-day', role: 'separator', 'aria-label': label, 'data-sig': sig }, label));
+      lastDay = day;
+      last = 0;
+    }
     if (!last || l.at - last >= TIME_GAP_MS) {
       const sig = `t:${l.id}:${clockLabel(l.at)}`;
       out.push(had.get(sig) || Object.assign(el('li', { class: 'cx-time', 'aria-hidden': 'true', 'data-sig': sig }, clockLabel(l.at))));
