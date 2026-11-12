@@ -23,11 +23,13 @@ use Minn\RestError;
  * ever reached by switching (CharacterRoutes::play) from a character of the
  * same login.
  *
- * Rules: LIMIT characters a login (its own counts as one, retired ones do
- * not); at most one new character every CREATE_GAP seconds a login; only an
- * extra character retires (hidden, its data kept, restorable), and its name
- * stays its own for NAME_HOLD seconds, then another player may take it
- * (Characters::taken and claim); a restore then asks for a new name.
+ * Rules: LIMIT characters a login (its own counts as one, and so does a
+ * retired one until its name hold ends: Austin 2026-11-12); at most one new
+ * character every CREATE_GAP seconds a login; only an extra character
+ * retires (hidden, its data kept, restorable), and its name stays its own
+ * for NAME_HOLD seconds, then it stops counting and another player may take
+ * the name (Characters::taken and claim). A restore after that needs a free
+ * place, and a new name when the old one was taken.
  *
  * Who shares a login is for administrators and moderators only (the console,
  * the mod API): nothing a player reads names another player's characters.
@@ -157,16 +159,29 @@ final readonly class Logins
     }
 
     /**
-     * Why this login may not make a character now, or null: limit (LIMIT active
-     * characters, 409) or daily (one every CREATE_GAP seconds, 429, with when).
+     * How many of a login's characters count toward LIMIT now: every one not retired, and a retired
+     * one until its NAME_HOLD ends. $except leaves one character out (a restore counts the others).
+     */
+    public function counted(int $login, int $now, int $except = 0): int
+    {
+        $n = 0;
+        foreach ($this->charactersOf($login) as $c) {
+            if ($c['id'] !== $except && ($c['retiredAt'] === null || $now - $c['retiredAt'] < self::NAME_HOLD)) {
+                $n++;
+            }
+        }
+        return $n;
+    }
+
+    /**
+     * Why this login may not make a character now, or null: limit (LIMIT counted
+     * characters, 409; see counted) or daily (one every CREATE_GAP seconds, 429, with when).
      *
      * @return array{code: string, status: int, nextCreateAt: ?int}|null
      */
     public function createRefusal(int $login, int $now): ?array
     {
-        $characters = $this->charactersOf($login);
-        $active = count(array_filter($characters, static fn (array $c): bool => $c['retiredAt'] === null));
-        if ($active >= self::LIMIT) {
+        if ($this->counted($login, $now) >= self::LIMIT) {
             return ['code' => 'character_limit', 'status' => 409, 'nextCreateAt' => null];
         }
         $next = $this->nextCreateAt($login, $now);

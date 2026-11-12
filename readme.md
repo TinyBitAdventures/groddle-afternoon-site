@@ -66,7 +66,8 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 A login (an email and a password) may have up to 3 characters, each its own account: `groddle_character_logins`
 ties an extra character to its login (a character with no row is its own login), and `GET/POST characters`,
 `POST characters/{id}/play|retire|restore` are the player's own (src/CharacterRoutes.php). Bans, silences and
-community stops cover the whole login; only administrators and the mod API see who shares one. An administrator's
+community stops cover the whole login; a retired character keeps its place among the 3 until its 30 day name
+hold ends; only administrators and the mod API see who shares one. An administrator's
 rename (`POST admin/players/{id}/rename`) keeps the old `/players/` address in `groddle_player_renames` for a 301.
 
 The tables are declared in `minn.json`: `groddle_players` (each player's character name, unique),

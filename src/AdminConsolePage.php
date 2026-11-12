@@ -75,13 +75,13 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-6';
+    public const ASSET_KEY = 'skin-7';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its key in their imports). */
     public const SERVER_ASSET_KEY = 'server-2';
 
     /** Bumped when console/analytics.js or console/analytics.css changes. */
-    public const ANALYTICS_ASSET_KEY = 'analytics-1';
+    public const ANALYTICS_ASSET_KEY = 'analytics-2';
 
     public function __construct(private Seams $minn)
     {

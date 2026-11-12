@@ -20,7 +20,8 @@ use Minn\RestError;
  * A login's characters (Logins), for the signed-in player only:
  *
  *   GET  characters               {"login","current","limit","canCreate","nextCreateAt","characters":[Character]}
- *   POST characters {"name"}      201 {"character":Character}; 409 character_limit, 429 character_daily
+ *   POST characters {"name"}      201 {"character":Character}; 409 character_limit (3, a retired character
+ *                                 counting until its 30 day name hold ends), 429 character_daily
  *                                 (with nextCreateAt), 422 groddle_invalid / name_taken (fields.name)
  *   POST characters/{id}/play     {"ok":true,"nonce","player":{id,name}}: the session ends and a new one
  *                                 opens as that character (its cookies on the answer, its REST nonce in the body)
@@ -180,8 +181,8 @@ final readonly class CharacterRoutes
             return self::refused('groddle_character_active', 409);
         }
         $login = $logins->loginOf($me->id);
-        $active = count(array_filter($logins->charactersOf($login), static fn (array $c): bool => $c['retiredAt'] === null));
-        if ($active >= Logins::LIMIT) {
+        // Within its name hold it still holds its place; after it, it needs a free one.
+        if ($logins->counted($login, time(), $target) >= Logins::LIMIT) {
             return self::refused('character_limit', 409);
         }
         $characters = new Characters($db);
