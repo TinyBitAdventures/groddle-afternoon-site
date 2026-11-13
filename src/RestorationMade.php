@@ -56,7 +56,7 @@ final class RestorationMade
     private static function src(mixed $src): ?string
     {
         $src = (string) $src;
-        return preg_match('#^/assets/[A-Za-z0-9_@./-]+\.(?:webp|png)$#', $src) === 1 && !str_contains($src, '..') ? $src : null;
+        return preg_match('#^/assets/[A-Za-z0-9_@./-]+\.(?:webp|png|jpe?g)$#', $src) === 1 && !str_contains($src, '..') ? $src : null;
     }
 
     private static function piece(array $p): string
