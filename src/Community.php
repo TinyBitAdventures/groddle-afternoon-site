@@ -1079,6 +1079,42 @@ final readonly class Community
         return $db->execute("INSERT INTO {$n} (user_id, kind, thread_id, post_id, from_id, count, created_at) SELECT c.user_id, ?, ?, ?, ?, 1, ? {$who}", [self::ANNOUNCE, $thread, $post, $from, gmdate('Y-m-d H:i:s'), $from, $thread, self::ANNOUNCE]);
     }
 
+    /**
+     * The one-off for an announcement posted before announce() existed (bin/announce-notify.php):
+     * checks the thread is an open topic on a staff board started by an administrator, then counts
+     * ($apply false, the default there) or writes its notices through announce(), so a character
+     * that already has one is skipped and running it twice writes nothing more.
+     *
+     * @return array{thread: int, title?: string, board?: string, author?: int, players?: int, would?: int, written?: int, error?: string}
+     */
+    public static function announceBackfill(Db $db, int $thread, bool $apply): array
+    {
+        $row = $thread > 0 ? $db->row('SELECT id, board, author_id, title, status, first_post_id FROM ' . $db->table(self::THREADS) . ' WHERE id = ?', [$thread]) : null;
+        $error = match (true) {
+            $row === null => 'There is no thread by that id.',
+            !CommunityText::staffOnly((string) $row['board']) => 'That thread is not on a board only the team posts on.',
+            $row['status'] !== 'open' => 'That thread is not open.',
+            !Capabilities::fromDb($db)->can((int) $row['author_id'], self::ADMIN) => 'That thread was not started by an administrator.',
+            default => null,
+        };
+        if ($error !== null) {
+            return ['thread' => $thread, 'error' => $error];
+        }
+        $from = (int) $row['author_id'];
+        $out = [
+            'thread' => $thread,
+            'title' => (string) $row['title'],
+            'board' => (string) $row['board'],
+            'author' => $from,
+            'players' => (int) $db->value('SELECT COUNT(*) FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id <> ?', [$from]),
+            'would' => self::announce($db, $thread, (int) $row['first_post_id'], $from, false),
+        ];
+        if ($apply) {
+            $out['written'] = self::announce($db, $thread, (int) $row['first_post_id'], $from);
+        }
+        return $out;
+    }
+
     // —— Shared ——
 
     /** A post's row, or null. @return array<string, mixed>|null */
