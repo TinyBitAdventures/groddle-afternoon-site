@@ -15,7 +15,7 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Nine tabs, ten with the level builder on: Players (who is online,
+ * /console/, the administrators' console. Ten tabs, eleven with the level builder on: Players (who is online,
  * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
@@ -38,7 +38,9 @@ use Minn\Http\Route;
  * #server opens it. Analytics (2026-11-11, console/analytics.js over AdminConsole::analytics and Analytics): players
  * over time, active players a day with the week's and month's, new and returning, peak online, play time, pageviews
  * with the sections read most, and the world's tallies (Piggies nibbled, Rocks mined …) with their best days, all
- * counts on UTC days; #analytics opens it. Builder (only when AdminBuilder::enabled, the
+ * counts on UTC days; #analytics opens it. Ledger (2026-11-13, G335 E0, console/ledger.js over LedgerWatch): per character
+ * per UTC day what the ledger credited by kind, the budget's refill, clamps and the value sent to other characters,
+ * flagged past the honest maxima, read only; #ledger opens it. Builder (only when AdminBuilder::enabled, the
  * option groddle_builder_enabled): the level builder's drafts, a new draft, and links into the
  * builder page (AdminBuilderPage, /console/builder/); #builder opens it. The page is served only to a signed-in
  * administrator (manage_options): signed out it sends you to the Minn
@@ -82,6 +84,9 @@ final readonly class AdminConsolePage
 
     /** Bumped when console/analytics.js or console/analytics.css changes. */
     public const ANALYTICS_ASSET_KEY = 'analytics-2';
+
+    /** Bumped when console/ledger.js or console/ledger.css changes. */
+    public const LEDGER_ASSET_KEY = 'ledger-1';
 
     public function __construct(private Seams $minn)
     {
@@ -160,6 +165,9 @@ final readonly class AdminConsolePage
             // The Analytics tab (console/analytics.js, AdminConsole::analytics): the same chart kit (charts.js) and server.css's chart styles.
             . "<link rel=\"stylesheet\" href=\"{$a}analytics.css?v=" . self::ANALYTICS_ASSET_KEY . "\" />\n"
             . "<script type=\"module\" src=\"{$a}analytics.js?v=" . self::ANALYTICS_ASSET_KEY . "\"></script>\n"
+            // The Ledger tab (console/ledger.js, LedgerWatch): server.css's range buttons, its own files and key.
+            . "<link rel=\"stylesheet\" href=\"{$a}ledger.css?v=" . self::LEDGER_ASSET_KEY . "\" />\n"
+            . "<script type=\"module\" src=\"{$a}ledger.js?v=" . self::LEDGER_ASSET_KEY . "\"></script>\n"
             . ($builder ? "<script type=\"module\" src=\"{$a}builder-keys.js?v={$v}\"></script>\n" : '')
             . "</head>\n<body class=\"notes console-page\">\n"
             // The chat app's header (as /chat/ draws it): full width, the bell, and the Console link marked as the page being read.
@@ -179,6 +187,7 @@ final readonly class AdminConsolePage
     <button type="button" role="tab" id="console-tab-moderation" aria-controls="console-moderation" aria-selected="false" tabindex="-1" data-console-tab="moderation">Moderation</button>
     <button type="button" role="tab" id="console-tab-server" aria-controls="console-server" aria-selected="false" tabindex="-1" data-console-tab="server">Server</button>
     <button type="button" role="tab" id="console-tab-analytics" aria-controls="console-analytics" aria-selected="false" tabindex="-1" data-console-tab="analytics">Analytics</button>
+    <button type="button" role="tab" id="console-tab-ledger" aria-controls="console-ledger" aria-selected="false" tabindex="-1" data-console-tab="ledger">Ledger</button>
 HTML
             . ($builder ? "\n    <button type=\"button\" role=\"tab\" id=\"console-tab-builder\" aria-controls=\"console-builder\" aria-selected=\"false\" tabindex=\"-1\" data-console-tab=\"builder\">Builder</button>" : '')
             . <<<'HTML'
@@ -419,6 +428,7 @@ HTML
   <div class="console-community" id="console-moderation" role="tabpanel" aria-labelledby="console-tab-moderation" data-console-tabpanel="moderation" hidden></div>
   <div class="console-health" id="console-server" role="tabpanel" aria-labelledby="console-tab-server" data-console-tabpanel="server" hidden></div>
   <div class="console-health console-analytics" id="console-analytics" role="tabpanel" aria-labelledby="console-tab-analytics" data-console-tabpanel="analytics" hidden></div>
+  <div class="console-health console-ledger" id="console-ledger" role="tabpanel" aria-labelledby="console-tab-ledger" data-console-tabpanel="ledger" hidden></div>
 HTML
             . ($builder ? self::builderPanel() : '')
             . "\n  </div>\n </div>\n</main>\n</body>\n</html>\n";
