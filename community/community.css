@@ -117,6 +117,7 @@ body.community-page { display: flex; flex-direction: column; height: 100vh; heig
 .notif-icon[data-kind="thread"] { background: color-mix(in srgb, var(--plum) 20%, var(--surface)); }
 .notif-icon[data-kind="buddy"] { background: color-mix(in srgb, var(--moss) 22%, var(--surface)); }
 .notif-icon[data-kind="ticket"] { background: color-mix(in srgb, var(--sun) 26%, var(--surface)); }
+.notif-icon[data-kind="announce"] { background: color-mix(in srgb, var(--accent) 34%, var(--surface)); }
 .notif-icon[data-kind="reply"], .notif-icon[data-kind="quote"] { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
 .notif-txt { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
 .notif-line { font-size: 14px; line-height: 1.35; color: var(--lead); overflow-wrap: anywhere; }

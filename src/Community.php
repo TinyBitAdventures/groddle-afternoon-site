@@ -6,6 +6,7 @@ namespace Groddle\Minn;
 
 use Minn\Auth\Capabilities;
 use Minn\Auth\Nonce;
+use Minn\Db;
 use Minn\Extension\Seams;
 use Minn\Http\Access;
 use Minn\Http\Method;
@@ -62,6 +63,15 @@ use Minn\RestError;
  * game's Activity shows each once (POST notices/game, the game's
  * features/community-mp-feature.js), and opening the thread reads them.
  * Replies to one thread you have not read yet are one notice with a count.
+ *
+ * Announcements (Austin 2026-11-13: "this should hit everyone's notification
+ * when viewing /chat/ (like an automatic subscribe feature)"): when the team
+ * starts a topic on a staff board (CommunityText::STAFF_BOARDS), every
+ * character but its writer gets a notice of kind 'announce' (announce(): one
+ * INSERT ... SELECT, written once when the topic goes up, so a character made
+ * later never gets it). It shows in the /chat/ notifications panel and its
+ * badge until opened or Mark all read, never in the game's Activity (the
+ * game's list leaves the kind out). Replies to it notify as any reply does.
  */
 final readonly class Community
 {
@@ -79,6 +89,9 @@ final readonly class Community
 
     /** Notices a list carries. */
     public const NOTICES_SHOWN = 20;
+
+    /** The kind of an announcement's notice (the column is varchar(8)); the /chat/ panel's only, never the game's. */
+    public const ANNOUNCE = 'announce';
 
     private const ADMIN = 'manage_options';
 
@@ -688,6 +701,9 @@ final readonly class Community
             return [$threadId, $postId];
         });
         $this->refreshThread($threadId);
+        if (CommunityText::staffOnly($board)) {
+            self::announce($db, $threadId, $postId, (int) $viewer['id']);
+        }
         $this->live($board, $threadId, $postId, (int) $viewer['id'], 'thread');
         return [$this->thread($threadId, $viewer) ?? [], $this->post($postId) ?? []];
     }
@@ -927,7 +943,8 @@ final readonly class Community
         $db = $this->minn->db;
         $n = $db->table(self::NOTICES);
         $t = $db->table(self::THREADS);
-        $where = $game ? ' AND x.game_at IS NULL AND x.created_at >= ?' : '';
+        // The game's Activity never shows an announcement (Austin 2026-11-13: /chat/ only).
+        $where = $game ? " AND x.game_at IS NULL AND x.created_at >= ? AND x.kind <> '" . self::ANNOUNCE . "'" : '';
         $params = $game ? [$user, gmdate('Y-m-d H:i:s', time() - self::GAME_NOTICE_FOR)] : [$user];
         $rows = $db->rows("SELECT x.*, t.board, t.title, t.status AS thread_status FROM {$n} x JOIN {$t} t ON t.id = x.thread_id WHERE x.user_id = ? AND x.read_at IS NULL{$where} ORDER BY x.created_at DESC, x.id DESC LIMIT " . self::NOTICES_SHOWN, $params);
         $names = (new Characters($db))->namesOf(array_values(array_unique(array_map(static fn (array $r): int => (int) $r['from_id'], $rows))));
@@ -999,6 +1016,9 @@ final readonly class Community
         if ($kind === 'quote') {
             return "{$from} quoted you in “{$title}” on the Community boards.";
         }
+        if ($kind === self::ANNOUNCE) {
+            return "New announcement: “{$title}” on the Community boards.";
+        }
         return $count > 1
             ? "{$count} new replies to your thread “{$title}” on the Community boards."
             : "{$from} replied to your thread “{$title}” on the Community boards.";
@@ -1039,6 +1059,24 @@ final readonly class Community
             }
             $db->execute("INSERT INTO {$n} (user_id, kind, thread_id, post_id, from_id, count, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)", [$user, $kind, $thread['id'], $post, $from, $now]);
         }
+    }
+
+    /**
+     * An announcement's notices: one unread notice of kind ANNOUNCE for every character
+     * (Characters::TABLE) but its writer, in one INSERT ... SELECT (a few thousand players is a few
+     * thousand small rows, once). A character that already has one for the thread is skipped, so it
+     * is safe to run again. How many it wrote, or with $apply false how many it would write
+     * (nothing is written).
+     */
+    public static function announce(Db $db, int $thread, int $post, int $from, bool $apply = true): int
+    {
+        $n = $db->table(self::NOTICES);
+        $c = $db->table(Characters::TABLE);
+        $who = "FROM {$c} c WHERE c.user_id <> ? AND NOT EXISTS (SELECT 1 FROM {$n} x WHERE x.user_id = c.user_id AND x.thread_id = ? AND x.kind = ?)";
+        if (!$apply) {
+            return (int) $db->value("SELECT COUNT(*) {$who}", [$from, $thread, self::ANNOUNCE]);
+        }
+        return $db->execute("INSERT INTO {$n} (user_id, kind, thread_id, post_id, from_id, count, created_at) SELECT c.user_id, ?, ?, ?, ?, 1, ? {$who}", [self::ANNOUNCE, $thread, $post, $from, gmdate('Y-m-d H:i:s'), $from, $thread, self::ANNOUNCE]);
     }
 
     // —— Shared ——

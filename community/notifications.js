@@ -24,7 +24,7 @@ const HINT_MS = 20 * 1000;
 const WORDS = {
   title: 'Notifications',
   all: 'Mark all read',
-  empty: 'Nothing yet. Replies, quotes, IMs, buddy adds and the team\'s answers show here.',
+  empty: 'Nothing yet. Replies, quotes, IMs, buddy adds, the team\'s news and answers show here.',
   samples: 'Samples',
   sampleOnly: 'A sample: nothing to open.',
   failed: 'That didn\'t work. Try again in a moment.',
@@ -38,6 +38,7 @@ const ICONS = {
   thread: svg('<path d="M3 4.5h10v6.5H8l-3 2.5V11H3z"/><path d="M15 8h2v6.5h-1.5V17l-3-2.5H10"/>'),
   im: svg('<rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="m3.5 6 6.5 5 6.5-5"/>'),
   buddy: svg('<circle cx="8" cy="7" r="3"/><path d="M2.5 16.5c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5M15.5 6.5v5M13 9h5"/>'),
+  announce: svg('<path d="M3 8v4h3l6 4V4L6 8z"/><path d="M15 7.5a3.5 3.5 0 0 1 0 5"/>'),
   ticket: svg('<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3"/><path d="m5 5 2.9 2.9M15 5l-2.9 2.9M5 15l2.9-2.9M15 15l-2.9-2.9"/>'),
 };
 

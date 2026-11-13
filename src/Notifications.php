@@ -21,6 +21,8 @@ use Minn\RestError;
  * each thing is already kept, so nothing new is written when it happens:
  *
  *   reply, quote  a reply to your topic or a quote of you on the boards (Community's notices)
+ *   announce      the team started a topic on Announcements (Community's notices: the one kind
+ *                 written for everyone when it happens, Community::announce)
  *   thread        replies under your line in a channel (ChatHistory::threadNotices)
  *   im            IMs you have not answered (ChatHistory::imNotices: only your own conversations)
  *   buddy         a player added you as a buddy (groddle_buddies)
@@ -112,10 +114,13 @@ final readonly class Notifications
         $items = [];
         foreach ((new Community($this->minn))->recentNotices($me, $since) as $x) {
             $title = '“' . $x['title'] . '”';
-            $text = $x['kind'] === 'quote'
-                ? "{$x['from']['name']} quoted you in {$title}"
-                : ($x['count'] > 1 ? "{$x['count']} new replies to your topic {$title}" : "{$x['from']['name']} replied to your topic {$title}");
-            $items[] = ['key' => 'n:' . $x['id'], 'kind' => $x['kind'] === 'quote' ? 'quote' : 'reply', 'at' => $x['at'] * 1000, 'unread' => !$x['read'], 'from' => $x['from'], 'count' => $x['count'], 'text' => $text, 'snippet' => '', 'url' => $x['url']];
+            $kind = in_array($x['kind'], ['quote', Community::ANNOUNCE], true) ? $x['kind'] : 'reply';
+            $text = match ($kind) {
+                Community::ANNOUNCE => "New announcement: {$title}",
+                'quote' => "{$x['from']['name']} quoted you in {$title}",
+                default => $x['count'] > 1 ? "{$x['count']} new replies to your topic {$title}" : "{$x['from']['name']} replied to your topic {$title}",
+            };
+            $items[] = ['key' => 'n:' . $x['id'], 'kind' => $kind, 'at' => $x['at'] * 1000, 'unread' => !$x['read'], 'from' => $x['from'], 'count' => $x['count'], 'text' => $text, 'snippet' => '', 'url' => $x['url']];
         }
         $chat = new ChatHistory($this->minn);
         foreach ($chat->threadNotices($me, $sinceMs) as $x) {
