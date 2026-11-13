@@ -38,7 +38,12 @@ use Minn\RestError;
  * - Trees grown in them: pet, water and harvest (trant_base verbs 463-600,
  *   include/trants.js; wood_tree.js 474-560), a harvest limited per player
  *   and tree a game day (canHarvest). Remove, trantsform and poison are the
- *   owner's or a key-holder's (wood_tree.js 117, 152, 303). HOMES2: a Wood
+ *   owner's or a key-holder's (wood_tree.js 117, 152, 303). A Wood Tree takes
+ *   each player's pet and water once every 5 minutes (canPet / canWater
+ *   614-640, the visitor's last one the created_at of their pet or water
+ *   mark), and every one counts on the owner's tree as it lands
+ *   (onTendComplete 955-1010: woodCare below, the game's js/woodcutting.js
+ *   noteWoodCare, which the owner's game runs on the act). HOMES2: a Wood
  *   Tree's harvest too (once a game day per player, canHarvest 586-612): the
  *   Planks by its maturity are the visitor's (plankProdMap 880-887), and it
  *   loses a maturity every second harvest (744-764); no pool.
@@ -117,6 +122,12 @@ final readonly class HomeYard
     public const PLOT_VERBS = ['dig', 'tend', 'pet', 'plant'];
     public const TREE_VERBS = ['pet', 'water', 'harvest'];
     public const WOOD_VERBS = ['pet', 'water', 'harvest'];
+    /** wood_tree.js canPet / canWater 614-640: each player's pet, and water, once every 5*60 s (js/woodcutting.js WOOD_TREE_CARE). */
+    public const WOOD_CARE_MS = 300000;
+    /** wood_tree.js onTendComplete 1002-1003: the petted and watered marks clear 10 minutes after a tending that finds both (onNeedsReset 904-909). */
+    public const WOOD_RESET_MS = 600000;
+    /** wood_tree.js maturityMap 889-896: the pets and waters each maturity takes to grow (checked at 1005-1007). */
+    public const WOOD_MATURITY_MAP = [2, 3, 4, 5, 6, 0];
     public const LABELS = ['npc_piggy' => 'Piggy', 'npc_butterfly' => 'Butterfly', 'npc_chicken' => 'Chicken'];
 
     /** Animal Kinship VI lets you nibble without petting and milk without a massage first (js/animal-kinship.js). */
@@ -221,7 +232,7 @@ final readonly class HomeYard
             $nowMs = (int) floor(microtime(true) * 1000);
             $judged = $kind === 'rock' || $kind === 'node'
                 ? self::judgeStock($rules, $state, $waiting, $uses, self::upgrades($visitorState), $kind, $id, $verb, $nowMs, static fn (int $lo, int $hi): int => random_int($lo, $hi))
-                : self::judge($rules, $state, $waiting, $uses, $skills, $kind, $id, $verb, $nowMs);
+                : self::judge($rules, $state, $waiting, $uses, $skills, $kind, $id, $verb, $nowMs, $kind === 'tree' ? self::careOf($db, $owner, $visitor, $day) : []);
             if (isset($judged['why'])) {
                 return ['status' => 'refused', 'why' => $judged['why'], 'text' => $judged['text']];
             }
@@ -384,9 +395,10 @@ final readonly class HomeYard
      *
      * @param array<string, int> $uses "<verb>:<id>" => the visitor's uses today
      * @param list<string> $skills the visitor's learned skills
+     * @param array<string, int> $careAt "<pet|water>:<id>" => ms of the visitor's last one (careOf)
      * @return array<string, mixed>
      */
-    public static function judge(array $rules, ?object $state, array $waiting, array $uses, array $skills, string $kind, string $id, string $verb, int $nowMs): array
+    public static function judge(array $rules, ?object $state, array $waiting, array $uses, array $skills, string $kind, string $id, string $verb, int $nowMs, array $careAt = []): array
     {
         if ($kind === 'animal') {
             $row = null;
@@ -459,11 +471,20 @@ final readonly class HomeYard
         }
         $s = $tree->state;
         $poolKey = ($wood ? 'wood_tree:' : 'trant:') . $verb;
+        if ($wood && ($verb === 'pet' || $verb === 'water')) {
+            // wood_tree.js canPet / canWater 614-640: this visitor's own 5-minute clock, refused 525 / 564.
+            // A pet before the tree grew was its Seedling's (the same mark), not this tree's.
+            $at = (int) ($careAt[$verb . ':' . $id] ?? 0);
+            if ($at > 0 && $at >= (int) ($tree->grownAt ?? 0) && $nowMs - $at < self::WOOD_CARE_MS) {
+                return ['why' => 'tended', 'text' => $verb === 'pet' ? self::TEXT_WOOD_PETTED : self::TEXT_WOOD_WATERED];
+            }
+            return ['pool' => $poolKey];
+        }
         if ($verb === 'pet') {
-            return ($s->petted ?? false) === true ? ['why' => 'tended', 'text' => $wood ? self::TEXT_WOOD_PETTED : self::TEXT_PETTED] : ['pool' => $poolKey];
+            return ($s->petted ?? false) === true ? ['why' => 'tended', 'text' => self::TEXT_PETTED] : ['pool' => $poolKey];
         }
         if ($verb === 'water') {
-            return ($s->watered ?? false) === true ? ['why' => 'tended', 'text' => $wood ? self::TEXT_WOOD_WATERED : self::TEXT_WATERED] : ['pool' => $poolKey];
+            return ($s->watered ?? false) === true ? ['why' => 'tended', 'text' => self::TEXT_WATERED] : ['pool' => $poolKey];
         }
         if ($wood) {
             // wood_tree.js doHarvest: once a game day per player (canHarvest 586-612), Planks by maturity (plankProdMap 880-887).
@@ -495,8 +516,9 @@ final readonly class HomeYard
     }
 
     /**
-     * A plot as it stands at now: the stored one (a copy), the day's tending
-     * flags gone when the owner's game has not turned the day over, then each
+     * A plot as it stands at now: the stored one (a copy), a trant's day's
+     * tending flags gone when the owner's game has not turned the day over (a
+     * Wood Tree's care has no day: woodState, woodCare), then each
      * waiting act on it in turn, a tended or dug Patch going back to weeds
      * when its time is up (patch.js onRegrowTimer / onFillTimer), and a
      * Seedling petted three times growing into its tree when its least time is
@@ -511,7 +533,9 @@ final readonly class HomeYard
         $plot = json_decode((string) json_encode($stored), false);
         $dayStart = HomePool::GAME_EPOCH_MS + HomePool::dayOf($nowMs) * HomePool::GAME_DAY_MS;
         $s = is_object($plot->tree ?? null) && is_object($plot->tree->state ?? null) ? $plot->tree->state : null;
-        if ($s !== null && (int) ($plot->tree->resetAt ?? 0) < $dayStart) {
+        if ($s !== null && ($plot->tree->classId ?? '') === 'wood_tree') {
+            self::woodState($s);
+        } elseif ($s !== null && (int) ($plot->tree->resetAt ?? 0) < $dayStart) {
             $s->petted = false;
             $s->watered = false;
         }
@@ -571,7 +595,10 @@ final readonly class HomeYard
             if ($s === null) {
                 continue;
             }
-            if (($verb === 'pet' || $verb === 'water') && $at >= $dayStart) {
+            if (($verb === 'pet' || $verb === 'water') && ($plot->tree->classId ?? '') === 'wood_tree') {
+                // The owner's game applies it the same way (js/yard-verbs-mp.js applyTreeAct, noteWoodCare own: false).
+                self::woodCare($s, $verb, $at);
+            } elseif (($verb === 'pet' || $verb === 'water') && $at >= $dayStart) {
                 $s->{$verb === 'pet' ? 'petted' : 'watered'} = true;
             } elseif ($verb === 'harvest' && ($plot->tree->classId ?? '') === 'wood_tree') {
                 // wood_tree.js 744-764: a maturity off every second harvest, at once at 2 or less.
@@ -589,6 +616,86 @@ final readonly class HomeYard
         self::regrow($plot, $nowMs);
         self::growTree($plot, $nowMs, $rules);
         return $plot;
+    }
+
+    /**
+     * The game's js/woodcutting.js ensureWoodTreeState for what a visitor's
+     * care reads: maturity (6 when missing), the care counts, the petted and
+     * watered marks and when they clear. Marks left from the daily model (both
+     * set, no clearing time) clear, so nothing blocks the next pet or water.
+     */
+    public static function woodState(object $s): object
+    {
+        $whole = static function (object $s, string $k, int $fallback, int $min, int $max): int {
+            if (!property_exists($s, $k)) {
+                return max($min, min($max, $fallback));
+            }
+            $v = $s->{$k};
+            $n = match (true) {
+                $v === null => 0,
+                is_bool($v) => (int) $v,
+                is_int($v) || is_float($v) || (is_string($v) && is_numeric($v)) => is_finite((float) $v) ? (int) floor((float) $v) : $fallback,
+                default => $fallback,
+            };
+            return max($min, min($max, $n));
+        };
+        $s->maturity = $whole($s, 'maturity', 6, 0, 6);
+        $s->carePets = $whole($s, 'carePets', 0, 0, 999999);
+        $s->careWaters = $whole($s, 'careWaters', 0, 0, 999999);
+        $s->petted = ($s->petted ?? false) === true;
+        $s->watered = ($s->watered ?? false) === true;
+        $reset = is_numeric($s->needsResetAt ?? null) ? (int) floor((float) $s->needsResetAt) : 0;
+        $s->needsResetAt = $reset > 0 ? $reset : 0;
+        if ($s->petted && $s->watered && $s->needsResetAt === 0) {
+            $s->petted = false;
+            $s->watered = false;
+        }
+        return $s;
+    }
+
+    /**
+     * Someone's pet or water landing on a Wood Tree at $at (ms), the game's
+     * js/woodcutting.js noteWoodCare with own false (wood_tree.js
+     * onTendComplete 955-1010): it counts (petted_count / watered_count) and
+     * marks the tree; once a tending finds both marks set they clear 10
+     * minutes on (1002-1003, onNeedsReset 904-909), and when both counts reach
+     * maturityMap[m-1] the tree grows one maturity and the counts start over
+     * (1005-1007, plusMaturity 1091-1095). 'grew', true (counted) or false (a
+     * cleared tree).
+     */
+    public static function woodCare(object $s, string $verb, int $at): string|bool
+    {
+        self::woodState($s);
+        if (($verb !== 'pet' && $verb !== 'water') || $s->maturity <= 0) {
+            return false;
+        }
+        if ($s->needsResetAt > 0 && $at >= $s->needsResetAt) {
+            $s->petted = false;
+            $s->watered = false;
+            $s->needsResetAt = 0;
+        }
+        if ($verb === 'pet') {
+            $s->carePets += 1;
+            $s->petted = true;
+        } else {
+            $s->careWaters += 1;
+            $s->watered = true;
+        }
+        if (!($s->petted && $s->watered)) {
+            return true;
+        }
+        $s->needsResetAt = $at + self::WOOD_RESET_MS;
+        if ($s->maturity < 6) {
+            $need = self::WOOD_MATURITY_MAP[$s->maturity - 1];
+            if ($s->carePets >= $need && $s->careWaters >= $need) {
+                $s->maturity += 1;
+                $s->harvestCount = 0;
+                $s->carePets = 0;
+                $s->careWaters = 0;
+                return 'grew';
+            }
+        }
+        return true;
     }
 
     /**
@@ -1194,6 +1301,26 @@ final readonly class HomeYard
         foreach ($db->rows('SELECT mark FROM ' . $db->table(HomePool::MARKS) . " WHERE owner_id = ? AND visitor_id = ? AND day = ? AND mark LIKE 'y-%'", [$owner, $visitor, $day]) as $r) {
             if (preg_match('/^y-([a-z]{2,8})-(.+)-\d+$/', (string) $r['mark'], $m) === 1) {
                 $out[$m[1] . ':' . $m[2]] = ($out[$m[1] . ':' . $m[2]] ?? 0) + 1;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * A visitor's last pet and water of each thing on an owner's street, today
+     * or yesterday (the marks HomePool keeps): "<pet|water>:<id>" => ms. The
+     * marks' created_at is whole seconds, as wood_tree.js keeps
+     * pet_intervals[pc] = time() (onTendComplete 987-998).
+     */
+    public static function careOf(Db $db, int $owner, int $visitor, int $day): array
+    {
+        $out = [];
+        $rows = $db->rows('SELECT mark, created_at FROM ' . $db->table(HomePool::MARKS) . " WHERE owner_id = ? AND visitor_id = ? AND day >= ? AND (mark LIKE 'y-pet-%' OR mark LIKE 'y-water-%')", [$owner, $visitor, $day - 1]);
+        foreach ($rows as $r) {
+            $t = strtotime((string) $r['created_at'] . ' UTC');
+            if ($t !== false && preg_match('/^y-(pet|water)-(.+)-\d+$/', (string) $r['mark'], $m) === 1) {
+                $k = $m[1] . ':' . $m[2];
+                $out[$k] = max($out[$k] ?? 0, $t * 1000);
             }
         }
         return $out;
