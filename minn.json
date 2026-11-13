@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.49",
+  "version": "0.5.50",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -138,7 +138,8 @@
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (trade_id)",
       "KEY a_id (a_id)",
-      "KEY b_id (b_id)"
+      "KEY b_id (b_id)",
+      "KEY created_at (created_at)"
     ],
     "groddle_ledger_log": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
@@ -147,7 +148,8 @@
       "kind varchar(16) NOT NULL",
       "detail text NOT NULL",
       "PRIMARY KEY  (id)",
-      "KEY user_at (user_id,at)"
+      "KEY user_at (user_id,at)",
+      "KEY at (at)"
     ],
     "groddle_ledger_credited": [
       "user_id bigint(20) unsigned NOT NULL",
