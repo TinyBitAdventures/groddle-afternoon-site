@@ -17,11 +17,15 @@ use Minn\Html;
  * makes Play the button). A core/navigation-submenu is a link with a
  * dropdown of the links inside it: the link, a toggle button and a hidden
  * panel, all on one line, which site/theme.js opens. A submenu inside that
- * submenu is a headed group of the panel (its label the heading, a link
- * when it has a url; deeper submenus' links join the group), the groups
- * side by side as columns, and the submenu's own plain links then make the
- * panel's footer row (Austin 2026-11-05, the Encyclopedia's Things, World
- * and Doing). A submenu of plain links only keeps its one list. The link
+ * submenu (its links join it from any deeper submenu) is drawn one of two
+ * ways. With a url it is a third level (Austin 2026-11-12, Project's
+ * Restoration over History and Known gaps): a link like the others, its
+ * links a list indented beneath it, the panel keeping its one column and
+ * order. Without a url its label is a heading: the panel then lays its
+ * submenus out as headed groups side by side (a heading with a url there is
+ * a link), and its own plain links make the footer row (Austin 2026-11-05,
+ * the Encyclopedia's Things, World and Doing). A submenu of plain links
+ * only keeps its one list. The link
  * whose section holds the path being read is marked aria-current, as the
  * built pages mark theirs; a link in SECTIONS, or a submenu through its
  * links (in its groups too), also stands for the pages it gathers, and the
@@ -120,7 +124,8 @@ final class SiteNav
 
     /**
      * A submenu's panel: its links, and each submenu inside it with links of
-     * its own as a group, [heading, href or '', class, links]. A group's
+     * its own as a group, [label, href or '', class, links] (a third level
+     * when it has a url and no sibling is a heading, panel()). A group's
      * deeper submenus' links join it; an empty one is a plain link, and one
      * without a label gives its links to the panel.
      *
@@ -276,8 +281,11 @@ final class SiteNav
     }
 
     /**
-     * A submenu's panel. Plain links: one list. With groups: the groups side
-     * by side (.site-nav-groups; site-nav.css stacks them on a phone), each a
+     * A submenu's panel. Plain links: one list. With submenus that all have
+     * a url: a nested list (.site-nav-panel-nest), each submenu's link with
+     * its links in a list indented beneath it, in the menu's order. With a
+     * heading (a submenu without a url): the groups side by side
+     * (.site-nav-groups; site-nav.css stacks them on a phone), each a
      * labelled group under its heading, then the panel's own links in the
      * footer row (.site-nav-panel-foot). $child counts the links in
      * panelLinks() order.
@@ -302,6 +310,21 @@ final class SiteNav
         if (!self::grouped($children)) {
             return '<div class="site-nav-panel" id="' . $id . '" hidden>' . $loose() . '</div>';
         }
+        if (!self::columns($children)) {
+            $list = '';
+            foreach ($children as $c) {
+                $list .= '<li>' . self::anchor($c[0], $c[1], $c[2], $mark());
+                if (isset($c[3])) {
+                    $list .= '<ul class="site-nav-nest">';
+                    foreach ($c[3] as [$l, $h, $cl]) {
+                        $list .= '<li>' . self::anchor($l, $h, $cl, $mark()) . '</li>';
+                    }
+                    $list .= '</ul>';
+                }
+                $list .= '</li>';
+            }
+            return '<div class="site-nav-panel site-nav-panel-nest" id="' . $id . '" hidden><ul class="site-nav-list">' . $list . '</ul></div>';
+        }
         $groups = '';
         $g = 0;
         foreach ($children as $c) {
@@ -322,7 +345,7 @@ final class SiteNav
             . ($foot === '' ? '' : '<div class="site-nav-panel-foot">' . $foot . '</div>') . '</div>';
     }
 
-    /** @param list<array<int, mixed>> $children Whether a panel holds a group. */
+    /** @param list<array<int, mixed>> $children Whether a panel holds a submenu. */
     private static function grouped(array $children): bool
     {
         foreach ($children as $c) {
@@ -333,10 +356,22 @@ final class SiteNav
         return false;
     }
 
+    /** @param list<array<int, mixed>> $children Whether a panel's submenus are columns: one of them is a heading without a url. */
+    private static function columns(array $children): bool
+    {
+        foreach ($children as $c) {
+            if (isset($c[3]) && $c[1] === '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
-     * A panel's links in the order it draws them: a plain panel's list, or
-     * each group's heading link (when it has a url) and links, then the
-     * footer row's.
+     * A panel's links in the order it draws them: a plain panel's list, a
+     * nested one's links each followed by the links beneath it, or each
+     * group's heading link (when it has a url) and links, then the footer
+     * row's.
      *
      * @param list<array{0: string, 1: string, 2: string, 3?: list<array{0: string, 1: string, 2: string}>}> $children
      * @return list<array{0: string, 1: string, 2: string}>
@@ -347,6 +382,12 @@ final class SiteNav
             return $children;
         }
         $out = [];
+        if (!self::columns($children)) {
+            foreach ($children as $c) {
+                $out = [...$out, [$c[0], $c[1], $c[2]], ...($c[3] ?? [])];
+            }
+            return $out;
+        }
         foreach ($children as $c) {
             if (isset($c[3])) {
                 if ($c[1] !== '') {

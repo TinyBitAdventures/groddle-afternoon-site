@@ -496,6 +496,9 @@ button.cchip:hover { border-color: var(--muted); }
   .site-nav-app[data-menu] .site-nav-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
   .site-nav-app[data-menu] .site-nav-head { grid-column: 1 / -1; padding: 8px 4px 0; }
   .site-nav-app[data-menu] .site-nav-panel-foot { justify-content: flex-start; margin-top: 4px; padding-top: 2px; }
+  /* A third level (site/site-nav.css): one column, the nested links indented along their guide. */
+  .site-nav-app[data-menu] .site-nav-panel-nest, .site-nav-app[data-menu] .site-nav-panel-nest[hidden] { display: block; }
+  .site-nav-app[data-menu] .site-nav-nest { margin-left: 8px; }
   .notif-panel { position: fixed; top: calc(var(--site-nav-h) + env(safe-area-inset-top) + 6px); left: 8px; right: 8px; width: auto; max-height: calc(100dvh - var(--site-nav-h) - env(safe-area-inset-top) - 16px); }
 }
 @media (max-width: 440px) {
