@@ -76,8 +76,12 @@ final class LedgerMath
      * honest pack is never corrected and nothing can trade them on before
      * they are credited. Each level is credited once (the level row moves
      * on when it is reached) and only when the xp reaches it.
+     *
+     * 12 (Austin 2026-11-12, measured on live): in 221 player-days since launch the most levels anyone gained
+     * in a UTC day was 12 (a first day's 95th percentile 8), so honest play never waits; a forged save still
+     * cannot cash in 60 levels at once. It was 3, which a third of player-days passed.
      */
-    public const LEVELS_DAILY = 3;
+    public const LEVELS_DAILY = 12;
 
     /** Credited kind of a paying level-up waiting for a later day's count. */
     public const LEVEL_WAIT = 'lvlwait';
