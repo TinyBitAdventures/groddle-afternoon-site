@@ -68,11 +68,18 @@ final class ReportMenu
         foreach ($bands as $id => $heading) {
             $items .= '<li><a href="#' . self::attr($id) . '">' . self::esc($labels[$id] ?? $heading) . '</a></li>';
         }
+        // Links out of the page sit in their own list after the band links, so they stay in view
+        // however far the band links scroll (2026-11-12: the bar outgrew a desktop row).
+        $more = '';
         foreach ($others as [$href, $text]) {
-            $items .= '<li class="report-menu-out"><a href="' . self::attr($href) . '">' . self::esc($text) . '</a></li>';
+            $more .= '<li class="report-menu-out"><a href="' . self::attr($href) . '">' . self::esc($text) . '</a></li>';
+            // A phone has no room to pin it: there it ends the scrolling row instead (style.css).
+            $items .= '<li class="report-menu-out-inline"><a href="' . self::attr($href) . '">' . self::esc($text) . '</a></li>';
         }
         $nav = '<nav class="report-menu" aria-label="On this page"><div class="wrap report-menu-row">'
-            . '<ul class="report-menu-links">' . $items . '</ul></div></nav>' . "\n";
+            . '<ul class="report-menu-links">' . $items . '</ul>'
+            . ($more !== '' ? '<ul class="report-menu-more">' . $more . '</ul>' : '')
+            . '</div></nav>' . "\n";
 
         if ($jump !== null) {
             $html = substr($html, 0, $jump[0]) . substr($html, $jump[0] + $jump[1]);

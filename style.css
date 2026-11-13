@@ -75,13 +75,25 @@ html:has(.report-menu) { scroll-padding-top: calc(var(--report-menu-h) + 14px); 
 }
 .report-menu-links a:hover { background: var(--chip-bg); border-color: var(--border); }
 .report-menu-links a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.report-menu-out { margin-left: auto; padding-left: 8px; }
-.report-menu-out a { color: var(--muted); font-weight: 600; }
-.report-menu ~ .band .spot-card { top: calc(var(--report-menu-h) + 16px); }
-@media (max-width: 1160px) {
-  .report-menu-links { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); padding-right: 28px; }
-  .report-menu-out { margin-left: 0; }
+.report-menu-row { gap: 8px; }
+/* The band links scroll sideways at every width; a fade marks the side that has more (restoration.js sets data-more). */
+.report-menu-links { padding-inline: 2px; }
+.report-menu-links[data-more="end"] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.report-menu-links[data-more="start"] { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+.report-menu-links[data-more="both"] { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
+.report-menu-step { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-weight: 700; line-height: 1; cursor: pointer; }
+.report-menu-step:hover { background: var(--chip-bg); }
+.report-menu-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.report-menu-step[hidden] { display: none; }
+.report-menu-more { display: flex; flex: none; list-style: none; margin: 0; padding: 0 0 0 4px; border-left: 1px solid var(--border); }
+.report-menu-out a, .report-menu-out-inline a { color: var(--muted); font-weight: 600; }
+.report-menu-out-inline { display: none; }
+@media (max-width: 760px) {
+  .report-menu-more { display: none; }
+  .report-menu-links .report-menu-out-inline { display: block; }
 }
+.report-menu ~ .band .spot-card { top: calc(var(--report-menu-h) + 16px); }
+
 @media (max-width: 640px) {
   :root { --report-menu-h: 40px; }
   .report-menu-links a { font-size: 13.5px; padding: 4px 8px; }
