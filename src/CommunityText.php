@@ -43,6 +43,13 @@ final class CommunityText
         'off-topic' => ['Off Topic', 'Anything that isn\'t the game: shows, holidays, pets, the weather.'],
     ];
 
+    /**
+     * Boards where only the team (administrators, manage_options) starts topics; every signed-in
+     * player may still reply (Austin 2026-11-13: "only staff can post new threads on it. Everyone
+     * can respond"). Glitch's own Announcements forum was the team's too.
+     */
+    public const STAFF_BOARDS = ['announcements'];
+
     /** @var array<string, array{0: string, 1: string, 2: string}>|null */
     private static ?array $reactions = null;
 
@@ -94,6 +101,7 @@ final class CommunityText
     public const SAID = [
         'groddle_community_signed_out' => 'Sign in to post.',
         'groddle_community_not_player' => 'Only players can post. Make a character in the game first.',
+        'groddle_community_staff_only' => 'Only the team starts topics here. Open one to reply.',
         'groddle_community_banned' => 'You can\'t post on the boards right now.',
         'groddle_community_suspended' => AdminConsole::SUSPENDED,
         'groddle_community_slow' => 'You are posting very quickly. Wait a little and try again.',
@@ -127,6 +135,12 @@ final class CommunityText
     public static function isBoard(mixed $slug): bool
     {
         return is_string($slug) && isset(self::BOARDS[$slug]);
+    }
+
+    /** Whether only the team starts topics on the board (STAFF_BOARDS). */
+    public static function staffOnly(string $board): bool
+    {
+        return in_array($board, self::STAFF_BOARDS, true);
     }
 
     /** Whether a reaction key is one of the set. */

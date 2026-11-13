@@ -22,7 +22,7 @@ use Minn\RestError;
  *
  *   /chat/                         the boards (and, for signed-in players, the game's channels)
  *   /chat/<board>/                 a board's threads, pinned first, then newest activity (?page=)
- *   /chat/<board>/new/             start a thread (signed-in players)
+ *   /chat/<board>/new/             start a thread (signed-in players; Announcements: the team only)
  *   /chat/<board>/<id>-<slug>/     a thread's posts, oldest first, with the reply box (?page=)
  *
  * Posting works without JavaScript too: the forms post to /chat/<board>/new/
@@ -95,6 +95,8 @@ final readonly class CommunityPages
         'removed' => 'This post was removed by a moderator.',
         'blocked' => 'A post from a player you blocked',
         'noThreads' => 'No threads here yet. Start the first one.',
+        'noNews' => 'No news from the team yet.',
+        'staffBoard' => 'News from the team: only the team starts topics here. Everyone can reply.',
     ];
 
     /** The site footer's credit line, as one quiet row at the foot of the rail (parts/footer.html's first line). */
@@ -181,13 +183,19 @@ final readonly class CommunityPages
                 . '<span class="cx-last">' . ($lastBy === '' ? '' : Html::esc($lastBy) . ': ') . Html::esc((string) ($t['last_snippet'] ?? '')) . '<span class="cthread-by"> Started by ' . Html::esc((string) $t['author_name']) . '</span></span></span>'
                 . '<span class="cx-meta"><span class="cthread-count">' . number_format($replies) . ' ' . ($replies === 1 ? 'reply' : 'replies') . '</span>' . self::time(Community::unix((string) $t['last_post_at']), $now) . '</span></a></li>';
         }
-        $start = $community->postRefusal($viewer, true) === 'groddle_community_signed_out'
-            ? self::signInLinks()
-            : ($viewer['player'] || $viewer['admin'] ? '<a class="cx-chip cbutton" href="/chat/' . Html::attr($board) . '/new/">Start a topic</a>' : '<p class="cmuted">' . Html::esc(self::COPY['notPlayer']) . '</p>');
+        // A board only the team starts topics on (CommunityText::STAFF_BOARDS) says so instead of Start a topic.
+        $refusal = $community->startRefusal($viewer, $board);
+        $teamOnly = CommunityText::staffOnly($board) && !$viewer['admin'];
+        $start = match (true) {
+            $teamOnly => '<p class="cmuted cx-team-only">' . Html::esc(self::COPY['staffBoard']) . '</p>' . ($refusal === 'groddle_community_signed_out' ? self::signInLinks() : ''),
+            $refusal === 'groddle_community_signed_out' => self::signInLinks(),
+            $viewer['player'] || $viewer['admin'] => '<a class="cx-chip cbutton" href="/chat/' . Html::attr($board) . '/new/">Start a topic</a>',
+            default => '<p class="cmuted">' . Html::esc(self::COPY['notPlayer']) . '</p>',
+        };
         $main = '<section class="cx-conv cx-board" aria-labelledby="cx-conv-title" data-cx-board="' . Html::attr($board) . '">'
             . self::head((string) $b['name'], CommunityText::count($b['threads'], 'topic', 'topics'), 'cx-conv-title', '', true, (string) $b['about'])
             . '<div class="cx-log cx-list-log">'
-            . ($rows === '' ? '<p class="cempty cx-empty">' . Html::esc(self::COPY['noThreads']) . '</p>' : "<ul class=\"cthread-list cx-list\">{$rows}\n    </ul>")
+            . ($rows === '' ? '<p class="cempty cx-empty">' . Html::esc(self::COPY[$teamOnly ? 'noNews' : 'noThreads']) . '</p>' : "<ul class=\"cthread-list cx-list\">{$rows}\n    </ul>")
             . self::pager($page, $pages, static fn (int $n): string => "/chat/{$board}/" . ($n > 1 ? "?page={$n}" : ''))
             . '</div><div class="cx-compose cx-compose-bar">' . $start . '</div></section>';
         $body = $this->shell($community, $viewer, "board:{$board}", $main, 'main');
@@ -230,7 +238,7 @@ final readonly class CommunityPages
         $community = new Community($this->minn);
         $b = $community->board($board) ?? throw new RouteMiss();
         $viewer = $community->viewer();
-        $refusal = $community->postRefusal($viewer, true);
+        $refusal = $community->startRefusal($viewer, $board);
         $title = is_string($form['title'] ?? null) ? $form['title'] : '';
         $text = is_string($form['body'] ?? null) ? $form['body'] : '';
         if ($refusal === 'groddle_community_signed_out') {

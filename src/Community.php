@@ -593,6 +593,21 @@ final readonly class Community
     }
 
     /**
+     * Why the reader may not start a topic on $board now (a CommunityText::SAID code), or null: a
+     * board only the team starts topics on (CommunityText::STAFF_BOARDS) refuses a signed-in reader
+     * who is not an administrator, then postRefusal's account, stop and limits.
+     *
+     * @param array<string, mixed> $viewer
+     */
+    public function startRefusal(array $viewer, string $board, ?int $now = null): ?string
+    {
+        if ($viewer['id'] > 0 && CommunityText::staffOnly($board) && !$viewer['admin']) {
+            return 'groddle_community_staff_only';
+        }
+        return $this->postRefusal($viewer, true, $now);
+    }
+
+    /**
      * When a player's stop from posting (AdminCommunity) ends: a unix time,
      * 0 for until lifted, or null when they are not stopped.
      */
@@ -622,7 +637,7 @@ final readonly class Community
         if (!CommunityText::isBoard($board)) {
             throw self::refuse('groddle_community_no_board', 404);
         }
-        $this->mayPost($viewer, true);
+        $this->mayPost($viewer, true, $board);
         $title = CommunityText::title($title);
         $body = CommunityText::body($body);
         if (($code = CommunityText::titleRefusal($title) ?? CommunityText::bodyRefusal($body)) !== null) {
@@ -1034,10 +1049,14 @@ final readonly class Community
         $db->execute("UPDATE {$t} SET posts = ?, last_post_id = ?, last_author_id = ?, last_post_at = ?, status = ? WHERE id = ?", [$n, $last['id'], $last['author_id'], $last['created_at'], $next, $id]);
     }
 
-    /** @param array<string, mixed> $viewer */
-    private function mayPost(array $viewer, bool $thread): void
+    /**
+     * Refuses the reader unless they may post now; $thread: starting one on $board (startRefusal).
+     *
+     * @param array<string, mixed> $viewer
+     */
+    private function mayPost(array $viewer, bool $thread, string $board = ''): void
     {
-        $code = $this->postRefusal($viewer, $thread);
+        $code = $thread ? $this->startRefusal($viewer, $board) : $this->postRefusal($viewer, false);
         if ($code !== null) {
             throw self::refuse($code, match ($code) {
                 'groddle_community_signed_out' => 401,
