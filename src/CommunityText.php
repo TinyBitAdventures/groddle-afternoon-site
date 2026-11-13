@@ -32,11 +32,14 @@ namespace Groddle\Minn;
 final class CommunityText
 {
     /**
-     * The boards in Glitch's order: slug => [name, what it is for]. Our own words.
+     * The boards in Glitch's order: slug => [name, what it is for]. Our own words. Glitch's first
+     * board was "Announcements & Events"; ours is the team's news (STAFF_BOARDS), and player events
+     * go in General (Austin 2026-11-13). The table keeps a copy (Community::boards() brings its
+     * names and abouts back to these when they differ).
      */
     public const BOARDS = [
-        'announcements' => ['Announcements & Events', 'Parties, group meetups, contests and anything else players are organising in the game.'],
-        'general' => ['General', 'Playing the game: questions, tips, and talk about the latest changes.'],
+        'announcements' => ['Announcements', 'News and updates from the team. Everyone can reply.'],
+        'general' => ['General', 'Playing the game: questions, tips, talk about the latest changes, and player events: parties, meetups, contests and anything else you are organising.'],
         'ideas' => ['Ideas', 'Suggestions for the game. We read them all, though not everything gets built.'],
         'marketplace' => ['Marketplace', 'Buying, selling and trading with other players.'],
         'bugs' => ['Bugs', 'Something not working? See whether someone has posted it already. For trouble with your own account, write to us from Feedback, ideas and bugs in the game.'],

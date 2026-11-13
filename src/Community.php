@@ -277,13 +277,18 @@ final readonly class Community
 
     // —— Boards and threads ——
 
-    /** The six boards, seeded once from CommunityText::BOARDS, each with its counts and newest thread. @return list<array<string, mixed>> */
+    /**
+     * The six boards, seeded from CommunityText::BOARDS (a missing board added, a name or about that
+     * differs from it brought back to it; written only then), each with its counts and newest thread.
+     *
+     * @return list<array<string, mixed>>
+     */
     public function boards(): array
     {
         $db = $this->minn->db;
         $b = $db->table(self::BOARDS_T);
         $rows = $db->rows("SELECT slug, name, about, position FROM {$b} ORDER BY position, slug");
-        if (count($rows) < count(CommunityText::BOARDS)) {
+        if (self::boardsStale($rows)) {
             $this->seedBoards();
             $rows = $db->rows("SELECT slug, name, about, position FROM {$b} ORDER BY position, slug");
         }
@@ -340,13 +345,34 @@ final readonly class Community
         return null;
     }
 
+    /**
+     * PURE: whether the boards' rows are missing a board of CommunityText::BOARDS or carry another
+     * name or about for one (a row for a board no longer in the list is left alone).
+     *
+     * @param list<array<string, mixed>> $rows
+     */
+    public static function boardsStale(array $rows): bool
+    {
+        $have = [];
+        foreach ($rows as $r) {
+            $have[(string) $r['slug']] = [(string) $r['name'], (string) $r['about']];
+        }
+        foreach (CommunityText::BOARDS as $slug => [$name, $about]) {
+            if (($have[$slug] ?? null) !== [$name, $about]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Adds the boards that are missing and brings each name and about back to CommunityText::BOARDS (a board's place and created_at stay). Safe to run again. */
     private function seedBoards(): void
     {
         $db = $this->minn->db;
         $b = $db->table(self::BOARDS_T);
         $i = 0;
         foreach (CommunityText::BOARDS as $slug => [$name, $about]) {
-            $db->execute("INSERT IGNORE INTO {$b} (slug, name, about, position, created_at) VALUES (?, ?, ?, ?, ?)", [$slug, $name, $about, $i++, gmdate('Y-m-d H:i:s')]);
+            $db->execute("INSERT INTO {$b} (slug, name, about, position, created_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name), about = VALUES(about)", [$slug, $name, $about, $i++, gmdate('Y-m-d H:i:s')]);
         }
     }
 
