@@ -392,6 +392,12 @@ button.cchip:hover { border-color: var(--muted); }
 /* The sign-in form community.js shows in a sign-in panel */
 .csignin-form { display: grid; gap: 8px; max-width: 28em; margin-top: 10px; }
 .csignin-form[hidden] { display: none; }
+/* Continue with Google above the email (the game's .acct-google and .acct-or). */
+.csignin-google { display: grid; gap: 8px; justify-items: start; min-height: 44px; }
+.csignin-google[hidden] { display: none; }
+.csignin-or { display: flex; align-items: center; gap: 10px; width: 100%; color: var(--muted); font-size: 14px; }
+.csignin-or::before, .csignin-or::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+button.cquoting-off { padding: 0; border: 0; background: none; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
 
 /* A link to another site asks first (the game's js/chat-links.js openLinkConfirm). */
 .chat-link-confirm { position: fixed; z-index: 40; max-width: min(320px, calc(100vw - 16px)); padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--fg); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2); font-size: 14px; }

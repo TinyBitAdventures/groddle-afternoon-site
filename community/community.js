@@ -7,7 +7,8 @@
  * - new and changed posts come in while the thread is open (GET community/threads/<id>/updates every
  *   POLL_MS while the tab is visible): appended on the newest page, a "new posts" link on older ones;
  * - a link to another site asks first (the game's own js/chat-links.js, as in its chat);
- * - a sign-in panel can sign you in here (groddle/v1/session), then the page reloads;
+ * - a sign-in panel can sign you in here (groddle/v1/session), then the page reloads; when the site
+ *   has a Google client id it carries Continue with Google too, as the game's forms do;
  * - the chat app's header (src/SiteNav.php app layout): its links fold behind a menu button on a
  *   phone; for a signed-in player the bell (notifications.js) starts first and is handed to the app;
  * - moving around /chat/ never reloads (chat-nav.js): a board, a topic or a conversation comes in
@@ -33,6 +34,15 @@ const SAID = {
   newPosts: (n) => (n === 1 ? '1 new post: see it' : `${n} new posts: see them`),
   enterHint: 'Enter sends, Shift+Enter for a new line.',
   signIn: 'Sign in here',
+  // The game's js/account-forms.js FORM_COPY.google.
+  google: {
+    or: 'or',
+    failed: 'Google sign-in didn\'t work. Try again, or use your email.',
+    nameTitle: 'Choose your character name',
+    nameBody: (email) => `You're signing in with Google as ${email}. What should other players call you?`,
+    submit: 'Make my character',
+    back: 'Use my email instead',
+  },
 };
 
 let nonce = main?.dataset.nonce || '';
@@ -132,15 +142,23 @@ function wireSignIn(root) {
     form.method = 'post';
     form.action = '/wp-json/groddle/v1/session';
     form.hidden = true;
-    form.innerHTML = '<label class="clabel" for="csignin-email">Email</label><input class="cinput" id="csignin-email" name="email" type="email" autocomplete="username" required />'
+    form.innerHTML = '<div class="csignin-google" data-community-google hidden><div data-community-google-button></div><div class="csignin-or" aria-hidden="true">' + SAID.google.or + '</div></div>'
+      + '<label class="clabel" for="csignin-email">Email</label><input class="cinput" id="csignin-email" name="email" type="email" autocomplete="username" required />'
       + '<label class="clabel" for="csignin-pass">Password</label><input class="cinput" id="csignin-pass" name="password" type="password" autocomplete="current-password" required />'
       + '<div class="cform-row"><button class="cbutton" type="submit">Sign in</button><a class="cquoting-off" href="/play/online/">Forgot your password?</a></div><p class="csaid" role="status" aria-live="polite"></p>';
     box.querySelector('.cbutton')?.replaceWith(toggle);
     box.after(form);
+    const named = googleNameForm(form);
+    form.after(named);
     toggle.addEventListener('click', () => {
-      form.hidden = !form.hidden;
-      toggle.setAttribute('aria-expanded', String(!form.hidden));
-      if (!form.hidden) form.querySelector('input')?.focus();
+      const open = form.hidden && named.hidden;
+      form.hidden = !open;
+      named.hidden = true;
+      toggle.setAttribute('aria-expanded', String(open));
+      if (!open) return;
+      form.querySelector('input')?.focus();
+      googleForms.active = form;
+      startGoogle(form);
     });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -158,6 +176,130 @@ function wireSignIn(root) {
     });
   }
 }
+
+// —— Continue with Google (Friendly, /chat/bugs/9) ——
+// The game's js/account-forms.js, the same way: the client id from groddle/v1/account/options (null when
+// Google sign-in is off: no button, no script), Google's own button (Google Identity Services, the
+// credential callback: no redirect, no secret), the credential to groddle/v1/account/google
+// (src/GoogleSignIn.php), and a new player's name step through account/google/finish. Google's script
+// loads only when a sign-in form is opened.
+
+const GOOGLE_SCRIPT = 'https://accounts.google.com/gsi/client';
+/** The open sign-in form (its button's credential comes back to it) and the Google client id, asked once. */
+const googleForms = { active: null, clientId: null, gis: null };
+
+/** Google's button options: the game's googleButtonOptions (Continue with Google, outlined, large). */
+export function googleButtonOptions(width = 320) {
+  return { type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', logo_alignment: 'left', width: Math.max(200, Math.min(400, Math.round(width))) };
+}
+
+/** What a Google answer means: 'signed-in', 'name' (a new player chooses a name, 202 with a pending token) or 'refused'. */
+export function googleAnswer(r) {
+  if (r?.status === 202 && typeof r.data?.pending === 'string' && r.data.pending) return 'name';
+  return r?.ok && r.data?.signedIn === true ? 'signed-in' : 'refused';
+}
+
+function googleClientId() {
+  googleForms.clientId ||= call('account/options').then((r) => (r.ok && typeof r.data?.google === 'string' ? r.data.google : ''), () => '');
+  return googleForms.clientId;
+}
+
+function googleScript() {
+  googleForms.gis ||= new Promise((resolve) => {
+    const tag = document.createElement('script');
+    tag.src = GOOGLE_SCRIPT;
+    tag.async = true;
+    tag.onload = () => resolve(globalThis.google?.accounts?.id || null);
+    tag.onerror = () => { googleForms.gis = null; resolve(null); };
+    document.head.append(tag);
+  });
+  return googleForms.gis;
+}
+
+/** Google's button in an opened sign-in form, once, when the site has a client id. */
+async function startGoogle(form) {
+  const row = form.querySelector('[data-community-google]');
+  if (!row || row.dataset.started) return;
+  row.dataset.started = '';
+  const clientId = await googleClientId();
+  if (!clientId) return;
+  const gis = await googleScript();
+  if (!gis) return;
+  if (!googleForms.inited) {
+    googleForms.inited = true;
+    gis.initialize({ client_id: clientId, callback: (r) => onGoogleCredential(r?.credential), ux_mode: 'popup', auto_select: false, cancel_on_tap_outside: true, context: 'signin' });
+  }
+  row.hidden = false;
+  gis.renderButton(row.querySelector('[data-community-google-button]'), googleButtonOptions(Math.min(400, form.clientWidth || 320)));
+}
+
+async function onGoogleCredential(credential) {
+  const form = googleForms.active;
+  if (!form?.isConnected) return;
+  const note = form.querySelector('.csaid');
+  say(note, '');
+  if (typeof credential !== 'string' || !credential) return say(note, SAID.google.failed, true);
+  nonce = '';
+  const r = await call('account/google', { method: 'POST', body: { credential, remember: true } });
+  const answer = googleAnswer(r);
+  if (answer === 'signed-in') return location.reload();
+  if (answer === 'refused') return say(note, r.status && r.data?.message ? r.data.message : SAID.google.failed, true);
+  const named = form.nextElementSibling;
+  if (!named?.matches('[data-community-google-name]')) return say(note, SAID.google.failed, true);
+  named.pending = r.data.pending;
+  named.querySelector('[data-google-email]').textContent = SAID.google.nameBody(String(r.data.email || ''));
+  const field = named.querySelector('input[name="name"]');
+  field.value = String(r.data.name || '');
+  say(named.querySelector('.csaid'), '');
+  form.hidden = true;
+  named.hidden = false;
+  field.focus();
+}
+
+let googleNames = 0;
+/** A new player from Google chooses a character name (the site's pending token, held here only), then is signed in. */
+function googleNameForm(signin) {
+  const id = `csignin-gname-${++googleNames}`;
+  const named = document.createElement('form');
+  named.className = 'csignin-form';
+  named.dataset.communityGoogleName = '';
+  named.method = 'post';
+  named.action = '/wp-json/groddle/v1/account/google/finish';
+  named.hidden = true;
+  named.innerHTML = `<strong>${SAID.google.nameTitle}</strong><p class="chint" data-google-email></p>`
+    + `<label class="clabel" for="${id}">Character name</label><input class="cinput" id="${id}" name="name" type="text" autocomplete="nickname" maxlength="19" autocapitalize="words" spellcheck="false" required />`
+    + `<div class="cform-row"><button class="cbutton" type="submit">${SAID.google.submit}</button><button class="cquoting-off" type="button" data-google-back>${SAID.google.back}</button></div><p class="csaid" role="status" aria-live="polite"></p>`;
+  named.querySelector('[data-google-back]').addEventListener('click', () => {
+    named.pending = null;
+    named.hidden = true;
+    signin.hidden = false;
+    signin.querySelector('input[name="email"]')?.focus();
+  });
+  named.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = named.querySelector('.csaid');
+    const button = named.querySelector('button[type="submit"]');
+    button.disabled = true;
+    nonce = '';
+    const r = await call('account/google/finish', { method: 'POST', body: { pending: named.pending || '', name: named.querySelector('input[name="name"]').value, remember: true } });
+    button.disabled = false;
+    if (r.ok && r.data?.signedIn) {
+      location.reload();
+      return;
+    }
+    // google_expired / google_used: start again from Google's button.
+    if (r.status === 410) {
+      named.pending = null;
+      named.hidden = true;
+      signin.hidden = false;
+      say(signin.querySelector('.csaid'), r.data?.message || SAID.google.failed, true);
+      return;
+    }
+    say(note, r.data?.fields?.name || r.data?.message || SAID.failed, true);
+  });
+  return named;
+}
+
 wireSignIn(document);
 
 // —— The parts of the view in the pane: a new thread's form, a topic's posts, its reply box and poll ——
