@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Groddle\Minn;
 
+use Minn\Db;
 use Minn\Extension\Seams;
 use Minn\Http\Access;
 use Minn\Http\Method;
@@ -43,6 +44,11 @@ use Minn\RestError;
  * second one closes the first with 4012) and refuses every character of a
  * banned login. A page that names another character than the signed-in one
  * (X-Groddle-Character, Logins::guard) gets 409 character_changed.
+ *
+ * "lvl" is the level the character's ledger has credited (ledgerLevel): the
+ * server credits a currants quoin at no more than the quoin multiplier that
+ * level's imagination could have bought (groddle-afternoon-server quoins.go
+ * quoinMultCeiling), whatever the game reports.
  */
 final readonly class RealtimeTicket
 {
@@ -98,6 +104,8 @@ final readonly class RealtimeTicket
         if ($mod !== null) {
             $payload['mod'] = $mod;
         }
+        // The level the ledger has credited (lvl): the server holds a reported quoin multiplier to what that level could have bought.
+        $payload['lvl'] = self::ledgerLevel($this->minn->db, $user->id);
         $answer = ['ticket' => self::sign($payload, $secret), 'expiresIn' => self::TTL, 'path' => '/ws'];
         $url = self::socketUrl();
         if ($url !== null) {
@@ -122,6 +130,18 @@ final readonly class RealtimeTicket
             return null;
         }
         return $value;
+    }
+
+    /**
+     * The level the character's ledger has credited (Ledger CREDITED, kind
+     * level: set from the save on its first checked write and moved on as
+     * the xp reaches each level, LedgerMath::credits), 1 for a character
+     * with no checked save yet.
+     */
+    public static function ledgerLevel(Db $db, int $user): int
+    {
+        $n = $db->value('SELECT n FROM ' . $db->table(Ledger::CREDITED) . " WHERE user_id = ? AND kind = 'level' AND ref = 'level'", [$user]);
+        return max(1, min(60, (int) ($n ?? 1)));
     }
 
     /** Signs a payload into a ticket. */
