@@ -159,7 +159,7 @@ final readonly class GardenPayout
             unset($state->world->streets->{$tsid}->gardens);
         }
         $entries['playerState'] = (string) json_encode($state, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $json = SaveShape::encode(['kind' => $save->kind, 'format' => $save->format, 'entries' => $entries]);
+        $json = SaveShape::encode(SaveShape::with($save, $entries));
         // Nobody's page wrote this copy: an open page is asked before it writes its old plots back.
         $db->execute("UPDATE {$saves} SET data = ?, version = version + 1, updated_at = ?, writer = '', seq = 0 WHERE user_id = ? AND version = ?", [$json, $stamp, $user, (int) $row['version']]);
         return $out;

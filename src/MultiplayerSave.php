@@ -42,6 +42,11 @@ use Minn\RestError;
  * a trade, gift, sale or pickup moved is kept twice. ?peek=1 reads without
  * claiming or catching up (the phone companion).
  *
+ * Builds (G737): a save names the game build that wrote it (SaveShape build). A write from a
+ * different build older than the stored one (a tab left open across a release) is refused with
+ * 409 groddle_save_outdated, takeover or not: only a newer build's save can carry fields an older
+ * one would drop. The page then stops saving and asks for a reload.
+ *
  * The ledger (Ledger, G335) holds the character's currants and tradeable
  * things: a write is checked against it inside the same transaction, and
  * what the write cannot account for is taken out of the stored save and
@@ -89,7 +94,7 @@ final readonly class MultiplayerSave
             $caught = Ledger::fromSeams($this->minn)->catchUp($user, $entries, time());
             if ($caught['changed'] && $save !== null) {
                 $now = gmdate('Y-m-d H:i:s');
-                $json = SaveShape::encode(['kind' => $save->kind, 'format' => $save->format, 'entries' => $caught['entries']]);
+                $json = SaveShape::encode(SaveShape::with($save, $caught['entries']));
                 // The caught-up copy is nobody's page: only the reader that claims it may write over it unasked.
                 $db->execute("UPDATE {$table} SET data = ?, version = version + 1, updated_at = ?, writer = ?, seq = 0 WHERE user_id = ?", [$json, $now, $writer, $user]);
                 return ['data' => $json, 'version' => (int) $row['version'] + 1, 'updated_at' => $now];
@@ -154,6 +159,10 @@ final readonly class MultiplayerSave
             // The save row first (its lock orders this write after any other), then the ledger.
             $row = $db->row("SELECT version, writer, seq, updated_at, data FROM {$table} WHERE user_id = ? FOR UPDATE", [$user]);
             $held = $row === null ? null : (int) $row['version'];
+            // G737: a page of an older build never writes over a save a newer build stored (it would drop the newer fields).
+            if ($row !== null && SaveShape::olderBuild(SaveShape::buildOf((string) $row['data']), $save['build'] ?? null)) {
+                throw self::refusal('outdated', $row);
+            }
             $did = self::decide($held, (string) ($row['writer'] ?? ''), (int) ($row['seq'] ?? 0), $version, $writer, $seq, $takeover);
             if ($did === 'superseded') {
                 return ['superseded' => true, 'version' => (int) $held, 'updated_at' => (string) $row['updated_at']];
@@ -169,7 +178,7 @@ final readonly class MultiplayerSave
                 $entries = $ledger->reapply($user, $entries, Ledger::takeoverSince(is_int($since) ? $since : 0, $row === null ? null : (string) $row['updated_at']), time());
             }
             $checked = $ledger->write($user, $entries, time());
-            $json = SaveShape::encode(['kind' => $save['kind'], 'format' => $save['format'], 'entries' => $checked['entries']]);
+            $json = SaveShape::encode(['entries' => $checked['entries']] + $save);
             $written = $held === null
                 ? $db->execute("INSERT IGNORE INTO {$table} (user_id, data, version, updated_at, writer, seq) VALUES (?, ?, 1, ?, ?, ?)", [$user, $json, $now, $writer, $seq])
                 : $db->execute("UPDATE {$table} SET data = ?, version = version + 1, updated_at = ?, writer = ?, seq = ? WHERE user_id = ? AND version = ?", [$json, $now, $writer, $seq, $user, $held]);
@@ -208,9 +217,11 @@ final readonly class MultiplayerSave
             $savedAt = is_array($state) && is_numeric($state['savedAt'] ?? null) ? (int) $state['savedAt'] : 0;
         }
         $data = ['version' => (int) ($row['version'] ?? 0), 'updatedAt' => $row === null ? null : SaveShape::time((string) $row['updated_at']), 'savedAt' => $savedAt];
-        return $why === 'elsewhere'
-            ? new RestError('groddle_save_elsewhere', 'This character was opened in another window or device after this copy was loaded.', 409, $data)
-            : new RestError('groddle_save_conflict', 'This character was saved somewhere else after this copy was loaded.', 409, $data);
+        return match ($why) {
+            'elsewhere' => new RestError('groddle_save_elsewhere', 'This character was opened in another window or device after this copy was loaded.', 409, $data),
+            'outdated' => new RestError('groddle_save_outdated', 'A newer version of the game saved this character. Reload to carry on.', 409, $data),
+            default => new RestError('groddle_save_conflict', 'This character was saved somewhere else after this copy was loaded.', 409, $data),
+        };
     }
 
     /** A suspended account (AdminConsole bans) neither loads nor writes its multiplayer save. */
