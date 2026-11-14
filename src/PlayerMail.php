@@ -95,6 +95,24 @@ final class PlayerMail
     }
 
     /**
+     * The link that proves a new sign-in email, to the NEW address: the
+     * account keeps its old one until the link is opened (EmailChanges).
+     *
+     * @return array{0: string, 1: string, 2: list<string>}
+     */
+    public static function confirmEmail(string $home, string $from, string $link, string $character): array
+    {
+        $content = self::heading('Confirm your new email')
+            . self::paragraph('Hi <strong>' . Html::esc($character) . '</strong>,')
+            . self::paragraph('You asked to sign in to Groddle Afternoon with this address. Open the link below to confirm it. It works once, for a day, and your character keeps its old email until then.')
+            . self::button($link, 'Confirm this email')
+            . self::small('Or paste this into your browser:<br><a href="' . Html::attr($link) . '" style="color:' . self::INK . ';word-break:break-all;">' . Html::esc($link) . '</a>')
+            . self::paragraph('If you didn\'t ask for this, ignore this email and nothing changes.');
+        $subject = 'Confirm your new Groddle Afternoon email';
+        return [$subject, self::layout($home, 'Confirm the new email for ' . $character . '.', $content), self::headers($home, $from)];
+    }
+
+    /**
      * An administrator replied to a player's bug report (AdminTickets): the
      * reply, quoted as plain text, and the way back to the thread in the game.
      *

@@ -51,7 +51,8 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `POST session`, `DELETE session` | Sign in by email (optionally remembered for two weeks), sign out |
 | `POST password-reset` | Mails a reset link back into the game (`/play/online/#reset=<key>&login=<login>`); the answer is the same whether or not the email has an account |
 | `POST password-reset/confirm` | The new password from that link (key, login), then signed straight in |
-| `PUT account/password`, `PUT account/email` | A signed-in player's new password (signed in again here, signed out everywhere else) or sign-in email, each with the current password; the account's address is told in the site's look |
+| `PUT account/password` | A signed-in player's new password, with the current one (signed in again here, signed out everywhere else); the account's address is told in the site's look |
+| `PUT account/email`, `POST account/email/confirm` | A new sign-in email, with the current password: a link goes to the NEW address (`/play/online/#email=<token>`, one use, a day) and the account keeps its old email until the link is opened. Then the new address is saved, the login's other sessions end and the old address is told |
 | `GET me` | Who is signed in (or nobody) |
 | `GET save`, `PUT save` | The multiplayer character's save, with a version check so two windows never overwrite each other |
 | `GET backups`, `GET/PUT/DELETE backups/{slot}` | Three slots to back up a solo save to the account |

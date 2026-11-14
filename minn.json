@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.50",
+  "version": "0.5.51",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -529,6 +529,20 @@
       "UNIQUE KEY email_key (email_key)",
       "KEY name_key (name_key)",
       "KEY created_ip (ip,created_at)"
+    ],
+    "groddle_email_changes": [
+      "token_hash char(64) NOT NULL",
+      "user_id bigint(20) unsigned NOT NULL",
+      "email varchar(100) NOT NULL",
+      "sends tinyint(3) unsigned NOT NULL DEFAULT 0",
+      "sent_at datetime NOT NULL",
+      "created_at datetime NOT NULL",
+      "expires_at datetime NOT NULL",
+      "used_at datetime NULL DEFAULT NULL",
+      "ip varchar(45) NOT NULL DEFAULT ''",
+      "PRIMARY KEY  (token_hash)",
+      "UNIQUE KEY user_id (user_id)",
+      "KEY expires_at (expires_at)"
     ],
     "groddle_mail_sends": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",

@@ -46,6 +46,13 @@ use Minn\Runtime\Refusal;
  * the game's form there sends the new password to password-reset/confirm,
  * which saves it and signs the player in.
  *
+ * A new sign-in email is proven the same way (2026-11-14): account/email
+ * checks the current password and mails a link to the NEW address
+ * (/play/online/#email=<token>, EmailChanges); the account keeps its old
+ * address until account/email/confirm takes the link, which saves the new
+ * one, ends the login's other sessions and tells the old address. So every
+ * address an account signs in with is one its owner opened mail at.
+ *
  * Email abuse (Austin 2026-10-28): the forms that mail an address someone
  * typed (New player, Send it again by email, Forgot your password) carry a
  * Cloudflare Turnstile token when the site has its keys (Turnstile), resets
@@ -96,6 +103,14 @@ final readonly class PlayerAccount
         'mail_busy' => MailLimits::BUSY,
         'reset_wait' => MailLimits::RESET_WAIT,
         'turnstile_failed' => Turnstile::FAILED,
+        'email_same' => 'That\'s already your email.',
+        'email_taken' => 'Another character already signs in with that email.',
+        'email_taken_since' => 'Another character signs in with that email now, so yours can\'t change to it. Your email is as it was.',
+        'email_change_wait' => 'We just sent a link. Wait a minute, then ask again.',
+        'email_change_spent' => 'That\'s all the links we can send for now. Open the newest one we sent, or try again tomorrow.',
+        'email_change_unknown' => 'This link doesn\'t work any more. Use the newest email we sent, or ask again from your account.',
+        'email_change_used' => 'This link was already used. Sign in with your new email.',
+        'email_change_expired' => 'This link has expired. Your email is as it was: ask again from your account.',
     ];
 
     /**
@@ -489,17 +504,143 @@ final readonly class PlayerAccount
         return $this->answer($accounts->signInVerified(Response::json([]), $me), 200);
     }
 
-    /** A new email, once the current password checks out; the old address is told. */
+    /**
+     * A new sign-in email, asked for with the current password: nothing
+     * changes yet. The address is held (EmailChanges) and a link to
+     * /play/online/#email=<token> is mailed to it; the account keeps its old
+     * email until the link is opened (account/email/confirm). The answer is
+     * 202 {pending, email, current}. A minute between links and five while
+     * one waits (EmailChanges), the site-wide ceiling (MailLimits), and the
+     * current password judged under the sign-in throttle, as the engine's
+     * own changeEmail judges it.
+     */
     #[Route(Method::Put, '/groddle/v1/account/email', policy: new Policy(Access::SignedIn))]
     public function changeEmail(Request $request): Response
     {
         $body = $request->json();
         $email = trim((string) ($body['email'] ?? ''));
-        $contact = (string) ($this->minn->site->option('admin_email') ?? '');
-        $notice = $this->notice(static fn (string $home, string $from, string $character): array => PlayerMail::emailChanged($home, $from, $character, $email, $contact));
         // The email is the login's (Logins): an extra character changes its login's.
-        $result = $this->minn->accounts()->changeEmail($this->loginUser($this->minn->user()), (string) ($body['current'] ?? ''), $email, $notice);
-        return $result instanceof Refusal ? self::fromRefusal($result) : Response::json(['email' => $result->email]);
+        $me = $this->minn->user();
+        $login = $this->loginUser($me);
+        if ($me === null || $login === null) {
+            return self::refused('rest_not_logged_in', 'Sign in first.', [], 401);
+        }
+        $wrong = $this->passwordRefusal($login, (string) ($body['current'] ?? ''), $request->remoteAddress);
+        if ($wrong !== null) {
+            return self::fromRefusal($wrong);
+        }
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || strlen($email) > 100) {
+            return self::refused('invalid_email', self::WORDS['invalid_email'], ['email' => self::WORDS['invalid_email']], 400);
+        }
+        if (strcasecmp($email, $login->email) === 0) {
+            return self::refused('email_same', self::WORDS['email_same'], ['email' => self::WORDS['email_same']], 400);
+        }
+        if ($this->emailTaken($email)) {
+            return self::refused('email_exists', self::WORDS['email_taken'], ['email' => self::WORDS['email_taken']], 400);
+        }
+        $now = time();
+        $changes = new EmailChanges($this->minn->db);
+        $changes->purge($now);
+        $limit = EmailChanges::sendRefusal($changes->forLogin($login->id), $now);
+        if ($limit !== null) {
+            return self::refused("email_change_{$limit}", self::WORDS["email_change_{$limit}"], [], 429);
+        }
+        $limits = new MailLimits($this->minn->db, $this->minn->site);
+        $limits->purge($now);
+        if ($limits->overHourCap($now, 'email change')) {
+            return self::refused('mail_busy', self::WORDS['mail_busy'], [], 503);
+        }
+        $token = $changes->hold($login->id, $email, $request->remoteAddress, $now);
+        $home = rtrim((string) ($this->minn->site->option('home') ?? ''), '/');
+        $from = (string) ($this->minn->site->option('groddle_mail_from') ?? '');
+        // The fragment never reaches a server log.
+        [$subject, $html, $headers] = PlayerMail::confirmEmail($home, $from, $home . '/play/online/#email=' . $token, (new Characters($this->minn->db))->nameOf($me));
+        if (!$this->minn->accounts()->mail($email, $subject, $html, $headers)) {
+            return self::refused('mail_failed', 'The email could not be sent. Try again later.', [], 503);
+        }
+        $limits->record('email', $email, $request->remoteAddress, true, $now);
+        return Response::json(['pending' => true, 'email' => $email, 'current' => $login->email], 202);
+    }
+
+    /**
+     * A new email's link opened: the login signs in with the new address
+     * from now on, a reset link mailed to the old one stops working, every
+     * session of the login's characters ends (as a password change ends
+     * them), and the old address is told. The link works once; it needs no
+     * sign-in (the mailbox is the proof, the password was asked for
+     * before), and a browser signed in as one of the login's characters
+     * stays signed in as that character. 200 {changed, email, signedIn,
+     * player?}; refusals 409 email_exists (taken since), 410
+     * email_change_unknown, email_change_used, email_change_expired.
+     */
+    #[Route(Method::Post, '/groddle/v1/account/email/confirm', policy: new Policy(Access::Public))]
+    public function confirmEmail(Request $request): Response
+    {
+        $token = strtolower(trim((string) ($request->json()['token'] ?? '')));
+        $changes = new EmailChanges($this->minn->db);
+        $row = EmailChanges::looksLikeToken($token) ? $changes->byToken($token) : null;
+        $now = time();
+        $refusal = match (true) {
+            $row === null => 'email_change_unknown',
+            ($row['used_at'] ?? null) !== null => 'email_change_used',
+            !EmailChanges::pending($row, $now) => 'email_change_expired',
+            default => null,
+        };
+        if ($refusal !== null) {
+            return self::refused($refusal, self::WORDS[$refusal], [], 410);
+        }
+        $users = new \Minn\Content\Users($this->minn->db);
+        $login = $users->find((int) $row['user_id']);
+        if ($login === null) {
+            return self::refused('email_change_unknown', self::WORDS['email_change_unknown'], [], 410);
+        }
+        $email = (string) $row['email'];
+        $holder = $users->findByEmail($email);
+        if ($holder !== null && $holder->id !== $login->id) {
+            return self::refused('email_exists', self::WORDS['email_taken_since'], [], 409);
+        }
+        if (!$changes->spend($row, $now)) {
+            return self::refused('email_change_used', self::WORDS['email_change_used'], [], 410);
+        }
+        $old = $login->email;
+        // The address, and no reset link sent to the old one works after it (the reference clears the key on an email change too).
+        $users->update($login->id, ['user_email' => $email, 'user_activation_key' => '']);
+        $siblings = (new Logins($this->minn->db))->siblings($login->id);
+        $this->endSessions($siblings);
+        if (strcasecmp($old, $email) !== 0 && filter_var($old, FILTER_VALIDATE_EMAIL) !== false) {
+            $home = rtrim((string) ($this->minn->site->option('home') ?? ''), '/');
+            $from = (string) ($this->minn->site->option('groddle_mail_from') ?? '');
+            $contact = (string) ($this->minn->site->option('admin_email') ?? '');
+            [$subject, $html, $headers] = PlayerMail::emailChanged($home, $from, (new Characters($this->minn->db))->nameOf($login), $email, $contact);
+            $this->minn->accounts()->mail($old, $subject, $html, $headers);
+        }
+        $me = $this->minn->user();
+        if ($me !== null && in_array($me->id, $siblings, true)) {
+            // This browser plays on as the character it was signed in as; every other session has ended.
+            return $this->answer($this->minn->accounts()->signInVerified(Response::json([]), $me), 200, ['changed' => true, 'email' => $email]);
+        }
+        return Response::json(['changed' => true, 'email' => $email, 'signedIn' => false]);
+    }
+
+    /**
+     * The current password judged as the engine's Accounts::changeEmail
+     * judges it, under the sign-in throttle, without saving anything: null
+     * when it checks out, else the refusal (too_many_attempts,
+     * incorrect_password).
+     */
+    private function passwordRefusal(\Minn\Content\UserRecord $login, string $current, string $address): ?Refusal
+    {
+        $throttle = new \Minn\Auth\LoginThrottle($this->minn->db);
+        $wait = $throttle->retryAfter($address);
+        if ($wait !== null) {
+            return new Refusal('too_many_attempts', self::WORDS['too_many_attempts'], ['retryAfter' => $wait, 'notices' => []]);
+        }
+        // Stored slashed, as a sign-in form sends it (the engine's checkCurrent).
+        if (!\Minn\Auth\Password::verify((string) \Minn\Support\Slashes::add($current), $login->passwordHash)) {
+            $throttle->recordFailure($address);
+            return new Refusal('incorrect_password', self::WORDS['incorrect_password'], ['notices' => []]);
+        }
+        return null;
     }
 
     /**
@@ -536,10 +677,10 @@ final readonly class PlayerAccount
         }
     }
 
-    /** The signed-in answer: who, with the session's cookies. */
-    private function answer(SignedIn $signedIn, int $status): Response
+    /** The signed-in answer: who (and anything $extra adds), with the session's cookies. @param array<string, mixed> $extra */
+    private function answer(SignedIn $signedIn, int $status, array $extra = []): Response
     {
-        $response = Response::json(['signedIn' => true, 'player' => Player::describe($signedIn->user, new Characters($this->minn->db))], $status);
+        $response = Response::json($extra + ['signedIn' => true, 'player' => Player::describe($signedIn->user, new Characters($this->minn->db))], $status);
         foreach ($signedIn->response->cookies as $cookie) {
             $response = $response->withCookie(...$cookie);
         }
