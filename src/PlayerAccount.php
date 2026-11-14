@@ -136,23 +136,23 @@ final readonly class PlayerAccount
         } elseif ((new Characters($this->minn->db))->taken($name)) {
             $fields['name'] = 'Someone already has that name. Try another.';
         }
-        if (!isset($fields['email']) && $this->emailTaken($email)) {
-            $fields['email'] = self::WORDS['email_exists'];
-        }
         if ($fields !== []) {
-            $code = $fields === ['email' => self::WORDS['email_exists']] ? 'email_exists' : 'groddle_invalid';
-            return self::refused($code, (string) reset($fields), $fields, 400);
+            return self::refused('groddle_invalid', (string) reset($fields), $fields, 400);
         }
         $accounts = $this->minn->accounts();
         if (!$accounts->registrationOpen()) {
             return self::refused('registration_closed', self::WORDS['registration_closed'], [], 400);
         }
         if ($this->instant($email)) {
-            return $this->makeNow($email, $password, $name);
+            return $this->emailTaken($email) ? self::emailExists() : $this->makeNow($email, $password, $name);
         }
+        // Turnstile before the email is looked up: asking whether an address has a character costs a solved check.
         $refused = $this->turnstileRefusal($request, $body);
         if ($refused !== null) {
             return $refused;
+        }
+        if ($this->emailTaken($email)) {
+            return self::emailExists();
         }
         $now = time();
         $limits = new MailLimits($this->minn->db, $this->minn->site);
@@ -287,6 +287,12 @@ final readonly class PlayerAccount
             $limits->record('signup', $email, $request->remoteAddress, $mailed, $now);
         }
         return Response::json(['sent' => true]);
+    }
+
+    /** The sign-up form's answer for an email that already has a character. */
+    private static function emailExists(): Response
+    {
+        return self::refused('email_exists', self::WORDS['email_exists'], ['email' => self::WORDS['email_exists']], 400);
     }
 
     /** The old way, for QA addresses on a local site: the account at once, signed straight in. */
