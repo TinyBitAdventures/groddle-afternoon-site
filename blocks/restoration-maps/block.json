@@ -1,0 +1,32 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-maps",
+	"title": "Restoration maps",
+	"category": "widgets",
+	"description": "The Maps page's pictures from maps.json: the counts, the World map's charts, the regions restored from 2012, or the regions painted from a thumbnail or a street layout, each beside the picture it replaced or was made from.",
+	"attributes": {
+		"part": {
+			"type": "string",
+			"enum": [
+				"all",
+				"summary",
+				"world",
+				"restored",
+				"painted"
+			],
+			"default": "all"
+		}
+	},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"maps",
+		"report"
+	]
+}

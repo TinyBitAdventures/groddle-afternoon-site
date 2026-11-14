@@ -13,7 +13,7 @@ use Minn\Extension\Seams;
  * while Groddle is the theme. The templates draw notes, pages and posts in
  * the site's look; this adds what templates cannot: the site's stylesheets,
  * the note blocks (Blocks), the restoration report's data sections
- * (Restoration) and its section menu (ReportMenu), the Known gaps list (RestorationGaps), the report's Made for Groddle art (RestorationMade), the Musicblocks and Street music pages' players
+ * (Restoration) and its section menu (ReportMenu), the Known gaps list (RestorationGaps), the report's Made for Groddle art (RestorationMade), the Maps page (RestorationMaps), the Musicblocks and Street music pages' players
  * (Musicblocks, StreetMusic), the Contribute page's shrine and open ledger
  * (Contribute) and its board of testers whose reports led to a change (ContributeCredits), the header's menu (SiteNav), and the built game
  * and generated pages served beside the content, with the old addresses of the
@@ -82,10 +82,11 @@ final class Extension implements MinnExtension
         $minn->rest(new Player($minn), new PlayerAccount($minn), new MultiplayerSave($minn), new SoloBackups($minn), new RealtimeTicket($minn), new Buddies($minn), new BuddiesOnline($minn), new Profiles($minn), new LedgerService($minn), new Groups($minn), new LedgerSpend($minn), new Neighbours($minn), new ButlerParcels($minn), new ButlerGifts($minn), new HomeTending($minn), new GardenPayout($minn), new PatchPayout($minn), new HomePool($minn), new HomeYard($minn), new HomeMachines($minn), new Radiance($minn), new LedgerGift($minn), new LedgerAuction($minn), new LedgerMail($minn), new LedgerCrowns($minn), new LedgerMayhem($minn), new LedgerCredits($minn), new LedgerUse($minn), new LedgerDrop($minn), new LedgerBoard($minn), new BugReports($minn), new Tickets($minn), new LedgerHall($minn), new LedgerStarter($minn), new HomeSignpost($minn), new HomeStreet($minn), new LedgerFurniture($minn), new LedgerBoxes($minn), new Snaps($minn), new AdminTeleport($minn), new AdminConsole($minn), new AdminTickets($minn), new AdminBoards($minn), new AdminButler($minn), new Community($minn), new AdminCommunity($minn), new ChatHistory($minn), new PresenceSetting($minn), new PlayTime($minn), new ChatPeople($minn), new Notifications($minn), new AdminReportCredits($minn), new AdminBuilder($minn), new AdminBuilderAssets($minn), new AdminBuilderKeys($minn), new AdminBuilderAgent($minn), new Moderation($minn), new CharacterRoutes($minn), new LedgerWatch($minn), new Analytics($minn), new GoogleSignIn($minn));
         Blocks::register($minn);
         Restoration::register($minn, $root);
-        // The report's section menu, drawn over its rendered content (nothing is written to the page).
-        $minn->filterContent(static fn (string $html): string => Restoration::drawn() ? ReportMenu::insert($html) : $html);
+        // The report's section menu, drawn over its rendered content (nothing is written to the page); the Maps page has one too.
+        $minn->filterContent(static fn (string $html): string => Restoration::drawn() || RestorationMaps::drawn() ? ReportMenu::insert($html) : $html);
         RestorationGaps::register($minn, $root);
         RestorationMade::register($minn, $root);
+        RestorationMaps::register($minn, $root);
         Musicblocks::register($minn, $root);
         StreetMusic::register($minn, $root);
         Codebase::register($minn, $root);
