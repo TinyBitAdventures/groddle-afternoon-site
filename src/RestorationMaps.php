@@ -14,13 +14,19 @@ use Minn\Extension\Seams;
  * shows up with no page edit.
  *
  * Each map is a card: the picture before beside the picture the game has now
- * (the World map's charts: Tiny Speck's original and the 2x copy; a restored
- * region: the painting it replaced and the restore; any other region: Tiny
- * Speck's thumbnail and the painting made from it), then its name, state,
- * words, facts, its World map card and its Encyclopedia page. The page reads
- * without JavaScript; restoration/maps.js (this theme), loaded once when the
- * block is on the page, stacks each pair in one box to flip or wipe between
- * them and opens a larger preview with zoom (the compare page's tools).
+ * (the World map's charts: Tiny Speck's original and the 2x copy; a region:
+ * Tiny Speck's own 2012 Encyclopedia map of it, with the game's roads and
+ * names on it, and the painting in the game now; Austin 2026-11-14: "use the
+ * originals we have from screenshots, not our before AI generations"; a
+ * region with no 2012 map: its thumbnail), then its name, state, words,
+ * facts, its World map card and its Encyclopedia page. The page reads without
+ * JavaScript; restoration/maps.js (this theme), loaded once when the block is
+ * on the page, stacks each pair in one box to wipe or flip between them and
+ * opens a larger preview with zoom (the compare page's tools).
+ *
+ * Each pair opens in the mode maps.json's "view" names (Wipe; Austin
+ * 2026-11-14: "I want the 'wipe' option to be the default"): drawn here as
+ * the pair's data-mode, which the script starts from.
  *
  * Parts (the block's "part"), so the page's own words can sit between them:
  * summary (the counts), world, restored, painted (the regions painted from a
@@ -31,6 +37,9 @@ use Minn\Extension\Seams;
 final class RestorationMaps
 {
     public const SCRIPT = '/wp-content/themes/groddle/restoration/maps.js';
+
+    /** The compare modes the script knows, the first the default. */
+    public const MODES = ['wipe', 'flip', 'side'];
 
     private static bool $used = false;
 
@@ -118,6 +127,13 @@ final class RestorationMaps
             . '<ul class="gaps-counts">' . $chips . '</ul></div>';
     }
 
+    /** The mode each pair opens in: maps.json's "view" when it is one the script knows, else Wipe. */
+    private static function view(array $d): string
+    {
+        $view = (string) ($d['view'] ?? '');
+        return in_array($view, self::MODES, true) ? $view : self::MODES[0];
+    }
+
     /** The World map's charts, each Tiny Speck's original beside its 2x copy. */
     private static function world(array $d): string
     {
@@ -131,7 +147,7 @@ final class RestorationMaps
                 continue;
             }
             $facts = [['label' => 'Made', 'text' => trim(($w['made'] ?? '') . (empty($w['model']) ? '' : ', with ' . $w['model']), ', ')]];
-            $out .= self::card($chart, 'world', '', $facts, null, null);
+            $out .= self::card($chart, 'world', '', $facts, null, null, self::view($d));
         }
         return $out === '' ? '' : '<div class="maps-list maps-list-wide" data-maps-list>' . $out . '</div>';
     }
@@ -146,7 +162,7 @@ final class RestorationMaps
             }
             $state = (string) $r['state'];
             $chip = '<p class="maps-state gaps-state" style="--tone:' . self::tone($d, $state) . '">' . self::esc(self::label($d, $state)) . '</p>';
-            $out .= self::card($r, $state, $chip, is_array($r['facts'] ?? null) ? $r['facts'] : [], is_array($r['card'] ?? null) ? $r['card'] : null, self::href($r['place'] ?? ''));
+            $out .= self::card($r, $state, $chip, is_array($r['facts'] ?? null) ? $r['facts'] : [], is_array($r['card'] ?? null) ? $r['card'] : null, self::href($r['place'] ?? ''), self::view($d));
         }
         if ($out === '') {
             return '';
@@ -160,11 +176,13 @@ final class RestorationMaps
      *
      * @param list<array{label?: string, text?: string}> $facts
      */
-    private static function card(array $m, string $state, string $chip, array $facts, ?array $hover, ?string $place): string
+    private static function card(array $m, string $state, string $chip, array $facts, ?array $hover, ?string $place, string $view): string
     {
         $anchor = self::anchor($m['anchor'] ?? '', 'map');
         $name = (string) ($m['name'] ?? '');
-        $before = is_array($m['before'] ?? null) ? self::figure($m['before'], 'before', $state === 'painted') : '';
+        // A before much smaller than the picture now (a 150 x 91 thumbnail) is shown at its own size side by side.
+        $small = is_array($m['before'] ?? null) && is_array($m['after'] ?? null) && 2 * (int) ($m['before']['w'] ?? 0) <= (int) ($m['after']['w'] ?? 0);
+        $before = is_array($m['before'] ?? null) ? self::figure($m['before'], 'before', $small) : '';
         $after = is_array($m['after'] ?? null) ? self::figure($m['after'], 'after', false) : '';
         $list = '';
         foreach ($facts as $f) {
@@ -179,7 +197,7 @@ final class RestorationMaps
         }
         $link = $place === null ? '' : '<p class="maps-place"><a href="' . self::esc($place) . '">' . self::esc($name) . ' in the Encyclopedia</a></p>';
         return '<article class="maps-card maps-' . self::anchor($state, 'world') . '" id="' . $anchor . '" aria-labelledby="' . $anchor . '-h" data-maps-card>'
-            . '<div class="maps-pair' . ($before === '' ? ' maps-pair-one' : '') . '"' . ($before === '' ? '' : ' data-maps-pair') . '>' . $before . $after . '</div>'
+            . '<div class="maps-pair' . ($before === '' ? ' maps-pair-one' : '') . '"' . ($before === '' ? '' : ' data-maps-pair data-mode="' . self::esc($view) . '"') . '>' . $before . $after . '</div>'
             . '<div class="maps-words">'
             . '<h3 id="' . $anchor . '-h">' . self::esc($name) . '</h3>'
             . $chip
@@ -201,10 +219,11 @@ final class RestorationMaps
         }
         $src2 = self::src($img['src2'] ?? '');
         $label = (string) ($img['label'] ?? '');
+        $alt = (string) (($img['alt'] ?? '') !== '' ? $img['alt'] : $label);
         return '<figure class="maps-fig maps-fig-' . $role . ($small ? ' maps-fig-small' : '') . '" data-pic="' . $role . '" style="--w:' . $w . ';--h:' . $h . '">'
             . '<span class="maps-frame"><img src="' . self::esc($src) . '"'
             . ($src2 === null ? '' : ' srcset="' . self::esc($src) . ' 1x, ' . self::esc($src2) . ' 2x"')
-            . ' alt="' . self::esc($label) . '" width="' . $w . '" height="' . $h . '" loading="lazy" decoding="async" /></span>'
+            . ' alt="' . self::esc($alt) . '" width="' . $w . '" height="' . $h . '" loading="lazy" decoding="async" /></span>'
             . '<figcaption>' . self::esc($label) . '</figcaption></figure>';
     }
 }

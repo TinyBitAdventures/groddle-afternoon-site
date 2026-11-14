@@ -2,13 +2,16 @@
  * The Maps page's compare tools (src/RestorationMaps.php draws every map
  * server-side, each pair as two figures side by side; this only adds the
  * tools of the compare page Austin asked to keep, 2026-11-14):
+ * - Wipe, the mode each pair opens in (the pair's data-mode, drawn from
+ *   maps.json's "view"; Austin 2026-11-14: "I want the 'wipe' option to be
+ *   the default"): the picture before (Tiny Speck's 2012 map) on the left and
+ *   the one now on the right, the line between them dragged (or moved with
+ *   the slider and its arrow keys).
  * - Flip: the pair stacked in one box, the picture in the game now first; a
  *   click, Enter or Space on the picture (or the Now and Before buttons)
  *   flips to the other, so the difference shows in place.
- * - Wipe: the picture before on the left and the one now on the right, the
- *   line between them dragged (or moved with the slider and its arrow keys).
  * - Side by side: the two figures as drawn without JavaScript.
- * - Enlarge: a larger preview in a dialog, with Flip and Wipe, zoom 1x, 2x
+ * - Enlarge: a larger preview in a dialog, with Wipe and Flip, zoom 1x, 2x
  *   and 3x (the 2x pictures), and the next or previous map; keys 1 and 2 pick
  *   a picture, the arrow keys change map, Escape closes.
  * Styles: the theme's style.css (.maps-*), colours from restoration.css tokens.
@@ -16,6 +19,11 @@
 (() => {
   const pairs = [...document.querySelectorAll('[data-maps-pair]')];
   if (!pairs.length) return;
+  /** The mode a pair opens in: the one the page drew on it, else Wipe. */
+  const MODES = ['wipe', 'flip', 'side'];
+  const startMode = (pair, allowed = MODES) => (allowed.includes(pair.dataset.mode) ? pair.dataset.mode : 'wipe');
+  /** The larger preview opens in the page's mode too (read before any pair changes its own). */
+  const previewMode = startMode(pairs[0], ['wipe', 'flip']);
 
   const el = (tag, attrs = {}, ...kids) => {
     const node = document.createElement(tag);
@@ -138,7 +146,7 @@
       el('div', { class: 'maps-modal-foot' }, prev, el('div', { class: 'maps-seg', role: 'group', 'aria-label': 'Zoom' }, ...zooms), next),
       hint);
     document.body.append(dialog);
-    const m = { dialog, at: 0, zoom: 1, view: null, bar: null, state: { mode: 'flip', pic: 'after', cut: 50 } };
+    const m = { dialog, at: 0, zoom: 1, view: null, bar: null, state: { mode: previewMode, pic: 'after', cut: 50 } };
     const sync = () => { m.bar.sync(m.state); pressed(zooms, (b) => Number(b.dataset.zoom) === m.zoom); };
     m.open = (index) => {
       m.at = (index + pairs.length) % pairs.length;
@@ -151,7 +159,7 @@
       m.view.inner.addEventListener('click', () => { if (m.state.mode === 'flip') m.pick(m.state.pic === 'after' ? 'before' : 'after'); });
       m.view.node.addEventListener('maps-cut', (e) => { m.state.cut = e.detail; sync(); });
       m.bar = tools(pics, {
-        modes: [['flip', 'Flip'], ['wipe', 'Wipe']],
+        modes: [['wipe', 'Wipe'], ['flip', 'Flip']],
         onMode: (mode) => { m.state.mode = mode; m.view.mode(mode); sync(); },
         onPic: (pic) => m.pick(pic),
         onCut: (cut) => { m.state.cut = cut; m.view.cut(cut); },
@@ -189,10 +197,7 @@
     if (!pics.before || !pics.after) return;
     const name = pair.closest('[data-maps-card]')?.querySelector('h3')?.textContent || 'this map';
     const view = stage(pics, false);
-    const state = { mode: 'flip', pic: 'after', cut: 50 };
-    view.inner.tabIndex = 0;
-    view.inner.setAttribute('role', 'button');
-    view.inner.setAttribute('aria-label', `Flip ${name} between the picture now and the picture before`);
+    const state = { mode: startMode(pair), pic: 'after', cut: 50 };
     const flip = () => { state.pic = state.pic === 'after' ? 'before' : 'after'; view.show(state.pic); bar.sync(state); };
     view.inner.addEventListener('click', () => { if (state.mode === 'flip') flip(); });
     view.inner.addEventListener('keydown', (e) => {
@@ -203,24 +208,24 @@
     view.node.addEventListener('maps-cut', (e) => { state.cut = e.detail; bar.sync(state); });
     const enlarge = button('Enlarge', { class: 'maps-enlarge', 'aria-label': `Enlarge ${name}` });
     enlarge.addEventListener('click', () => preview().open(index));
+    const setMode = (mode) => {
+      state.mode = mode;
+      pair.dataset.mode = mode;
+      if (mode !== 'side') view.mode(mode);
+      view.inner.setAttribute('role', mode === 'flip' ? 'button' : 'img');
+      view.inner.setAttribute('aria-label', mode === 'flip' ? `Flip ${name} between the picture now and the picture before` : `${name}: the picture before on the left, the picture now on the right`);
+      view.inner.tabIndex = mode === 'flip' ? 0 : -1;
+      bar.sync(state);
+    };
     const bar = tools(pics, {
-      modes: [['flip', 'Flip'], ['wipe', 'Wipe'], ['side', 'Side by side']],
-      onMode: (mode) => {
-        state.mode = mode;
-        pair.dataset.mode = mode;
-        if (mode !== 'side') view.mode(mode);
-        view.inner.setAttribute('role', mode === 'flip' ? 'button' : 'img');
-        view.inner.setAttribute('aria-label', mode === 'flip' ? `Flip ${name} between the picture now and the picture before` : `${name}: the picture before on the left, the picture now on the right`);
-        view.inner.tabIndex = mode === 'flip' ? 0 : -1;
-        bar.sync(state);
-      },
+      modes: [['wipe', 'Wipe'], ['flip', 'Flip'], ['side', 'Side by side']],
+      onMode: setMode,
       onPic: (pic) => { state.pic = pic; view.show(pic); bar.sync(state); },
       onCut: (cut) => { state.cut = cut; view.cut(cut); },
       extra: [enlarge],
     });
     pair.prepend(bar.row, view.node);
     pair.classList.add('maps-pair-live');
-    pair.dataset.mode = 'flip';
-    bar.sync(state);
+    setMode(state.mode);
   });
 })();
