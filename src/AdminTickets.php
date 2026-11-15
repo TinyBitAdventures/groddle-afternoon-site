@@ -37,7 +37,8 @@ use Minn\RestError;
  *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"},"closedBy":"player"|"admin"|null,"closedAt":time|null}
  *                                  closedBy: who closed it, the player (withdrew it) or an administrator; null while it is
  *                                  not closed, and for reports closed before 2026-11-11 (unknown)
- *   Message: Tickets' Message; "edited" is when the player changed the report's words before it was read
+ *   Message: Tickets' Message; "edited" is when the player changed the report's words before it was read;
+ *                                "picture" is a player's reply's picture (G791), {"url","width","height"} or null
  *
  * A reply emails the player (PlayerMail::ticketReply, in the site's look,
  * by their character name, never the username), unless the administrator
@@ -213,7 +214,7 @@ final readonly class AdminTickets
         $names = (new Characters($this->minn->db))->namesOf([(int) $row['player_user_id']]);
         return Response::json($extra + [
             'ticket' => $this->row($row, $names),
-            'messages' => TicketStore::messagesOut($store->messages($id), $store->revisions($id)),
+            'messages' => TicketStore::messagesOut($store->messages($id), $store->revisions($id), $store->messagePictures($id)),
             'context' => (object) TicketStore::contextOf($row),
             'picture' => $store->pictureOut($id),
         ])->withHeader('Cache-Control', 'no-store');

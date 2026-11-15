@@ -24,8 +24,10 @@ use Minn\RestError;
  * Kept in groddle_ticket_pictures (TicketStore::PICTURES, one row a ticket),
  * not under uploads: an upload is served to anyone by the web server, and a
  * report's picture is for the administrators and the player who sent it
- * (TicketPictures serves it to those two). A new report is the only way in,
- * so the report's own limits (BugReports PER_WINDOW, PER_DAY) are its rate.
+ * (TicketPictures serves it to those two). A new report's picture has the
+ * report's own limits (BugReports PER_WINDOW, PER_DAY) as its rate; a reply's
+ * (G791, TicketStore::MESSAGE_PICTURES) has Tickets REPLY_PICTURE_PER_WINDOW
+ * and REPLY_PICTURE_PER_DAY, and the same checks here.
  */
 final class ReportPicture
 {

@@ -33,6 +33,10 @@ use Minn\Db;
  *
  * A new report may carry a picture of the game (ReportPicture): kept with
  * the ticket in PICTURES, written in the same transaction as the ticket.
+ * A player's reply may carry one too (G791, #216 and #281: a bug gone before
+ * the report window opened, a picture taken on purpose afterwards): kept per
+ * message in MESSAGE_PICTURES, written with the message, the same checks and
+ * limits (ReportPicture), and shown to the same two people (TicketPictures).
  *
  * Read by the team (Austin 2026-11-12): the player's list and thread say
  * when an administrator first opened the thread after the player's latest
@@ -59,6 +63,8 @@ final readonly class TicketStore
     public const REVISIONS = 'groddle_ticket_message_revisions';
     /** A report's picture of the game, one row a ticket (ReportPicture, served by TicketPictures). */
     public const PICTURES = 'groddle_ticket_pictures';
+    /** A player's reply's picture, one row a message (G791; ReportPicture, served by TicketPictures). */
+    public const MESSAGE_PICTURES = 'groddle_ticket_message_pictures';
 
     public const OPEN = 'open';
     public const ANSWERED = 'answered';
@@ -189,13 +195,22 @@ final readonly class TicketStore
         });
     }
 
-    /** A message in a ticket from $role: the ticket opens again if it was closed. */
-    public function add(int $ticket, int $author, string $role, string $body, int $now): int
+    /**
+     * A message in a ticket from $role: the ticket opens again if it was closed.
+     * A player's reply may carry a picture (G791), written with the message.
+     *
+     * @param array{bytes: string, width: int, height: int}|null $picture ReportPicture::accept
+     */
+    public function add(int $ticket, int $author, string $role, string $body, int $now, ?array $picture = null): int
     {
-        return Ledger::atomically($this->db, function () use ($ticket, $author, $role, $body, $now): int {
+        return Ledger::atomically($this->db, function () use ($ticket, $author, $role, $body, $now, $picture): int {
             $at = self::stamp($now);
             $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGES) . ' (ticket_id, author_user_id, author_role, body, created_at) VALUES (?, ?, ?, ?, ?)', [$ticket, $author, $role, $body, $at]);
             $id = $this->db->insertId();
+            if ($picture !== null && $id > 0) {
+                // As open() writes a report's picture: base64 through FROM_BASE64.
+                $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGE_PICTURES) . ' (message_id, ticket_id, player_user_id, picture, width, height, bytes, created_at) VALUES (?, ?, ?, FROM_BASE64(?), ?, ?, ?, ?)', [$id, $ticket, $author, base64_encode($picture['bytes']), $picture['width'], $picture['height'], strlen($picture['bytes']), $at]);
+            }
             $read = $role === self::ADMIN ? 'admin_read_at' : 'player_read_at';
             $current = (string) ($this->db->value('SELECT status FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ? FOR UPDATE', [$ticket]) ?? '');
             $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . " SET status = ?, updated_at = ?, last_message_at = ?, last_author_role = ?, {$read} = ?, closed_by = NULL, closed_at = NULL WHERE id = ?", [self::statusAfter($role, $current), $at, $at, $role, $at, $ticket]);
@@ -301,6 +316,34 @@ final readonly class TicketStore
     {
         $row = $ticket > 0 ? $this->db->row('SELECT width, height FROM ' . $this->db->table(self::PICTURES) . ' WHERE ticket_id = ?', [$ticket]) : null;
         return $row === null ? null : ['url' => TicketPictures::url($ticket), 'width' => (int) $row['width'], 'height' => (int) $row['height']];
+    }
+
+    /** A reply's picture row (with its bytes and its player), or null: only when the message is in that ticket. */
+    public function messagePicture(int $ticket, int $message): ?array
+    {
+        return $ticket > 0 && $message > 0 ? $this->db->row('SELECT message_id, ticket_id, player_user_id, picture, width, height FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE message_id = ? AND ticket_id = ?', [$message, $ticket]) : null;
+    }
+
+    /**
+     * A thread's reply pictures by message id, as either side reads them (G791): where each is shown and its size.
+     * @return array<int, array{url: string, width: int, height: int}>
+     */
+    public function messagePictures(int $ticket): array
+    {
+        $out = [];
+        if ($ticket <= 0) {
+            return $out;
+        }
+        foreach ($this->db->rows('SELECT message_id, width, height FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE ticket_id = ? ORDER BY message_id ASC', [$ticket]) as $r) {
+            $out[(int) $r['message_id']] = ['url' => TicketPictures::url($ticket, (int) $r['message_id']), 'width' => (int) $r['width'], 'height' => (int) $r['height']];
+        }
+        return $out;
+    }
+
+    /** Pictures a player sent with replies in the last $seconds (the reply picture limit, G791). */
+    public function picturesSince(int $player, int $seconds, int $now): int
+    {
+        return (int) $this->db->value('SELECT COUNT(*) FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE player_user_id = ? AND created_at >= ?', [$player, self::stamp($now - $seconds)]);
     }
 
     /** A ticket's first message (the report itself), or null. */
@@ -418,8 +461,12 @@ final readonly class TicketStore
         ];
     }
 
-    /** A thread's messages as either side reads them: who wrote is a role, never a username. @return list<array<string, mixed>> */
-    public static function messagesOut(array $rows, ?array $revisions = null): array
+    /**
+     * A thread's messages as either side reads them: who wrote is a role, never a username.
+     * $pictures: messagePictures() (G791); each message carries its picture, or null.
+     * @return list<array<string, mixed>>
+     */
+    public static function messagesOut(array $rows, ?array $revisions = null, array $pictures = []): array
     {
         $out = [];
         foreach ($rows as $m) {
@@ -430,6 +477,8 @@ final readonly class TicketStore
                 'at' => SaveShape::time((string) $m['created_at']),
                 // When the player last changed its words (ticket 49), or null.
                 'edited' => ($m['edited_at'] ?? null) ? SaveShape::time((string) $m['edited_at']) : null,
+                // G791: the picture a player's reply carries ({url, width, height}), or null.
+                'picture' => $pictures[(int) $m['id']] ?? null,
             ];
             // Administrators: each earlier text, oldest first ($revisions from revisions(); null for the player).
             if ($revisions !== null) {

@@ -26,7 +26,8 @@
  *   threads, unread first, with a status filter; the header counts every report the filter
  *   holds (reportsCount), a page of 200 at a time with Show older for the next; a thread shows what the game
  *   knew, the picture of the game when the report carries one (a click opens it
- *   full size in a popup, Cmd-click in a tab; pictureSrc), the messages, a reply box (the player is emailed, or with Don't
+ *   full size in a popup, Cmd-click in a tab; pictureSrc), the messages (a player's reply may carry a
+ *   picture of its own, G791, opened the same way), a reply box (the player is emailed, or with Don't
  *   email ticked it is a note they only see in the game; the box stays
  *   ticked from report to report, for closing many related ones), Mark working
  *   on it (and Not working on it: ticket 49, a status the player sees as its
@@ -111,10 +112,10 @@ export function replyFormWords(noEmail) {
     : { send: 'Send reply', placeholder: 'Plain text. The player sees it in the game and gets an email.' };
 }
 
-/** A report's picture address from the site (src/TicketPictures.php), or '' for anything else. */
+/** A report's picture address from the site (src/TicketPictures.php), or a reply's (G791: /<ticket>/<message>), or '' for anything else. */
 export function pictureSrc(picture) {
   const url = typeof picture?.url === 'string' ? picture.url : '';
-  return /^\/report-pictures\/\d{1,12}$/.test(url) ? url : '';
+  return /^\/report-pictures\/\d{1,12}(?:\/\d{1,12})?$/.test(url) ? url : '';
 }
 
 /** A ticket's status in words (src/TicketStore.php STATUSES). */
@@ -1304,6 +1305,7 @@ function boot() {
     $('[data-console-messages]').replaceChildren(...(r.messages || []).map((m) => el('li', { class: `console-msg console-msg-${m.author}` },
       el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${messageWhen(m, when)}`, title: m.edited ? `Edited ${when(m.edited)}` : null })),
       el('p', { class: 'console-msg-body', text: m.body }),
+      replyPicture(m),
       messageHistory(m, when))));
     const msgs = $('[data-console-messages]');
     msgs.scrollTop = msgs.scrollHeight;
@@ -1313,6 +1315,21 @@ function boot() {
     if (row) Object.assign(row, { status: t.status, lastAuthor: t.lastAuthor, lastMessageAt: t.lastMessageAt });
     renderTickets();
     if (focus) $('[data-console-thread-subject]').focus();
+  }
+  /** G791: the picture a player's reply carries, under its words; a click opens it in the popup, Cmd-click in a tab. */
+  function replyPicture(m) {
+    const src = pictureSrc(m.picture);
+    if (!src) return null;
+    const width = Number(m.picture.width) || null;
+    const height = Number(m.picture.height) || null;
+    const a = el('a', { class: 'console-msg-picture', href: src, target: '_blank', rel: 'noopener', 'aria-label': 'Open the picture with this reply full size', 'data-console-msg-picture': '' },
+      el('img', { src, alt: 'The picture the player sent with this reply', width, height, loading: 'lazy' }));
+    a.addEventListener('click', (e) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      openPicture(src, width, height);
+    });
+    return a;
   }
   async function openTicket(id, focus = true) {
     try { renderThread(await api.call(`admin/tickets/${id}`), focus); } catch (err) { return failed(err); }
@@ -1488,7 +1505,7 @@ function boot() {
     });
   }
   function openPicture(src, width, height) {
-    const big = el('img', { src, alt: 'The game when the player reported it', width: width || null, height: height || null });
+    const big = el('img', { src, alt: /\/\d+\/\d+$/.test(src) ? 'The picture the player sent with a reply' : 'The game when the player reported it', width: width || null, height: height || null });
     const close = el('button', { type: 'button', class: 'console-lightbox-close', 'aria-label': 'Close', text: '\u00d7' });
     const tab = el('a', { href: src, target: '_blank', rel: 'noopener', text: 'Open in a new tab' });
     const dlg = el('dialog', { class: 'console-lightbox', 'aria-label': 'The picture of the game' },

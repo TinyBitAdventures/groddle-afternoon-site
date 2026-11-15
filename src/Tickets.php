@@ -26,7 +26,9 @@ use Minn\RestError;
  *   GET  tickets/{id}            {"ticket":Summary,"messages":[Message],"picture":{"url","width","height"}|null,"editable":bool}  and marks it read
  *   POST tickets                 {"message","context","picture"?} 201 {"status":"sent","id","ticket"}   a new report;
  *                                picture: a base64 JPEG of the game (ReportPicture), refused with a groddle_report_picture* code
- *   POST tickets/{id}/messages   {"message"}  {"ticket","messages"}    a reply; opens a closed ticket again
+ *   POST tickets/{id}/messages   {"message","picture"?}  {"ticket","messages"}    a reply; opens a closed ticket again;
+ *                                picture (G791): a base64 JPEG as a new report's (ReportPicture), refused with a
+ *                                groddle_report_picture* code, so the game sends the words again without it
  *   POST tickets/{id}/close      {"ticket","messages"}               withdrawn: closed_by player (the console's Row closedBy)
  *   POST tickets/{id}/edit       {"message"}  {"ticket","messages"}    new words for the report's first message, until an
  *                                administrator has read it (TicketStore::editable); after that 409 groddle_ticket_read
@@ -38,20 +40,26 @@ use Minn\RestError;
  *            message (the console's GET admin/tickets/{id}, also how /groddle-check reads one); null
  *            while the player wrote last and no administrator has opened it since, and whenever an
  *            administrator wrote last (Read by the team, Austin 2026-11-12; TicketStore::readByTeamAt)
- *   Message: {"id","author":"player"|"admin","body","at","edited":time|null}   who wrote is a role, never a name
+ *   Message: {"id","author":"player"|"admin","body","at","edited":time|null,"picture":{"url","width","height"}|null}
+ *            who wrote is a role, never a name; picture: a reply's (G791, /report-pictures/{ticket}/{message})
  *   editable: whether the first message can still be edited (every thread answer carries it)
  *
  * A new report keeps the old one's rules (BugReports: the message required
  * and at most MAX_MESSAGE characters, the context's known keys cut short,
- * PER_WINDOW in WINDOW seconds and PER_DAY a day; a picture comes only with
- * a new report, so those are its limits too). Replies: REPLY_PER_WINDOW
- * in WINDOW seconds and REPLY_PER_DAY a day, the same length. An edit has
+ * PER_WINDOW in WINDOW seconds and PER_DAY a day; a new report's picture
+ * comes with it, so those are its limits too). Replies: REPLY_PER_WINDOW
+ * in WINDOW seconds and REPLY_PER_DAY a day, the same length; a reply's
+ * picture (G791) also counts against REPLY_PICTURE_PER_WINDOW and
+ * REPLY_PICTURE_PER_DAY, and has a new report's picture's size and type. An edit has
  * the length limit and cleaning of a new message (ticket 49, 2026-11-02).
  */
 final readonly class Tickets
 {
     public const REPLY_PER_WINDOW = 10;
     public const REPLY_PER_DAY = 60;
+    /** G791: pictures sent with replies, in WINDOW seconds and a day (each is up to ReportPicture::MAX_BYTES). */
+    public const REPLY_PICTURE_PER_WINDOW = 5;
+    public const REPLY_PICTURE_PER_DAY = 30;
 
     public function __construct(private Seams $minn)
     {
@@ -122,7 +130,16 @@ final readonly class Tickets
         if ($store->writtenSince($me->id, BugReports::WINDOW, $now) >= self::REPLY_PER_WINDOW || $store->writtenSince($me->id, 86400, $now) >= self::REPLY_PER_DAY) {
             throw new RestError('groddle_ticket_slow', 'You have sent a lot of replies just now. Try again in a little while.', 429);
         }
-        $store->add((int) $row['id'], $me->id, TicketStore::PLAYER, $message, $now);
+        // G791: a picture with the reply, checked after the reply's limits, with a limit of its own.
+        $raw = $body['picture'] ?? null;
+        $picture = null;
+        if ($raw !== null && $raw !== '' && $raw !== false) {
+            if ($store->picturesSince($me->id, BugReports::WINDOW, $now) >= self::REPLY_PICTURE_PER_WINDOW || $store->picturesSince($me->id, 86400, $now) >= self::REPLY_PICTURE_PER_DAY) {
+                throw new RestError(ReportPicture::CODE . '_slow', 'You have sent a lot of pictures just now. Try again in a little while.', 429);
+            }
+            $picture = ReportPicture::accept($raw);
+        }
+        $store->add((int) $row['id'], $me->id, TicketStore::PLAYER, $message, $now, $picture);
         return $this->thread((int) $row['id'], $me->id);
     }
 
@@ -179,7 +196,7 @@ final readonly class Tickets
         $row = (array) $store->find($id);
         return Response::json([
             'ticket' => TicketStore::summary($row, TicketStore::PLAYER),
-            'messages' => TicketStore::messagesOut($store->messages($id)),
+            'messages' => TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id)),
             'picture' => $store->pictureOut($id),
             'editable' => TicketStore::editable($row, $store->first($id), $player),
         ])->withHeader('Cache-Control', 'no-store');

@@ -23,6 +23,10 @@ use Minn\Http\RouteMiss;
  * <img> can show it with the session cookie (an image request carries no REST
  * nonce); it changes nothing. Never cached by anyone else: private, no-store.
  * The path has no .jpg: Kinsta's nginx answers a missing picture file itself.
+ *
+ * GET /report-pictures/{ticket}/{message}: the picture a player's reply
+ * carries (G791, TicketStore::MESSAGE_PICTURES), to the same two people, the
+ * same way; a message that is not in that ticket is missing.
  */
 final readonly class TicketPictures
 {
@@ -32,10 +36,10 @@ final readonly class TicketPictures
     {
     }
 
-    /** Where a ticket's picture is shown. */
-    public static function url(int $ticket): string
+    /** Where a ticket's picture is shown, or with $message a reply's (G791). */
+    public static function url(int $ticket, int $message = 0): string
     {
-        return self::PATH . $ticket;
+        return self::PATH . $ticket . ($message > 0 ? '/' . $message : '');
     }
 
     #[Route(Method::Get, '/report-pictures/{id:\d+}', policy: new Policy(Access::Public))]
@@ -45,12 +49,28 @@ final readonly class TicketPictures
         if ($user === null) {
             throw new RouteMiss();
         }
-        $row = (new TicketStore($this->minn->db))->picture((int) $id);
+        return $this->serve((new TicketStore($this->minn->db))->picture((int) $id), $user->id);
+    }
+
+    /** G791: a player's reply's picture, the same two people only. */
+    #[Route(Method::Get, '/report-pictures/{id:\d+}/{message:\d+}', policy: new Policy(Access::Public))]
+    public function messagePicture(Request $request, string $id, string $message): Response
+    {
+        $user = $this->minn->user();
+        if ($user === null) {
+            throw new RouteMiss();
+        }
+        return $this->serve((new TicketStore($this->minn->db))->messagePicture((int) $id, (int) $message), $user->id);
+    }
+
+    /** A picture row as image/jpeg to its player or an administrator; anyone else (and no row) gets the 404. */
+    private function serve(?array $row, int $userId): Response
+    {
         if ($row === null) {
             throw new RouteMiss();
         }
-        $mine = (int) $row['player_user_id'] === $user->id;
-        if (!$mine && !Capabilities::fromDb($this->minn->db)->can($user->id, 'manage_options')) {
+        $mine = (int) $row['player_user_id'] === $userId;
+        if (!$mine && !Capabilities::fromDb($this->minn->db)->can($userId, 'manage_options')) {
             throw new RouteMiss();
         }
         $bytes = (string) $row['picture'];
