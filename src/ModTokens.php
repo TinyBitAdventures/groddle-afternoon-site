@@ -20,6 +20,9 @@ use Minn\Db;
  * Moderation tab (session only; a token can never make, list or revoke tokens). Revoking is at
  * once. Capabilities: "read" (the feed: chat log, flags (never an IM: no route reads one),
  * community and board reports, the moderators' log) and "moderate" (the actions).
+ *
+ * A token ends by itself EXPIRE_DAYS after it was made (ours): verify answers null from then on,
+ * as for a revoked one, and the administrator makes a new one.
  */
 final readonly class ModTokens
 {
@@ -30,6 +33,8 @@ final readonly class ModTokens
     public const LABEL_MAX = 60;
     /** How often last_used_at is written (seconds): a polling token does not write on every call. */
     public const TOUCH_EVERY = 60;
+    /** Ours: days a token works after it was made. */
+    public const EXPIRE_DAYS = 90;
 
     public function __construct(private Db $db)
     {
@@ -91,10 +96,10 @@ final readonly class ModTokens
         }
         [$id, $secret] = $parts;
         $row = $this->db->row('SELECT * FROM ' . $this->db->table(self::TABLE) . ' WHERE token_id = ?', [$id]);
-        if ($row === null || $row['revoked_at'] !== null || !hash_equals((string) $row['secret_hash'], self::hash($secret))) {
+        $now ??= time();
+        if ($row === null || $row['revoked_at'] !== null || !hash_equals((string) $row['secret_hash'], self::hash($secret)) || self::expired((string) $row['created_at'], $now)) {
             return null;
         }
-        $now ??= time();
         $used = $row['last_used_at'] === null ? 0 : (int) strtotime((string) $row['last_used_at'] . ' UTC');
         if ($now - $used >= self::TOUCH_EVERY) {
             $this->db->execute('UPDATE ' . $this->db->table(self::TABLE) . ' SET last_used_at = ? WHERE token_id = ?', [gmdate('Y-m-d H:i:s', $now), $id]);
@@ -102,9 +107,23 @@ final readonly class ModTokens
         return ['id' => $id, 'label' => (string) $row['label'], 'caps' => array_values(array_filter(explode(',', (string) $row['caps']))), 'created_by' => (int) $row['created_by']];
     }
 
-    /** Every token, newest first, without its hash. @return list<array<string, mixed>> */
-    public function list(): array
+    /** When a token made at $createdAt (UTC, as stored) stops working (unix). */
+    public static function expiresAt(string $createdAt): int
     {
+        $made = strtotime($createdAt . ' UTC');
+        return ($made === false ? 0 : $made) + self::EXPIRE_DAYS * 86400;
+    }
+
+    /** Whether a token made at $createdAt no longer works at $now. */
+    public static function expired(string $createdAt, int $now): bool
+    {
+        return $now >= self::expiresAt($createdAt);
+    }
+
+    /** Every token, newest first, without its hash. @return list<array<string, mixed>> */
+    public function list(?int $now = null): array
+    {
+        $now ??= time();
         $out = [];
         foreach ($this->db->rows('SELECT token_id, label, caps, created_by, created_at, last_used_at, revoked_at FROM ' . $this->db->table(self::TABLE) . ' ORDER BY created_at DESC, token_id') as $r) {
             $out[] = [
@@ -115,6 +134,8 @@ final readonly class ModTokens
                 'createdAt' => SaveShape::time((string) $r['created_at']),
                 'lastUsedAt' => $r['last_used_at'] === null ? null : SaveShape::time((string) $r['last_used_at']),
                 'revokedAt' => $r['revoked_at'] === null ? null : SaveShape::time((string) $r['revoked_at']),
+                'expiresAt' => SaveShape::time(gmdate('Y-m-d H:i:s', self::expiresAt((string) $r['created_at']))),
+                'expired' => self::expired((string) $r['created_at'], $now),
             ];
         }
         return $out;

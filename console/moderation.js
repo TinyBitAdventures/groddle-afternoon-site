@@ -206,11 +206,13 @@ function boot() {
   }
 
   function tokenRow(t) {
-    const state = t.revokedAt ? `revoked ${when(t.revokedAt)}` : 'active';
+    // A token ends by itself 90 days after it was made (ModTokens::EXPIRE_DAYS).
+    const chip = t.revokedAt ? 'revoked' : (t.expired ? 'expired' : 'active');
+    const state = t.revokedAt ? `revoked ${when(t.revokedAt)}` : (t.expired ? `expired ${when(t.expiresAt)}` : (t.expiresAt ? `active, expires ${when(t.expiresAt)}` : 'active'));
     return el('li', { class: 'console-draft', 'data-mod-token': t.id },
-      el('div', { class: 'console-draft-top' }, el('b', { text: t.label }), el('span', { class: 'console-sub', text: ` ${t.id}` }), el('span', { class: `console-chip console-chip-${t.revokedAt ? 'closed' : 'open'}`, text: t.revokedAt ? 'revoked' : 'active' })),
+      el('div', { class: 'console-draft-top' }, el('b', { text: t.label }), el('span', { class: 'console-sub', text: ` ${t.id}` }), el('span', { class: `console-chip console-chip-${chip === 'active' ? 'open' : 'closed'}`, text: chip })),
       el('span', { class: 'console-sub', text: `${t.caps.join(', ')}. ${state}; ${t.lastUsedAt ? `last used ${when(t.lastUsedAt)}` : 'never used'}.` }),
-      t.revokedAt ? null : el('div', { class: 'console-draft-acts' }, el('button', { type: 'button', class: 'console-small', 'data-mod-revoke': t.id, onclick: () => revoke(t) }, 'Revoke')));
+      t.revokedAt || t.expired ? null : el('div', { class: 'console-draft-acts' }, el('button', { type: 'button', class: 'console-small', 'data-mod-revoke': t.id, onclick: () => revoke(t) }, 'Revoke')));
   }
 
   async function load() {

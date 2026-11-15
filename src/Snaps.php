@@ -161,7 +161,9 @@ final readonly class Snaps
         $players = $db->table(Characters::TABLE);
         $ignores = $db->table(Buddies::IGNORES);
         $where = "s.user_id <> ? AND s.street <> '' AND s.street <> ?"
-            . " AND NOT EXISTS (SELECT 1 FROM {$ignores} i WHERE (i.user_id = ? AND i.ignored_id = s.user_id) OR (i.user_id = s.user_id AND i.ignored_id = ?))";
+            . " AND NOT EXISTS (SELECT 1 FROM {$ignores} i WHERE (i.user_id = ? AND i.ignored_id = s.user_id) OR (i.user_id = s.user_id AND i.ignored_id = ?))"
+            // Never a suspended player's Snap (a ban on any character of the login).
+            . ' AND NOT ' . AdminConsole::bannedSql($db, 's.user_id');
         $params = [$me, $exclude, $me, $me];
         $count = (int) $db->value("SELECT COUNT(*) FROM {$snaps} s JOIN {$players} p ON p.user_id = s.user_id WHERE {$where}", $params);
         if ($count < 1) {

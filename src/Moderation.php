@@ -58,6 +58,9 @@ use Minn\RestError;
  *                                                       (a purge or a deleted line is final)
  * Tokens (the session only):
  *   GET mod/tokens · POST mod/tokens {"label","caps":["read","moderate"]} (201, the token once) · DELETE mod/tokens/{id}
+ *   A token ends ModTokens::EXPIRE_DAYS (90) after it was made, and bans or purges at most TOKEN_DAILY_PLAYERS
+ *   players in any 24 hours (both ours): past that, a ban or purge of someone new answers 429 until an
+ *   administrator acts. A second ban or purge of a player it already acted on that day counts once.
  *
  * hours: 1 to TOKEN_HOURS_MAX for a token (Grok Bot's actions always end), 0 (never) to ADMIN_HOURS_MAX for an
  * administrator. Every call, reads too, is one line of groddle_mod_actions (who: the token's label or the
@@ -85,6 +88,10 @@ final readonly class Moderation
     public const TOKEN_HOURS_MAX = 720;
     public const ADMIN_HOURS_MAX = 8760;
     public const PURGE_HOURS_MAX = 720;
+    /** Ours: different players one moderator token may ban or purge in any 24 hours (administrators have no cap). */
+    public const TOKEN_DAILY_PLAYERS = 10;
+    /** The actions TOKEN_DAILY_PLAYERS counts. */
+    public const TOKEN_DAILY_ACTIONS = ['ban', 'purge'];
     public const FEED_MAX = 50;
     public const LOG_PAGE = 50;
     /** Resolved reports, the moderators' log and ended restrictions are kept this long (days). */
@@ -113,7 +120,7 @@ final readonly class Moderation
             }
             $t = (new ModTokens($this->minn->db))->verify($token);
             if ($t === null) {
-                throw new RestError('groddle_mod_token', 'That moderator token is not valid (revoked, or never made).', 401);
+                throw new RestError('groddle_mod_token', 'That moderator token is not valid (revoked, more than ' . ModTokens::EXPIRE_DAYS . ' days old, or never made).', 401);
             }
             if (!in_array($cap, $t['caps'], true)) {
                 throw new RestError('groddle_mod_cap', "This token cannot {$cap}.", 403);
@@ -159,6 +166,31 @@ final readonly class Moderation
             throw new RestError('groddle_mod_reason', 'Say why (reason).', 400);
         }
         return $reason;
+    }
+
+    /**
+     * A moderator token's daily cap on bans and purges (TOKEN_DAILY_PLAYERS different players in any
+     * 24 hours; administrators have none): refused, and logged, when $player would be one too many.
+     */
+    private function tokenDaily(array $actor, int $player, string $action): void
+    {
+        if ($actor['kind'] !== 'token') {
+            return;
+        }
+        $db = $this->minn->db;
+        $rows = $db->rows('SELECT DISTINCT target_id FROM ' . $db->table(self::ACTIONS) . " WHERE actor_kind = 'token' AND actor_ref = ? AND action IN (?) AND result <> 'refused' AND at >= ?", [substr($actor['id'], 0, 24), self::TOKEN_DAILY_ACTIONS, gmdate('Y-m-d H:i:s', time() - 86400)]);
+        $done = array_map(static fn (array $r): int => (int) $r['target_id'], $rows);
+        if (!self::withinDaily($done, $player)) {
+            $this->refused($actor, $action, $player, 'daily');
+            throw new RestError('groddle_mod_daily', 'This token has banned or purged ' . self::TOKEN_DAILY_PLAYERS . ' players in the last 24 hours. An administrator can act from the console.', 429);
+        }
+    }
+
+    /** Whether a token that banned or purged $done (player ids, the last 24 hours) may act on $player too. @param list<int> $done */
+    public static function withinDaily(array $done, int $player): bool
+    {
+        $done = array_values(array_unique(array_filter($done, static fn (int $id): bool => $id > 0)));
+        return in_array($player, $done, true) || count($done) < self::TOKEN_DAILY_PLAYERS;
     }
 
     private function hours(array $actor, mixed $hours, string $action, int $player): int
@@ -624,6 +656,7 @@ final readonly class Moderation
         $body = $request->json();
         $player = $this->target($actor, $body['player'] ?? null, 'ban');
         $reason = $this->reason($actor, $body, 'ban', $player['id']);
+        $this->tokenDaily($actor, $player['id'], 'ban');
         $db = $this->minn->db;
         // The login's ban (Logins), sent as the login: the server boots whichever character plays and refuses them all.
         $login = AdminConsole::banLogin($db, $player['id'], $actor['kind'] === 'token' ? mb_substr("{$actor['name']}: {$reason}", 0, AdminConsole::REASON_MAX) : $reason, $actor['by']);
@@ -690,6 +723,7 @@ final readonly class Moderation
             throw new RestError('groddle_mod_hours', 'hours goes from 1 to ' . self::PURGE_HOURS_MAX . ', or 0 for everything.', 400);
         }
         $reason = $this->reason($actor, $body, 'purge', $player['id']);
+        $this->tokenDaily($actor, $player['id'], 'purge');
         $since = $hours === 0 ? 0 : (int) (microtime(true) * 1000) - $hours * 3_600_000;
         $site = ChatHistory::purge($this->minn->db, $player['id'], $since, $actor['by']);
         $answer = (new RealtimeCall($this->minn))->post('mod_purge', ['player' => $player['id'], 'since' => $since, 'by' => $actor['by']]);

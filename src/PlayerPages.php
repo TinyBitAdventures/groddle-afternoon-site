@@ -50,6 +50,12 @@ use Minn\RestError;
  */
 final readonly class PlayerPages
 {
+    /** Ours: seconds a versioned picture is kept by browsers and the CDN (no longer immutable: a ban must reach it). */
+    public const IMAGE_KEEP = 3600;
+
+    /** Ours: seconds a suspended player's picture's 404 is kept. */
+    public const MISS_KEEP = 60;
+
     /** Tiles on one page of the grid. */
     public const PER_PAGE = 60;
 
@@ -134,6 +140,8 @@ final readonly class PlayerPages
         $listed = "JOIN {$saves} s ON s.user_id = c.user_id AND " . Profiles::levelSql('s') . ' >= ' . Profiles::LISTED_LEVEL;
         // Retired characters (Logins) are hidden.
         $listed .= ' AND NOT EXISTS (SELECT 1 FROM ' . $db->table(Logins::TABLE) . ' rl WHERE rl.user_id = c.user_id AND rl.retired_at IS NOT NULL)';
+        // So are suspended ones (a ban on any character of the login, AdminConsole::banned).
+        $listed .= ' AND NOT ' . AdminConsole::bannedSql($db, 'c.user_id');
         $total = (int) $db->value("SELECT COUNT(*) FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id {$listed}");
         $pages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min($page, $pages);
@@ -218,6 +226,10 @@ final readonly class PlayerPages
         // Below the listed level the page is the owner's alone.
         $own = $this->minn->reader->userId === $id;
         if ($facts['level'] < Profiles::LISTED_LEVEL && !$own) {
+            throw new RouteMiss();
+        }
+        // A suspended player's page is gone for everyone (the owner can't sign in to play either).
+        if (AdminConsole::banned($db, $id) !== null) {
             throw new RouteMiss();
         }
         $name = (string) ($character['name'] ?? '');
@@ -561,7 +573,9 @@ final readonly class PlayerPages
 
     /**
      * A picture the game uploaded, as its stored type (the avatar's two PNGs; the home's WebP, JPEG
-     * or PNG, and its phone copy home-small); versioned URLs are kept for a year. The path has no
+     * or PNG, and its phone copy home-small); versioned URLs are kept for IMAGE_KEEP (an hour, ours;
+     * it was a year and immutable), so a suspended player's pictures leave caches soon after the ban:
+     * from then on they answer 404, kept MISS_KEEP. The path has no
      * .png: Kinsta's nginx answers any missing .png file itself, so PHP never saw those (2026-10-29).
      */
     #[Route(Method::Get, '/players/{id:\d+}/{kind:avatar|tile|home|home-small}', policy: new Policy(Access::Public))]
@@ -581,13 +595,16 @@ final readonly class PlayerPages
         if (!$listed && $this->minn->reader->userId !== (int) $id) {
             throw new RouteMiss();
         }
+        if (AdminConsole::banned($db, (int) $id) !== null) {
+            return new Response(404, ['Content-Type' => 'text/plain; charset=utf-8', 'Cache-Control' => 'public, max-age=' . self::MISS_KEEP, 'X-Content-Type-Options' => 'nosniff'], 'Not found');
+        }
         $stamp = Profiles::stamp($row['at']);
         $etag = "\"{$kind}-{$stamp}\"";
         $headers = [
             'Content-Type' => $contentType,
             'X-Content-Type-Options' => 'nosniff',
             'Content-Security-Policy' => "default-src 'none'; sandbox",
-            'Cache-Control' => !$listed ? 'private, no-store' : ($request->query('v') === $stamp ? 'public, max-age=31536000, immutable' : 'public, max-age=60'),
+            'Cache-Control' => !$listed ? 'private, no-store' : ($request->query('v') === $stamp ? 'public, max-age=' . self::IMAGE_KEEP : 'public, max-age=60'),
             'ETag' => $etag,
         ];
         if (trim((string) $request->header('if-none-match')) === $etag) {

@@ -980,6 +980,18 @@ final readonly class AdminConsole
         return $reason === null ? null : ['reason' => (string) $reason];
     }
 
+    /**
+     * SQL that is true when the character in column $col is suspended, as banned() reads it: a ban row
+     * on its login or on any character of that login. For lists that leave banned players out.
+     */
+    public static function bannedSql(Db $db, string $col): string
+    {
+        $bans = $db->table(self::BANS);
+        $logins = $db->table(Logins::TABLE);
+        $login = "COALESCE((SELECT bl.login_id FROM {$logins} bl WHERE bl.user_id = {$col}), {$col})";
+        return "EXISTS (SELECT 1 FROM {$bans} bb WHERE bb.user_id = {$login} OR bb.user_id IN (SELECT bs.user_id FROM {$logins} bs WHERE bs.login_id = {$login}))";
+    }
+
     /** Bans the login a character belongs to (one row, on the login): the login's id. */
     public static function banLogin(Db $db, int $player, string $reason, int $by): int
     {
