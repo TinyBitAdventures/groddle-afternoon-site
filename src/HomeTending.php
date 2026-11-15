@@ -15,14 +15,24 @@ use Minn\Http\Route;
 use Minn\RestError;
 
 /**
- * Key-holders tending a friend's gardens (register G328, slice 2). In the
+ * Tending another player's gardens (register G328, slice 2; G777). In the
  * source a garden's tend verb (items/garden_new.js 87-140) is the owner's,
  * or anyone holding a key to the owner's house
  * (locations/inc_acl_keys.js acl_keys_player_has_key; the keyring's
  * "Roommate alert! Your friend will have access to everything in your house,
  * including your crops and cabinet.", view/ui/acl/ACLCreateKeyUI.as 81-82);
  * tending is the garden's plots: water, plant, clear (hoe), harvest and
- * Guano (items/include/garden.js). Nobody else may touch them.
+ * Guano (items/include/garden.js). A garden on the outdoor home street is
+ * public (#354, #364): the home exterior is_public (players/inc_houses.js
+ * 847), include/garden.js isPublic (1244-1247) is true there, and
+ * doGardenAction (main.js 6513-6518) asks no key of a public garden, so any
+ * visitor the owner has not blocked (either way, as HomeYard's verbs) may
+ * plant, water, Guano, clear and harvest it. The back yard's gardens stay
+ * the owner's and key-holders' ("Nacho garden!"). In a public garden the
+ * planter has the first minute on the ripe crop (include/garden.js 384
+ * planter, 1042-1046 the unlock a minute after it ripens, 1229-1231;
+ * GardenView.as 481-486): a plot planted here keeps its planter, and one
+ * without (the owner's own planting) is the owner's.
  *
  * The owner's save is the owner's: a key-holder's act is checked here
  * against the owner's stored gardens (ticked as the game grows them, with
@@ -63,6 +73,10 @@ final readonly class HomeTending
     public const ACTS = ['water', 'plant', 'clear', 'harvest', 'guano'];
 
     public const TEXT_NO_KEY = 'Only a key-holder can tend these gardens.';
+    /** GardenView.as 484: someone else's crop in its planter's first minute. */
+    public const TEXT_HELD = 'Another player planted those seeds, give them time to snag them up!';
+    /** include/garden.js 1045: pushEvent(plot, 0.0167 h, 'unlock'), a minute after the crop ripens. */
+    public const HOLD_MS = 60000;
     public const TEXT_NO_PLOT = 'No such plot.';
     public const TEXT_WET = 'That plot is already wet.';
     public const TEXT_NOT_READY = 'That plot is not ready to plant.';
@@ -91,17 +105,22 @@ final readonly class HomeTending
         if (!is_array($acts) || $acts === [] || count($acts) > self::PER_CALL || !array_is_list($acts)) {
             throw new RestError('groddle_tend_invalid', 'Name the acts.', 400);
         }
-        if ($owner === $me || !(new Neighbours($this->minn))->holdsKeyTo($owner, $me)) {
+        if ($owner === $me) {
             throw new RestError('groddle_tend_key', self::TEXT_NO_KEY, 403);
         }
         $db = $this->minn->db;
+        // G777: a key opens the back yard too; without one only the public home street, and not to a blocked player.
+        $key = (new Neighbours($this->minn))->holdsKeyTo($owner, $me);
+        if (!$key && $this->blocked($owner, $me)) {
+            throw new RestError('groddle_tend_blocked', Neighbours::TEXT_BLOCKED, 403);
+        }
         $seeds = self::seeds();
-        $out = Ledger::atomically($db, function () use ($db, $owner, $me, $acts, $seeds): array {
+        $out = Ledger::atomically($db, function () use ($db, $owner, $me, $key, $acts, $seeds): array {
             $saves = $db->table(MultiplayerSave::TABLE);
             $db->value("SELECT version FROM {$saves} WHERE user_id = ? FOR UPDATE", [$owner]);
             $homes = self::homesOf(Neighbours::state($db, $owner));
             $t = $db->table(self::TABLE);
-            $waiting = $db->rows("SELECT id, yard, garden, plot, act, seed, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id", [$owner]);
+            $waiting = $db->rows("SELECT id, visitor_id, yard, garden, plot, act, seed, at_ms FROM {$t} WHERE owner_id = ? ORDER BY at_ms, id", [$owner]);
             if (count($waiting) >= self::WAITING_MAX) {
                 throw new RestError('groddle_tend_busy', self::TEXT_BUSY, 429);
             }
@@ -114,6 +133,10 @@ final readonly class HomeTending
                     $results[] = ['ok' => false, 'text' => self::TEXT_NO_PLOT];
                     continue;
                 }
+                if (!self::mayTend($act['yard'], $key)) {
+                    $results[] = $act + ['ok' => false, 'text' => self::TEXT_NO_KEY];
+                    continue;
+                }
                 $garden = self::garden($homes, $act['yard'], $act['garden']);
                 $plot = $garden !== null ? self::plotAt($garden, $act, $waiting, $nowMs, $seeds) : null;
                 if ($plot === null) {
@@ -121,7 +144,7 @@ final readonly class HomeTending
                     continue;
                 }
                 $type = ($garden->gardenType ?? 'default') === 'herb' ? 'herb' : 'default';
-                $why = self::refuse($plot, $act, $type, $nowMs, $seeds);
+                $why = self::refuse($plot, $act, $type, $nowMs, $seeds, $act['yard'] === 'street' ? ['me' => $me, 'owner' => $owner] : null);
                 if ($why !== null) {
                     $results[] = $act + ['ok' => false, 'text' => $why, 'plot' => $plot];
                     continue;
@@ -129,7 +152,7 @@ final readonly class HomeTending
                 $rowId = 'tend-' . bin2hex(random_bytes(8));
                 $at = $nowMs + $i;
                 $db->execute("INSERT INTO {$t} (id, owner_id, visitor_id, yard, garden, plot, act, seed, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [$rowId, $owner, $me, $act['yard'], $act['garden'], $act['plot'], $act['act'], $act['seed'], $at, gmdate('Y-m-d H:i:s')]);
-                $waiting[] = ['id' => $rowId, 'yard' => $act['yard'], 'garden' => $act['garden'], 'plot' => $act['plot'], 'act' => $act['act'], 'seed' => $act['seed'], 'at_ms' => $at];
+                $waiting[] = ['id' => $rowId, 'visitor_id' => $me, 'yard' => $act['yard'], 'garden' => $act['garden'], 'plot' => $act['plot'], 'act' => $act['act'], 'seed' => $act['seed'], 'at_ms' => $at];
                 $results[] = $act + ['ok' => true, 'id' => $rowId, 'at' => $at];
                 if ($act['act'] === 'harvest' && $act['yard'] === 'street') {
                     // G201: a visitor's harvest on the home street fills the owner's Magic Rock pool (include/garden.js:579).
@@ -166,7 +189,7 @@ final readonly class HomeTending
     /** The waiting acts for an owner, oldest first (for Neighbours' visit view). */
     public static function rowsFor(Db $db, int $owner): array
     {
-        return $db->rows('SELECT id, yard, garden, plot, act, seed, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id LIMIT ' . self::WAITING_MAX, [$owner]);
+        return $db->rows('SELECT id, visitor_id, yard, garden, plot, act, seed, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id LIMIT ' . self::WAITING_MAX, [$owner]);
     }
 
     /** A visit's homes slice with the waiting acts on its gardens (display: a copy, the save is untouched). */
@@ -185,7 +208,7 @@ final readonly class HomeTending
             }
             $at = (int) $r['at_ms'];
             self::tickPlot($plot, $at, $seeds);
-            self::applyAct($plot, (string) $r['act'], (string) $r['seed'], $at, $seeds);
+            self::applyAct($plot, (string) $r['act'], (string) $r['seed'], $at, $seeds, self::planterOf($r));
         }
         return $copy;
     }
@@ -268,8 +291,36 @@ final readonly class HomeTending
         }
     }
 
-    /** Why the act cannot be done to the plot now (waterPlot, plantPlot, clearPlot, harvestPlot), or null. */
-    public static function refuse(object $plot, array $act, string $type, int $now, array $seeds): ?string
+    /**
+     * Whether a visitor may tend a garden in that yard (G777): the home street's are public
+     * (include/garden.js isPublic 1244-1247, main.js doGardenAction 6513-6518), the back
+     * yard's need a key.
+     */
+    public static function mayTend(string $yard, bool $key): bool
+    {
+        return $key || $yard === 'street';
+    }
+
+    /**
+     * Whether a public plot's ripe crop is still its planter's (include/garden.js 1042-1046,
+     * 1229-1231; GardenView.as 481-486): for a minute from when it ripened (the crop stage's
+     * start), anyone but the planter is refused. A plot with no planter is the owner's planting.
+     */
+    public static function held(object $plot, int $me, int $owner, int $now): bool
+    {
+        if (($plot->state ?? '') !== 'crop') {
+            return false;
+        }
+        $planter = is_numeric($plot->planter ?? null) && (int) $plot->planter > 0 ? (int) $plot->planter : $owner;
+        $ripe = is_numeric($plot->stageStartedAt ?? null) ? (int) $plot->stageStartedAt : 0;
+        return $planter !== $me && $now - $ripe < self::HOLD_MS;
+    }
+
+    /**
+     * Why the act cannot be done to the plot now (waterPlot, plantPlot, clearPlot, harvestPlot), or null.
+     * $public: ['me' => id, 'owner' => id] for a garden on the public home street (the planter's minute).
+     */
+    public static function refuse(object $plot, array $act, string $type, int $now, array $seeds, ?array $public = null): ?string
     {
         $state = (string) ($plot->state ?? 'clean');
         switch ($act['act']) {
@@ -291,7 +342,10 @@ final readonly class HomeTending
             case 'clear':
                 return $state === 'dirty' ? null : self::TEXT_CLEAR;
             case 'harvest':
-                return $state === 'crop' && is_string($plot->seed ?? null) ? null : self::TEXT_HARVEST;
+                if ($state !== 'crop' || !is_string($plot->seed ?? null)) {
+                    return self::TEXT_HARVEST;
+                }
+                return $public !== null && self::held($plot, (int) $public['me'], (int) $public['owner'], $now) ? self::TEXT_HELD : null;
             case 'guano':
                 // G403: the game's fertilizeCheck (GardenPlotView.as 217-222); the Guano is the visitor's own client's.
                 if (($state !== 'seeds' && $state !== 'shoots') || !is_string($plot->seed ?? null) || ($plot->fertilized ?? false) === true) {
@@ -304,8 +358,11 @@ final readonly class HomeTending
         return self::TEXT_NO_PLOT;
     }
 
-    /** The act's change to a plot at time at (wetPlot; plant, clear and harvest each start a stage). */
-    public static function applyAct(object $plot, string $act, string $seed, int $at, array $seeds = []): void
+    /**
+     * The act's change to a plot at time at (wetPlot; plant, clear and harvest each start a stage).
+     * $planter: who planted it, on the public home street (include/garden.js 384); 0 elsewhere.
+     */
+    public static function applyAct(object $plot, string $act, string $seed, int $at, array $seeds = [], int $planter = 0): void
     {
         if ($act === 'water') {
             if (($plot->wet ?? false) !== true) {
@@ -342,6 +399,11 @@ final readonly class HomeTending
         $plot->seed = $act === 'plant' ? $seed : null;
         $plot->stageStartedAt = $at;
         $plot->growthMs = 0;
+        // include/garden.js 384 and 551: a public plot's planter, kept until the pick.
+        unset($plot->planter);
+        if ($act === 'plant' && $planter > 0) {
+            $plot->planter = $planter;
+        }
         if ($act === 'plant') {
             $plot->growModifier = 1;
             // Planted on today's clock (js/garden.js sowPlot).
@@ -399,11 +461,24 @@ final readonly class HomeTending
         foreach ($waiting as $w) {
             if ($w['yard'] === $act['yard'] && $w['garden'] === $act['garden'] && $w['plot'] === $act['plot']) {
                 self::tickPlot($plot, (int) $w['at_ms'], $seeds);
-                self::applyAct($plot, (string) $w['act'], (string) $w['seed'], (int) $w['at_ms'], $seeds);
+                self::applyAct($plot, (string) $w['act'], (string) $w['seed'], (int) $w['at_ms'], $seeds, self::planterOf($w));
             }
         }
         self::tickPlot($plot, $now, $seeds);
         return $plot;
+    }
+
+    /** The planter a waiting row names: its visitor, on the public home street only. */
+    private static function planterOf(array $row): int
+    {
+        return ($row['yard'] ?? '') === 'street' && ($row['act'] ?? '') === 'plant' ? (int) ($row['visitor_id'] ?? 0) : 0;
+    }
+
+    /** A block either way (HomeYard's public yard verbs, Buddies' ignores). */
+    private function blocked(int $a, int $b): bool
+    {
+        $t = $this->minn->db->table(Buddies::IGNORES);
+        return $this->minn->db->value("SELECT 1 FROM {$t} WHERE (user_id = ? AND ignored_id = ?) OR (user_id = ? AND ignored_id = ?)", [$a, $b, $b, $a]) !== null;
     }
 
     /** The tending ids the save says it applied (the neighbours-mp slice). */
