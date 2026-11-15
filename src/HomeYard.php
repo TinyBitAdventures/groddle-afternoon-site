@@ -900,7 +900,7 @@ final readonly class HomeYard
      *
      * @return array{chunksRemaining: int, depleted: bool, respawnAt: int}
      */
-    public static function rockNow(array $rules, ?object $state, array $waiting, array $row, int $nowMs): array
+    public static function rockNow(array $rules, ?object $state, array $waiting, array $row, int $nowMs, int &$minedOut = 0): array
     {
         $def = $rules['rocks'][$row['classId']] ?? ['chunks' => 50];
         $full = (int) $def['chunks'];
@@ -930,6 +930,7 @@ final readonly class HomeYard
             $rock['chunksRemaining'] -= (int) $w['took'];
             if ($rock['chunksRemaining'] <= 0) {
                 $rock = ['chunksRemaining' => 0, 'depleted' => true, 'respawnAt' => $at + (int) ($rules['respawnMs'] ?? 45000)];
+                $minedOut++;
             }
         }
         $tick($nowMs);
@@ -988,7 +989,9 @@ final readonly class HomeYard
      * Whether a cultivation is worn out (include/cultivation.js addWear,
      * getMaxWear: max wear x 1 + 0.05 a restore, js/home-cultivation.js): its
      * stored wear (a node cultivation's harvests the owner's game has not
-     * counted in yet too) and the waiting acts on its rocks or nodes.
+     * counted in yet too) and the waiting acts on its rocks or nodes: each
+     * node use, and each swing that mined a rock out (G778, #360:
+     * include/mining.js 388-389 adds wear only when chunks_remaining reaches 0).
      */
     public static function worn(array $rules, ?object $state, array $waiting, object $item, ?int $nowMs = null): bool
     {
@@ -1004,22 +1007,24 @@ final readonly class HomeYard
         if ($cult['kind'] === 'rock') {
             foreach (self::homeRocks($rules, $state) as $r) {
                 if ($r['item'] === $item) {
-                    $mine[] = $r['id'];
+                    $outs = 0;
+                    self::rockNow($rules, $state, $waiting, $r, $nowMs ?? (int) floor(microtime(true) * 1000), $outs);
+                    $used += $outs;
                 }
             }
-        } else {
-            $harvests = 0;
-            foreach (self::homeNodes($rules, $state, $nowMs ?? (int) floor(microtime(true) * 1000)) as $n) {
-                if ($n['item'] === $item) {
-                    $mine[] = $n['id'];
-                    $s = $state?->world?->streets?->{self::STREET}?->features?->{'resource-nodes'}?->nodes?->{$n['key']} ?? null;
-                    $harvests += is_object($s) && is_numeric($s->totalHarvests ?? null) ? (int) $s->totalHarvests : 0;
-                }
-            }
-            $used = max($used, (float) $harvests);
+            return $max > 0 && $used >= $max;
         }
+        $harvests = 0;
+        foreach (self::homeNodes($rules, $state, $nowMs ?? (int) floor(microtime(true) * 1000)) as $n) {
+            if ($n['item'] === $item) {
+                $mine[] = $n['id'];
+                $s = $state?->world?->streets?->{self::STREET}?->features?->{'resource-nodes'}?->nodes?->{$n['key']} ?? null;
+                $harvests += is_object($s) && is_numeric($s->totalHarvests ?? null) ? (int) $s->totalHarvests : 0;
+            }
+        }
+        $used = max($used, (float) $harvests);
         foreach ($waiting as $w) {
-            if (in_array((string) $w['target'], $mine, true) && in_array((string) $w['kind'], ['rock', 'node'], true)) {
+            if (in_array((string) $w['target'], $mine, true) && (string) $w['kind'] === 'node') {
                 $used += 1;
             }
         }
