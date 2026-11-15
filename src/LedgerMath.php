@@ -86,8 +86,24 @@ final class LedgerMath
     /** Credited kind of a paying level-up waiting for a later day's count. */
     public const LEVEL_WAIT = 'lvlwait';
 
-    /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups. */
-    public const DAILY_KINDS = ['cap', 'cardday', 'lvlday'];
+    /**
+     * Ours (G739): currants credited a day for levels, quests and badges together, per character.
+     * Levels, quests and badges are the save's own claims until the realtime server counts them, so
+     * this bounds what a forged save can cash in a day. 40,000 is about twice the 90th percentile of
+     * honest characters' best day measured on live (about 19,000; median 2,640) on 2026-11-14.
+     * Currants past it are never lost: they wait (PROG_WAIT) for a later day's room, standing in the
+     * save meanwhile outside the ledger (check: deferred), so an honest pack is never corrected.
+     */
+    public const PROGRESSION_DAILY = 40000;
+
+    /** Credited daily kind: progression currants credited today (ref "currants"). */
+    public const PROG_DAY = 'progday';
+
+    /** Credited kind: progression currants waiting for a later day's room (ref "level:<n>", "quest:<id>" or "badge:<id>", n what is left). */
+    public const PROG_WAIT = 'progwait';
+
+    /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants. */
+    public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY];
 
     /** How deep explain looks for an input made from other losses in the same write (grain to flour to a bun). */
     public const EXPLAIN_DEPTH = 2;
@@ -901,7 +917,7 @@ final class LedgerMath
      * and whether the house has had its starter furniture
      * (systems.features.homes.decor.starterKit, js/home-decor.js grantStarterKit).
      *
-     * @return array{quests: list<string>, badges: list<string>, level: int, xp: int, mult: float, owned: list<string>, cards: array<string,int>, homeKit: bool}
+     * @return array{quests: list<string>, skills: list<string>, badges: list<string>, level: int, xp: int, mult: float, owned: list<string>, cards: array<string,int>, homeKit: bool}
      */
     public static function markers(array $entries): array
     {
@@ -923,6 +939,7 @@ final class LedgerMath
         ksort($cards);
         return [
             'quests' => $strings($state['systems']['quests']['completed'] ?? []),
+            'skills' => $strings($state['systems']['skills']['learned'] ?? []),
             'badges' => $strings($state['systems']['achievements']['unlocked'] ?? []),
             'level' => max(1, self::count($player['level'] ?? 1)),
             'xp' => self::count($player['xp'] ?? 0),
@@ -1019,11 +1036,16 @@ final class LedgerMath
      * applyQuestRewards, inc_quests.js:844, round_to_5) and its tradeable
      * items; a newly unlocked badge's currants (Overachiever, js/
      * achievements.js unlockAchievement, inc_achievements.js:331, Completist
-     * x level/4 past level 4); a level reached above the last one credited
-     * whose xp agrees, the final level's currants only (js/progression.js
-     * reconcilePlayerProgression, inc_stats.js), at most LEVELS_DAILY
-     * paying ones a day, the rest waiting (LEVEL_WAIT) for a later day's
-     * count; and each new purchase of an imagination card that hands out an
+     * x level/4 past level 4); the levels reached above the last one
+     * credited when the xp agrees, each in order with its own currants (G739:
+     * a save may hold several level-ups made one at a time; in one jump the
+     * game pays the final level only, js/progression.js
+     * reconcilePlayerProgression, inc_stats.js, and the ledger's surplus is a
+     * loss that is never banked), at most LEVELS_DAILY paying ones a day, the
+     * rest waiting (LEVEL_WAIT) for a later day's count; quests only when the
+     * save shows their prerequisites done (prereqsDone); levels, quests and
+     * badges together at most PROGRESSION_DAILY currants a day, the rest
+     * waiting (PROG_WAIT) for a later day's room; and each new purchase of an imagination card that hands out an
      * item (reward type 8), at most CARD_DAILY a day for a repeatable card,
      * the rest waiting uncredited. Returns the goods (to add to the ledger
      * before the write is compared), what waits (defer: check lets the save
@@ -1054,29 +1076,38 @@ final class LedgerMath
             }
             return $best;
         };
-        $quests = (array) ($economy->credits('quests') ?? []);
-        $qm = $buff + $bonus($economy->credits('questBonus'));
-        foreach ($m['quests'] as $q) {
-            if (!is_array($quests[$q] ?? null) || isset($credited['quest'][$q])) {
-                continue;
+        // G739: progression currants (levels, quests, badges) share PROGRESSION_DAILY a day; what does
+        // not fit waits (PROG_WAIT) and stands in the save meanwhile (defer).
+        $doneToday = (int) ($credited[self::PROG_DAY]['currants'] ?? 0);
+        $left = max(0, self::PROGRESSION_DAILY - $doneToday);
+        $paid = 0;
+        // Pays what today's room allows of $c (returns it); the rest waits under $ref. $waited: $ref is a waiting row already.
+        $pay = static function (string $ref, int $c, bool $waited) use (&$left, &$paid, &$goods, &$defer, &$rows, &$detail): int {
+            $k = min(max(0, $c), $left);
+            $left -= $k;
+            $paid += $k;
+            $goods['currants'] += $k;
+            if ($k < $c || $waited) {
+                $rows[] = [self::PROG_WAIT, $ref, $c - $k];
             }
-            $c = self::roundTo5((float) ($quests[$q]['c'] ?? 0) * $qm);
-            $goods['currants'] += $c;
-            $put((array) ($quests[$q]['i'] ?? []));
-            $rows[] = ['quest', $q, 1];
-            $detail['quests'][$q] = $c;
+            if ($k < $c) {
+                $defer['currants'] += $c - $k;
+                $detail['waits'][$ref] = $c - $k;
+            }
+            return $k;
+        };
+        // What earlier days left waiting for room, first.
+        $owed = [];
+        foreach ((array) ($credited[self::PROG_WAIT] ?? []) as $ref => $c) {
+            if ((int) $c > 0) {
+                $owed[(string) $ref] = (int) $c;
+            }
         }
-        $badges = (array) ($economy->credits('badges') ?? []);
-        $bm = $buff + $bonus($economy->credits('badgeBonus'));
-        foreach ($m['badges'] as $b) {
-            if (!is_array($badges[$b] ?? null) || isset($credited['badge'][$b])) {
-                continue;
+        ksort($owed);
+        foreach ($owed as $ref => $c) {
+            if (($k = $pay($ref, $c, true)) > 0) {
+                $detail['waited'][$ref] = $k;
             }
-            $factor = !empty($badges[$b]['x']) && $m['level'] > 4 ? $m['level'] / 4 : 1;
-            $c = self::roundTo5((float) ($badges[$b]['c'] ?? 0) * $bm * $factor);
-            $goods['currants'] += $c;
-            $rows[] = ['badge', $b, 1];
-            $detail['badges'][$b] = $c;
         }
         $was = (int) ($credited['level']['level'] ?? 1);
         $day = (int) ($credited['lvlday']['level'] ?? 0);
@@ -1094,26 +1125,67 @@ final class LedgerMath
                 $defer['currants'] += $c;
                 continue;
             }
-            $goods['currants'] += $c;
             $today++;
             $rows[] = [self::LEVEL_WAIT, (string) $lv, 0];
-            $detail['waited'][(string) $lv] = $c;
-        }
-        if ($m['level'] > $was && self::levelFor($m['xp'], $economy) >= $m['level']) {
-            $c = (int) (((array) ($economy->credits('levels') ?? []))[(string) $m['level']] ?? 0);
-            $rows[] = ['level', 'level', $m['level']];
-            if ($c > 0 && $today >= self::LEVELS_DAILY) {
-                $rows[] = [self::LEVEL_WAIT, (string) $m['level'], $c];
-                $defer['currants'] += $c;
-                $detail['deferred']['level'] = [$was, $m['level'], $c];
-            } else {
-                $goods['currants'] += $c;
-                $today += $c > 0 ? 1 : 0;
-                $detail['level'] = [$was, $m['level'], $c];
+            if (($k = $pay("level:{$lv}", $c, false)) > 0) {
+                $detail['waited'][(string) $lv] = $k;
             }
+        }
+        $quests = (array) ($economy->credits('quests') ?? []);
+        $qm = $buff + $bonus($economy->credits('questBonus'));
+        foreach ($m['quests'] as $q) {
+            if (!is_array($quests[$q] ?? null) || isset($credited['quest'][$q])) {
+                continue;
+            }
+            // G739: only when the save shows the quest's prerequisites done too (quests.js assignQuest).
+            if (!self::prereqsDone((array) ($quests[$q]['p'] ?? []), $m)) {
+                $detail['prereqs'][] = $q;
+                continue;
+            }
+            $c = self::roundTo5((float) ($quests[$q]['c'] ?? 0) * $qm);
+            $put((array) ($quests[$q]['i'] ?? []));
+            $rows[] = ['quest', $q, 1];
+            $detail['quests'][$q] = $pay("quest:{$q}", $c, false);
+        }
+        $badges = (array) ($economy->credits('badges') ?? []);
+        $bm = $buff + $bonus($economy->credits('badgeBonus'));
+        foreach ($m['badges'] as $b) {
+            if (!is_array($badges[$b] ?? null) || isset($credited['badge'][$b])) {
+                continue;
+            }
+            $factor = !empty($badges[$b]['x']) && $m['level'] > 4 ? $m['level'] / 4 : 1;
+            $c = self::roundTo5((float) ($badges[$b]['c'] ?? 0) * $bm * $factor);
+            $rows[] = ['badge', $b, 1];
+            $detail['badges'][$b] = $pay("badge:{$b}", $c, false);
+        }
+        // G739: levels are paid in order, each level reached once (a jump from 5 to 9 pays 6, 7, 8
+        // and 9), never past the level the save's xp reaches, each paying one a place in the day's count.
+        if ($m['level'] > $was && self::levelFor($m['xp'], $economy) >= $m['level']) {
+            $table = (array) ($economy->credits('levels') ?? []);
+            $rows[] = ['level', 'level', $m['level']];
+            $lvPaid = 0;
+            for ($lv = $was + 1; $lv <= $m['level']; $lv++) {
+                $c = (int) ($table[(string) $lv] ?? 0);
+                if ($c <= 0) {
+                    continue;
+                }
+                if ($today >= self::LEVELS_DAILY) {
+                    $rows[] = [self::LEVEL_WAIT, (string) $lv, $c];
+                    $defer['currants'] += $c;
+                    $detail['deferred']['levels'][(string) $lv] = $c;
+                    continue;
+                }
+                $today++;
+                $lvPaid += $pay("level:{$lv}", $c, false);
+            }
+            // The log's shape (LedgerWatch): [from, to, currants paid now]; deferred.levels: level -> currants waiting for a later day's count.
+            $detail['level'] = [$was, $m['level'], $lvPaid];
         }
         if ($today !== $day) {
             $rows[] = ['lvlday', 'level', $today];
+        }
+        if ($paid > 0) {
+            $rows[] = [self::PROG_DAY, 'currants', $doneToday + $paid];
         }
         $cards = (array) ($economy->credits('cards') ?? []);
         foreach ($m['cards'] as $id => $n) {
@@ -1147,6 +1219,25 @@ final class LedgerMath
         ksort($goods['items']);
         ksort($defer['items']);
         return ['goods' => $goods, 'rows' => $rows, 'detail' => $detail, 'defer' => $defer];
+    }
+
+    /**
+     * Whether a save shows a quest's prerequisites done (G739): each of the economy table's "p"
+     * entries is a quest id in the completed list, or "<quest>/<skill>" where the learned skill
+     * counts too (js/quest-offers.js questDone, prereqProxy).
+     *
+     * @param list<mixed> $prereqs
+     * @param array{quests: list<string>, skills: list<string>} $m markers()
+     */
+    public static function prereqsDone(array $prereqs, array $m): bool
+    {
+        foreach ($prereqs as $p) {
+            [$q, $skill] = array_pad(explode('/', (string) $p, 2), 2, null);
+            if (!in_array($q, $m['quests'], true) && ($skill === null || !in_array($skill, $m['skills'], true))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // —— Words ——

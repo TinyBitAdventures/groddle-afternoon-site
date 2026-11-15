@@ -468,7 +468,7 @@ final readonly class Ledger
             $out[$kind][$ref] = (int) $r['n'];
         }
         if ($stale) {
-            $this->db->execute("DELETE FROM {$t} WHERE user_id = ? AND kind IN ('cap', 'cardday', 'lvlday') AND ref < ?", [$user, $day]);
+            $this->db->execute("DELETE FROM {$t} WHERE user_id = ? AND kind IN ('cap', 'cardday', 'lvlday', 'progday') AND ref < ?", [$user, $day]);
         }
         return $out;
     }
