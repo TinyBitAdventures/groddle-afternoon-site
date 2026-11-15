@@ -172,7 +172,10 @@ final class RestorationMaps
     }
 
     /**
-     * One map: the pair (before, then the picture in the game now), then the words.
+     * One map: the pair (before, then the picture in the game now), then the words: the name, its
+     * chip, caption and differences, and beside them (under them on a phone) the facts, the World
+     * map's card and the Encyclopedia link. Austin 2026-11-15: in the restored list the pair spans
+     * the card's whole width and the words sit under it (style.css .maps-list-wide).
      *
      * @param list<array{label?: string, text?: string}> $facts
      */
@@ -199,12 +202,16 @@ final class RestorationMaps
         return '<article class="maps-card maps-' . self::anchor($state, 'world') . '" id="' . $anchor . '" aria-labelledby="' . $anchor . '-h" data-maps-card>'
             . '<div class="maps-pair' . ($before === '' ? ' maps-pair-one' : '') . '"' . ($before === '' ? '' : ' data-maps-pair data-mode="' . self::esc($view) . '"') . '>' . $before . $after . '</div>'
             . '<div class="maps-words">'
+            . '<div class="maps-words-main">'
             . '<h3 id="' . $anchor . '-h">' . self::esc($name) . '</h3>'
             . $chip
             . (($m['caption'] ?? '') === '' ? '' : '<p class="maps-caption">' . self::esc($m['caption']) . '</p>')
             . (($m['differences'] ?? '') === '' ? '' : '<p class="maps-diff">' . self::esc($m['differences']) . '</p>')
-            . ($list === '' ? '' : '<dl class="maps-facts">' . $list . '</dl>')
-            . ($card . $link === '' ? '' : '<div class="maps-more">' . $card . $link . '</div>')
+            . '</div>'
+            . ($list . $card . $link === '' ? '' : '<div class="maps-words-side">'
+                . ($list === '' ? '' : '<dl class="maps-facts">' . $list . '</dl>')
+                . ($card . $link === '' ? '' : '<div class="maps-more">' . $card . $link . '</div>')
+                . '</div>')
             . '</div></article>';
     }
 
