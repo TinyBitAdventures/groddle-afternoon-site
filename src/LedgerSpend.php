@@ -19,13 +19,18 @@ use Minn\RestError;
  * party_spaces.go): a Party Pack that opens a party's Party Space, or the
  * currants the Party ATM takes to extend one; and the 50 currants the Crown
  * Game Teleporter takes for a Game of Crowns (G387, crowns_teleporter.go;
- * items/game_teleporter.js onConversation 213, stats_try_remove_currants(50)).
- * For the realtime server only,
+ * items/game_teleporter.js onConversation 213, stats_try_remove_currants(50));
+ * and a donation Feat's chunks (G786, #361, feats.go donation): the items a
+ * player gave a shrine leave the ledger, so the realtime server counts all of
+ * them (groups/feat.js increment adds the full amount), one class the Feat
+ * names (DONATIONS), the page having marked the spend applied as the items
+ * left its pack. For the realtime server only,
  * signed with the realtime secret (ServiceCall), never with a player's
  * cookie:
  *
  *   POST groddle/v1/ledger/spend       {"op":"party-<16 hex>","id":7,"gave":Goods,"why":"party_pack"|"party_atm"}
  *                                      {"op":"gtele-<16 hex>","id":7,"gave":{"items":[],"currants":50},"why":"game_teleporter"}
+ *                                      {"op":"fdon-<16 hex>","id":7,"gave":{"items":[{"c":"sparkly","n":189}],"currants":0},"why":"feat_donation"}
  *        200 {"status":"settled"} | 409 {"status":"refused","short":{"id":7,"c":"party_pack_toxic_moon"}|{"id":7,"currants":true}}
  *        | 200 {"status":"void"} (given back, or voided before it came)
  *   POST groddle/v1/ledger/spend/void  {"op":"party-…","id":7}
@@ -61,7 +66,13 @@ final readonly class LedgerSpend
     public const REFUND = '/groddle/v1/ledger/spend/refund';
 
     /** What the realtime server may spend on, and what each takes. */
-    private const WHY = ['party_pack', 'party_atm', 'game_teleporter'];
+    private const WHY = ['party_pack', 'party_atm', 'game_teleporter', 'feat_donation'];
+
+    /** G786: the classes a donation Feat counts (the game's feats-mp.js MP_DONATIONS; inc_data_feats_prod.js donate_sparkly). */
+    public const DONATIONS = ['sparkly'];
+
+    /** The most one donation spends (feats.go featMaxN). */
+    public const DONATION_MAX = 100000;
 
     /** game_teleporter.js onConversation 213: a Game of Crowns at the teleporter is 50 currants. */
     public const TELEPORTER_PRICE = 50;
@@ -115,6 +126,14 @@ final readonly class LedgerSpend
     /** A pack is one Party Pack and nothing else; the ATM takes currants and nothing else. */
     private static function fits(string $why, array $gave): bool
     {
+        if ($why === 'feat_donation') {
+            if ($gave['currants'] !== 0 || count($gave['items']) !== 1) {
+                return false;
+            }
+            $class = (string) array_key_first($gave['items']);
+            $n = $gave['items'][$class];
+            return in_array($class, self::DONATIONS, true) && $n >= 1 && $n <= self::DONATION_MAX;
+        }
         if ($why === 'game_teleporter') {
             return $gave['items'] === [] && $gave['currants'] === self::TELEPORTER_PRICE;
         }
@@ -261,12 +280,19 @@ final readonly class LedgerSpend
     /** party_spaces.go newSpend: party- and 16 hex; crowns_teleporter.go: gtele- and 16 hex. */
     private static function opId(mixed $op): bool
     {
-        return is_string($op) && preg_match('/^(party|gtele)-[0-9a-f]{16}$/', $op) === 1;
+        return is_string($op) && preg_match('/^(party|gtele|fdon)-[0-9a-f]{16}$/', $op) === 1;
     }
 
-    /** A teleporter spend carries its own prefix, a party's its own. */
+    /** A teleporter spend carries its own prefix, a donation its own, a party's its own. */
     private static function opFor(string $op, string $why): bool
     {
-        return str_starts_with($op, $why === 'game_teleporter' ? 'gtele-' : 'party-');
+        return str_starts_with($op, match ($why) { 'game_teleporter' => 'gtele-', 'feat_donation' => 'fdon-', default => 'party-' });
     }
+
+    /** Whether a spend would be taken: its why and goods (for tests). */
+    public static function accepts(string $op, string $why, array $gave): bool
+    {
+        return self::opId($op) && in_array($why, self::WHY, true) && self::opFor($op, $why) && self::fits($why, $gave);
+    }
+
 }
