@@ -93,10 +93,14 @@ final class LedgerMath
      * honest characters' best day measured on live (about 19,000; median 2,640) on 2026-11-14.
      * Currants past it are never lost: they wait (PROG_WAIT) for a later day's room, standing in the
      * save meanwhile outside the ledger (check: deferred), so an honest pack is never corrected.
+     * One paying level-up a day is outside it (PROG_DAY ref "free"): the first credited that day,
+     * which is the day's largest since rewards grow with the level, so an honest high-level player
+     * never waits for an ordinary level-up (level 40 pays 97,570, level 50 216,100). It still takes a
+     * place in LEVELS_DAILY and still needs the xp.
      */
     public const PROGRESSION_DAILY = 40000;
 
-    /** Credited daily kind: progression currants credited today (ref "currants"). */
+    /** Credited daily kind: progression currants credited today (ref "currants"), and whether today's level-up outside the cap is used (ref "free", 1). */
     public const PROG_DAY = 'progday';
 
     /** Credited kind: progression currants waiting for a later day's room (ref "level:<n>", "quest:<id>" or "badge:<id>", n what is left). */
@@ -1036,16 +1040,14 @@ final class LedgerMath
      * applyQuestRewards, inc_quests.js:844, round_to_5) and its tradeable
      * items; a newly unlocked badge's currants (Overachiever, js/
      * achievements.js unlockAchievement, inc_achievements.js:331, Completist
-     * x level/4 past level 4); the levels reached above the last one
-     * credited when the xp agrees, each in order with its own currants (G739:
-     * a save may hold several level-ups made one at a time; in one jump the
-     * game pays the final level only, js/progression.js
-     * reconcilePlayerProgression, inc_stats.js, and the ledger's surplus is a
-     * loss that is never banked), at most LEVELS_DAILY paying ones a day, the
-     * rest waiting (LEVEL_WAIT) for a later day's count; quests only when the
-     * save shows their prerequisites done (prereqsDone); levels, quests and
-     * badges together at most PROGRESSION_DAILY currants a day, the rest
-     * waiting (PROG_WAIT) for a later day's room; and each new purchase of an imagination card that hands out an
+     * x level/4 past level 4); a level reached above the last one credited
+     * whose xp agrees, the final level's currants only, as the game pays a
+     * jump (js/progression.js reconcilePlayerProgression 106-116, inc_stats.js),
+     * at most LEVELS_DAILY paying ones a day, the rest waiting (LEVEL_WAIT)
+     * for a later day's count; quests only when the save shows their
+     * prerequisites done (prereqsDone); levels, quests and badges together at
+     * most PROGRESSION_DAILY currants a day (but for the day's first paying
+     * level-up), the rest waiting (PROG_WAIT) for a later day's room; and each new purchase of an imagination card that hands out an
      * item (reward type 8), at most CARD_DAILY a day for a repeatable card,
      * the rest waiting uncredited. Returns the goods (to add to the ledger
      * before the write is compared), what waits (defer: check lets the save
@@ -1096,6 +1098,17 @@ final class LedgerMath
             }
             return $k;
         };
+        // G739: the day's first paying level-up is paid whole, outside the room; any later one goes through $pay.
+        $freeUsed = isset($credited[self::PROG_DAY]['free']);
+        $freeNow = false;
+        $payLevel = static function (int $lv, int $c) use (&$freeUsed, &$freeNow, &$goods, $pay): int {
+            if (!$freeUsed && $c > 0) {
+                $freeUsed = $freeNow = true;
+                $goods['currants'] += $c;
+                return $c;
+            }
+            return $pay("level:{$lv}", $c, false);
+        };
         // What earlier days left waiting for room, first.
         $owed = [];
         foreach ((array) ($credited[self::PROG_WAIT] ?? []) as $ref => $c) {
@@ -1127,7 +1140,7 @@ final class LedgerMath
             }
             $today++;
             $rows[] = [self::LEVEL_WAIT, (string) $lv, 0];
-            if (($k = $pay("level:{$lv}", $c, false)) > 0) {
+            if (($k = $payLevel($lv, $c)) > 0) {
                 $detail['waited'][(string) $lv] = $k;
             }
         }
@@ -1158,31 +1171,23 @@ final class LedgerMath
             $rows[] = ['badge', $b, 1];
             $detail['badges'][$b] = $pay("badge:{$b}", $c, false);
         }
-        // G739: levels are paid in order, each level reached once (a jump from 5 to 9 pays 6, 7, 8
-        // and 9), never past the level the save's xp reaches, each paying one a place in the day's count.
         if ($m['level'] > $was && self::levelFor($m['xp'], $economy) >= $m['level']) {
-            $table = (array) ($economy->credits('levels') ?? []);
+            $c = (int) (((array) ($economy->credits('levels') ?? []))[(string) $m['level']] ?? 0);
             $rows[] = ['level', 'level', $m['level']];
-            $lvPaid = 0;
-            for ($lv = $was + 1; $lv <= $m['level']; $lv++) {
-                $c = (int) ($table[(string) $lv] ?? 0);
-                if ($c <= 0) {
-                    continue;
-                }
-                if ($today >= self::LEVELS_DAILY) {
-                    $rows[] = [self::LEVEL_WAIT, (string) $lv, $c];
-                    $defer['currants'] += $c;
-                    $detail['deferred']['levels'][(string) $lv] = $c;
-                    continue;
-                }
-                $today++;
-                $lvPaid += $pay("level:{$lv}", $c, false);
+            if ($c > 0 && $today >= self::LEVELS_DAILY) {
+                $rows[] = [self::LEVEL_WAIT, (string) $m['level'], $c];
+                $defer['currants'] += $c;
+                $detail['deferred']['level'] = [$was, $m['level'], $c];
+            } else {
+                $today += $c > 0 ? 1 : 0;
+                $detail['level'] = [$was, $m['level'], $payLevel($m['level'], $c)];
             }
-            // The log's shape (LedgerWatch): [from, to, currants paid now]; deferred.levels: level -> currants waiting for a later day's count.
-            $detail['level'] = [$was, $m['level'], $lvPaid];
         }
         if ($today !== $day) {
             $rows[] = ['lvlday', 'level', $today];
+        }
+        if ($freeNow) {
+            $rows[] = [self::PROG_DAY, 'free', 1];
         }
         if ($paid > 0) {
             $rows[] = [self::PROG_DAY, 'currants', $doneToday + $paid];
