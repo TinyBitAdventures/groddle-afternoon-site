@@ -38,7 +38,9 @@ use Minn\RestError;
  *                                  closedBy: who closed it, the player (withdrew it) or an administrator; null while it is
  *                                  not closed, and for reports closed before 2026-11-11 (unknown)
  *   Message: Tickets' Message; "edited" is when the player changed the report's words before it was read;
- *                                "picture" is a player's reply's picture (G791), {"url","width","height"} or null
+ *                                "pictures" the message's own pictures in order ([{"url","width","height"}], up to four;
+ *                                a new report's own picture is the thread's "picture"), and "picture" the first of them
+ *                                for older readers (G791), or null
  *
  * A reply emails the player (PlayerMail::ticketReply, in the site's look,
  * by their character name, never the username), unless the administrator

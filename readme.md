@@ -78,8 +78,11 @@ watches for who is online; an add also carries a one-use proof that tells the ot
 Bug reports are `groddle_tickets` (one row a report: its player, status, subject, when each side last
 read it, what the game knew), `groddle_ticket_messages` (the thread, oldest first) and
 `groddle_ticket_pictures` (a report's picture, one row a report, kept in the database rather than under
-uploads because the web server serves uploads to anyone), and `groddle_ticket_message_pictures` (a picture a
-player sent with a reply, one row a message, served at `/report-pictures/<report>/<message>`).
+uploads because the web server serves uploads to anyone), and `groddle_message_pictures` (the other pictures
+a message carries, up to four a message by position: a reply's, and a new report's after its own; served at
+`/report-pictures/<report>/<message>/<n>`, `/report-pictures/<report>/<message>` being the first). G791's
+`groddle_ticket_message_pictures` (one a reply, never released) is copied in once with
+`wp eval-file wp-content/themes/groddle/bin/message-pictures.php`.
 
 **Bringing in the old bug reports** (once, after the release that adds tickets; safe to run again, the
 posts stay, nobody is emailed): the console's Reports tab offers "Bring in old reports" while any are

@@ -26,8 +26,17 @@ use Minn\RestError;
  * report's picture is for the administrators and the player who sent it
  * (TicketPictures serves it to those two). A new report's picture has the
  * report's own limits (BugReports PER_WINDOW, PER_DAY) as its rate; a reply's
- * (G791, TicketStore::MESSAGE_PICTURES) has Tickets REPLY_PICTURE_PER_WINDOW
- * and REPLY_PICTURE_PER_DAY, and the same checks here.
+ * (G791, TicketStore::MESSAGE_PICTURES) has Tickets PICTURES_PER_WINDOW
+ * and PICTURES_PER_DAY, and the same checks here.
+ *
+ * Several a message (Austin 2026-11-15): a new report or a reply carries up to
+ * MAX_PER_MESSAGE pictures ("pictures", a list; "picture" alone is one, as
+ * before). The game turns any picture the browser can open (a PNG, a phone
+ * photo, a screenshot pasted or dropped in) into a JPEG within these limits
+ * before it sends it, so every one arrives as the game's own picture does and
+ * meets the same checks here, each written again by GD. A new report's first
+ * picture is the report's own (TicketStore::PICTURES); the rest, and every
+ * picture with a reply, are the message's (TicketStore::MESSAGE_PICTURES).
  */
 final class ReportPicture
 {
@@ -44,6 +53,30 @@ final class ReportPicture
 
     /** Every refusal's code starts with this, so the game can send the report again without it. */
     public const CODE = 'groddle_report_picture';
+
+    /** The most pictures one message carries (a new report counts its own picture among them). */
+    public const MAX_PER_MESSAGE = 4;
+
+    /**
+     * The pictures a request body carries, each checked and written again (accept), in the
+     * order sent: "pictures" (a list of at most MAX_PER_MESSAGE) when it is there, else
+     * "picture" (one, the older games' field), else none. Empty entries are skipped.
+     *
+     * @param array<string, mixed> $body
+     * @return list<array{bytes: string, width: int, height: int}>
+     */
+    public static function fromBody(array $body): array
+    {
+        $raw = array_key_exists('pictures', $body) && $body['pictures'] !== null ? $body['pictures'] : [$body['picture'] ?? null];
+        if (!is_array($raw) || !array_is_list($raw)) {
+            throw new RestError(self::CODE, 'Send the pictures as a list of base64 JPEGs.', 400);
+        }
+        $raw = array_values(array_filter($raw, static fn (mixed $v): bool => $v !== null && $v !== '' && $v !== false));
+        if (count($raw) > self::MAX_PER_MESSAGE) {
+            throw new RestError(self::CODE . '_count', 'A message carries at most ' . self::MAX_PER_MESSAGE . ' pictures.', 400);
+        }
+        return array_map(static fn (mixed $v): array => self::accept($v), $raw);
+    }
 
     /**
      * The picture checked and written again as a JPEG.

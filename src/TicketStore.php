@@ -37,6 +37,13 @@ use Minn\Db;
  * the report window opened, a picture taken on purpose afterwards): kept per
  * message in MESSAGE_PICTURES, written with the message, the same checks and
  * limits (ReportPicture), and shown to the same two people (TicketPictures).
+ * Since 2026-11-15 (Austin: any picture, several a message) a message carries
+ * up to ReportPicture::MAX_PER_MESSAGE: a reply's all in MESSAGE_PICTURES, a
+ * new report's first in PICTURES (the report's own, as before) and the rest in
+ * MESSAGE_PICTURES under its first message. Each row has its place in its
+ * message (position, from 0), and one address (/report-pictures/<ticket>/
+ * <message>/<position + 1>). G791's table held one a message
+ * (OLD_MESSAGE_PICTURES, never released); adoptOldPictures() copies its rows.
  *
  * Read by the team (Austin 2026-11-12): the player's list and thread say
  * when an administrator first opened the thread after the player's latest
@@ -63,8 +70,10 @@ final readonly class TicketStore
     public const REVISIONS = 'groddle_ticket_message_revisions';
     /** A report's picture of the game, one row a ticket (ReportPicture, served by TicketPictures). */
     public const PICTURES = 'groddle_ticket_pictures';
-    /** A player's reply's picture, one row a message (G791; ReportPicture, served by TicketPictures). */
-    public const MESSAGE_PICTURES = 'groddle_ticket_message_pictures';
+    /** A message's pictures, up to ReportPicture::MAX_PER_MESSAGE, by position (ReportPicture, served by TicketPictures). */
+    public const MESSAGE_PICTURES = 'groddle_message_pictures';
+    /** G791's one picture a reply (2026-11-15, never released): its rows are copied by adoptOldPictures(). */
+    public const OLD_MESSAGE_PICTURES = 'groddle_ticket_message_pictures';
 
     public const OPEN = 'open';
     public const ANSWERED = 'answered';
@@ -173,11 +182,12 @@ final readonly class TicketStore
      * the database refused the text).
      *
      * @param array<string, mixed> $context BugReports::context
-     * @param array{bytes: string, width: int, height: int}|null $picture ReportPicture::accept
+     * @param array{bytes: string, width: int, height: int}|null $picture ReportPicture::accept, the report's own
+     * @param list<array{bytes: string, width: int, height: int}> $more the report's other pictures (its first message's)
      */
-    public function open(int $player, string $message, array $context, int $now, ?int $legacyPost = null, ?array $picture = null): int
+    public function open(int $player, string $message, array $context, int $now, ?int $legacyPost = null, ?array $picture = null, array $more = []): int
     {
-        return Ledger::atomically($this->db, function () use ($player, $message, $context, $now, $legacyPost, $picture): int {
+        return Ledger::atomically($this->db, function () use ($player, $message, $context, $now, $legacyPost, $picture, $more): int {
             $at = self::stamp($now);
             $sql = 'INSERT ' . ($legacyPost !== null ? 'IGNORE ' : '') . 'INTO ' . $this->db->table(self::TABLE)
                 . ' (player_user_id, status, subject, created_at, updated_at, last_message_at, last_author_role, player_read_at, admin_read_at, context, legacy_post_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)';
@@ -187,6 +197,10 @@ final readonly class TicketStore
                 return 0;
             }
             $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGES) . ' (ticket_id, author_user_id, author_role, body, created_at) VALUES (?, ?, ?, ?, ?)', [$id, $player, self::PLAYER, $message, $at]);
+            $first = $this->db->insertId();
+            if ($first > 0) {
+                $this->writePictures($id, $first, $player, $more, $at);
+            }
             if ($picture !== null) {
                 // Binary goes in as base64 and FROM_BASE64, as Profiles writes its pictures (raw bytes are not a valid string to bind).
                 $this->db->execute('INSERT INTO ' . $this->db->table(self::PICTURES) . ' (ticket_id, player_user_id, picture, width, height, bytes, created_at) VALUES (?, ?, FROM_BASE64(?), ?, ?, ?, ?)', [$id, $player, base64_encode($picture['bytes']), $picture['width'], $picture['height'], strlen($picture['bytes']), $at]);
@@ -197,19 +211,18 @@ final readonly class TicketStore
 
     /**
      * A message in a ticket from $role: the ticket opens again if it was closed.
-     * A player's reply may carry a picture (G791), written with the message.
+     * A player's reply may carry pictures (G791; several since 2026-11-15), written with the message.
      *
-     * @param array{bytes: string, width: int, height: int}|null $picture ReportPicture::accept
+     * @param list<array{bytes: string, width: int, height: int}> $pictures ReportPicture::fromBody
      */
-    public function add(int $ticket, int $author, string $role, string $body, int $now, ?array $picture = null): int
+    public function add(int $ticket, int $author, string $role, string $body, int $now, array $pictures = []): int
     {
-        return Ledger::atomically($this->db, function () use ($ticket, $author, $role, $body, $now, $picture): int {
+        return Ledger::atomically($this->db, function () use ($ticket, $author, $role, $body, $now, $pictures): int {
             $at = self::stamp($now);
             $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGES) . ' (ticket_id, author_user_id, author_role, body, created_at) VALUES (?, ?, ?, ?, ?)', [$ticket, $author, $role, $body, $at]);
             $id = $this->db->insertId();
-            if ($picture !== null && $id > 0) {
-                // As open() writes a report's picture: base64 through FROM_BASE64.
-                $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGE_PICTURES) . ' (message_id, ticket_id, player_user_id, picture, width, height, bytes, created_at) VALUES (?, ?, ?, FROM_BASE64(?), ?, ?, ?, ?)', [$id, $ticket, $author, base64_encode($picture['bytes']), $picture['width'], $picture['height'], strlen($picture['bytes']), $at]);
+            if ($id > 0) {
+                $this->writePictures($ticket, $id, $author, $pictures, $at);
             }
             $read = $role === self::ADMIN ? 'admin_read_at' : 'player_read_at';
             $current = (string) ($this->db->value('SELECT status FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ? FOR UPDATE', [$ticket]) ?? '');
@@ -318,29 +331,80 @@ final readonly class TicketStore
         return $row === null ? null : ['url' => TicketPictures::url($ticket), 'width' => (int) $row['width'], 'height' => (int) $row['height']];
     }
 
-    /** A reply's picture row (with its bytes and its player), or null: only when the message is in that ticket. */
-    public function messagePicture(int $ticket, int $message): ?array
+    /**
+     * A message's pictures, in order from position 0, written in the message's transaction (open, add).
+     * As open() writes a report's picture: base64 through FROM_BASE64.
+     *
+     * @param list<array{bytes: string, width: int, height: int}> $pictures
+     */
+    private function writePictures(int $ticket, int $message, int $player, array $pictures, string $at): void
     {
-        return $ticket > 0 && $message > 0 ? $this->db->row('SELECT message_id, ticket_id, player_user_id, picture, width, height FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE message_id = ? AND ticket_id = ?', [$message, $ticket]) : null;
+        foreach (array_values($pictures) as $i => $p) {
+            if ($i >= ReportPicture::MAX_PER_MESSAGE) {
+                break;
+            }
+            $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGE_PICTURES) . ' (message_id, position, ticket_id, player_user_id, picture, width, height, bytes, created_at) VALUES (?, ?, ?, ?, FROM_BASE64(?), ?, ?, ?, ?)', [$message, $i, $ticket, $player, base64_encode($p['bytes']), $p['width'], $p['height'], strlen($p['bytes']), $at]);
+        }
     }
 
     /**
-     * A thread's reply pictures by message id, as either side reads them (G791): where each is shown and its size.
-     * @return array<int, array{url: string, width: int, height: int}>
+     * One of a message's pictures (with its bytes and its player), or null: only when the message is
+     * in that ticket. $n counts from 1 (its address); G791's /<ticket>/<message> is $n 1.
+     */
+    public function messagePicture(int $ticket, int $message, int $n = 1): ?array
+    {
+        if ($ticket <= 0 || $message <= 0 || $n < 1 || $n > ReportPicture::MAX_PER_MESSAGE) {
+            return null;
+        }
+        return $this->db->row('SELECT message_id, position, ticket_id, player_user_id, picture, width, height FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE message_id = ? AND position = ? AND ticket_id = ?', [$message, $n - 1, $ticket]);
+    }
+
+    /**
+     * A thread's message pictures by message id, in order, as either side reads them: where each
+     * is shown and its size (picturesOut). The report's own picture is pictureOut().
+     * @return array<int, list<array{url: string, width: int, height: int}>>
      */
     public function messagePictures(int $ticket): array
     {
-        $out = [];
         if ($ticket <= 0) {
-            return $out;
+            return [];
         }
-        foreach ($this->db->rows('SELECT message_id, width, height FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE ticket_id = ? ORDER BY message_id ASC', [$ticket]) as $r) {
-            $out[(int) $r['message_id']] = ['url' => TicketPictures::url($ticket, (int) $r['message_id']), 'width' => (int) $r['width'], 'height' => (int) $r['height']];
+        return self::picturesOut($ticket, $this->db->rows('SELECT message_id, position, width, height FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE ticket_id = ? ORDER BY message_id ASC, position ASC', [$ticket]));
+    }
+
+    /**
+     * PURE: picture rows (message_id, position, width, height) as each message's list, in order:
+     * {url, width, height}, the url /report-pictures/<ticket>/<message>/<n> (n = position + 1).
+     * @return array<int, list<array{url: string, width: int, height: int}>>
+     */
+    public static function picturesOut(int $ticket, array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            $n = (int) ($r['position'] ?? 0) + 1;
+            if ($n < 1 || $n > ReportPicture::MAX_PER_MESSAGE) {
+                continue;
+            }
+            $out[(int) $r['message_id']][] = ['url' => TicketPictures::url($ticket, (int) $r['message_id'], $n), 'width' => (int) $r['width'], 'height' => (int) $r['height']];
         }
         return $out;
     }
 
-    /** Pictures a player sent with replies in the last $seconds (the reply picture limit, G791). */
+    /**
+     * G791's rows (one picture a reply, OLD_MESSAGE_PICTURES) copied into MESSAGE_PICTURES at
+     * position 0; safe to run again (a message's position 0 is kept once). Returns the rows copied,
+     * 0 when the old table is not there (bin/message-pictures.php runs it).
+     */
+    public function adoptOldPictures(): int
+    {
+        $old = $this->db->table(self::OLD_MESSAGE_PICTURES);
+        if ((int) $this->db->value('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?', [$old]) !== 1) {
+            return 0;
+        }
+        return $this->db->execute('INSERT IGNORE INTO ' . $this->db->table(self::MESSAGE_PICTURES) . " (message_id, position, ticket_id, player_user_id, picture, width, height, bytes, created_at) SELECT message_id, 0, ticket_id, player_user_id, picture, width, height, bytes, created_at FROM {$old}");
+    }
+
+    /** Pictures a player sent with messages in the last $seconds (the picture limit; a new report's own picture has the report's). */
     public function picturesSince(int $player, int $seconds, int $now): int
     {
         return (int) $this->db->value('SELECT COUNT(*) FROM ' . $this->db->table(self::MESSAGE_PICTURES) . ' WHERE player_user_id = ? AND created_at >= ?', [$player, self::stamp($now - $seconds)]);
@@ -463,7 +527,9 @@ final readonly class TicketStore
 
     /**
      * A thread's messages as either side reads them: who wrote is a role, never a username.
-     * $pictures: messagePictures() (G791); each message carries its picture, or null.
+     * $pictures: messagePictures(); each message carries its pictures (a list, maybe empty) and,
+     * for older readers (G791's games, the console before 2026-11-15), "picture": the first of
+     * them at G791's address /report-pictures/<ticket>/<message>, or null.
      * @return list<array<string, mixed>>
      */
     public static function messagesOut(array $rows, ?array $revisions = null, array $pictures = []): array
@@ -477,8 +543,9 @@ final readonly class TicketStore
                 'at' => SaveShape::time((string) $m['created_at']),
                 // When the player last changed its words (ticket 49), or null.
                 'edited' => ($m['edited_at'] ?? null) ? SaveShape::time((string) $m['edited_at']) : null,
-                // G791: the picture a player's reply carries ({url, width, height}), or null.
-                'picture' => $pictures[(int) $m['id']] ?? null,
+                // Up to four pictures ({url, width, height}) in order; the first again as "picture" (G791), or null.
+                'pictures' => $pictures[(int) $m['id']] ?? [],
+                'picture' => self::firstPicture($pictures[(int) $m['id']] ?? []),
             ];
             // Administrators: each earlier text, oldest first ($revisions from revisions(); null for the player).
             if ($revisions !== null) {
@@ -491,6 +558,16 @@ final readonly class TicketStore
             $out[] = $row;
         }
         return $out;
+    }
+
+    /** A message's first picture at G791's address (/report-pictures/<ticket>/<message>, which serves it too), or null. */
+    private static function firstPicture(array $list): ?array
+    {
+        $p = $list[0] ?? null;
+        if (!is_array($p)) {
+            return null;
+        }
+        return ['url' => (string) preg_replace('#/1$#', '', (string) $p['url'])] + $p;
     }
 
     /** The stored context, decoded (BugReports::context's keys). @return array<string, mixed> */
