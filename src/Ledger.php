@@ -70,10 +70,14 @@ final readonly class Ledger
      * LedgerCredits), so the rate covers only what is still unexplained
      * (drops, skill bonuses, animals, gardens, private trees): two honest
      * players with quoins, mining, harvesting and a race paid 0.6 to 38.7 a
-     * minute (g335-economy.md section 7), so 100 leaves a margin of 2.5 times
-     * over the worst.
+     * minute (g335-economy.md section 7). 60 (G742, ours; it was 100) keeps
+     * a margin of half again over the worst, now that losses no longer
+     * refill the budget (LedgerMath::reconcile), and CAPACITY holds about
+     * 14 hours of it for a long session. The site options
+     * groddle_ledger_rate and groddle_ledger_capacity, when set, still win
+     * (fromSeams); the deploy sets neither.
      */
-    public const RATE = 100.0;
+    public const RATE = 60.0;
     public const CAPACITY = 50000.0;
 
     /** A settled trade a save has not applied counts as applied after this (seconds). */

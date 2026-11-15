@@ -263,11 +263,14 @@ final class LedgerMath
      * Compares a save's holdings with the expected view and decides what the
      * write keeps. Losses always stand. Gains a transform explains from the
      * write's own losses stand outside the budget (explain), and the losses
-     * they used refund nothing. The other losses refund their value into the
-     * budget (never above its capacity, so a craft split over two writes is
-     * not paid twice), and the other gains stand smallest first (by their
-     * whole value) while the budget lasts, so a forged pile never crowds out
-     * an honest pick. A credit-only class never stands as a gain; a capped
+     * they used refund nothing. The other losses pay for this write's other
+     * gains first (a vendor sale's currants, a purchase's item: an exchange
+     * within the write) and are never banked: what they do not pay for is
+     * gone, so the budget never ends a write above where it started (G742,
+     * ours: selling below value or giving things away earned budget before).
+     * The other gains stand smallest first (by their whole value) while the
+     * write's losses and then the budget last, so a forged pile never crowds
+     * out an honest pick. A credit-only class never stands as a gain; a capped
      * class stands at most $capsLeft[class] (default its daily cap). Returns
      * the changes that stand (to add to the ledger), what was clamped, the
      * budget left, what transforms explained and the capped counts taken.
@@ -297,8 +300,10 @@ final class LedgerMath
             }
         }
         $x = self::explain($gain, $loss, $economy, $budget);
+        // G742: the losses' value pays this write's gains first and is never banked (see above).
+        $kept = $budget;
         foreach ($loss as $c => $n) {
-            $budget = min($capacity, $budget + ($n - ($x['used'][$c] ?? 0)) * $economy->value((string) $c));
+            $budget += ($n - ($x['used'][$c] ?? 0)) * $economy->value((string) $c);
         }
         $gains = [];
         foreach ($gain as $c => $n) {
@@ -313,7 +318,7 @@ final class LedgerMath
         $dc = $holdings['currants'] - $view['currants'];
         if ($dc < 0) {
             $delta['currants'] = $dc;
-            $budget = min($capacity, $budget + (-$dc));
+            $budget += -$dc;
         } elseif ($dc > 0) {
             $gains[] = [null, $dc, 1.0];
         }
@@ -350,7 +355,7 @@ final class LedgerMath
         ksort($delta['items']);
         ksort($clamped['items']);
         ksort($capped);
-        return ['delta' => $delta, 'clamped' => $clamped, 'budget' => max(0.0, $budget), 'gained' => $gained, 'made' => $x['made'], 'runs' => $x['runs'], 'capped' => $capped];
+        return ['delta' => $delta, 'clamped' => $clamped, 'budget' => max(0.0, min($kept, $capacity, $budget)), 'gained' => $gained, 'made' => $x['made'], 'runs' => $x['runs'], 'capped' => $capped];
     }
 
     /**
