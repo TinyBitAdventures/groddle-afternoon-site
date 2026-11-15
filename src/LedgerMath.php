@@ -93,10 +93,12 @@ final class LedgerMath
      * honest characters' best day measured on live (about 19,000; median 2,640) on 2026-11-14.
      * Currants past it are never lost: they wait (PROG_WAIT) for a later day's room, standing in the
      * save meanwhile outside the ledger (check: deferred), so an honest pack is never corrected.
-     * One paying level-up a day is outside it (PROG_DAY ref "free"): the first credited that day,
-     * which is the day's largest since rewards grow with the level, so an honest high-level player
-     * never waits for an ordinary level-up (level 40 pays 97,570, level 50 216,100). It still takes a
-     * place in LEVELS_DAILY and still needs the xp.
+     * One paying level-up a day is outside it (PROG_DAY ref "free"): the first credited that day
+     * that is a single step (exactly one level above the last the ledger credited), which is the
+     * day's largest since rewards grow with the level, so an honest high-level player never waits for
+     * an ordinary level-up (level 40 pays 97,570, level 50 216,100). It still takes a place in
+     * LEVELS_DAILY and still needs the xp. A jump of two or more levels, and a level that waited for
+     * LEVELS_DAILY, go through the room like everything else.
      */
     public const PROGRESSION_DAILY = 40000;
 
@@ -1098,11 +1100,11 @@ final class LedgerMath
             }
             return $k;
         };
-        // G739: the day's first paying level-up is paid whole, outside the room; any later one goes through $pay.
+        // G739: the day's first paying single-step level-up is paid whole, outside the room; any other goes through $pay.
         $freeUsed = isset($credited[self::PROG_DAY]['free']);
         $freeNow = false;
-        $payLevel = static function (int $lv, int $c) use (&$freeUsed, &$freeNow, &$goods, $pay): int {
-            if (!$freeUsed && $c > 0) {
+        $payLevel = static function (int $lv, int $c, bool $step) use (&$freeUsed, &$freeNow, &$goods, $pay): int {
+            if ($step && !$freeUsed && $c > 0) {
                 $freeUsed = $freeNow = true;
                 $goods['currants'] += $c;
                 return $c;
@@ -1140,7 +1142,7 @@ final class LedgerMath
             }
             $today++;
             $rows[] = [self::LEVEL_WAIT, (string) $lv, 0];
-            if (($k = $payLevel($lv, $c)) > 0) {
+            if (($k = $payLevel($lv, $c, false)) > 0) {
                 $detail['waited'][(string) $lv] = $k;
             }
         }
@@ -1180,7 +1182,7 @@ final class LedgerMath
                 $detail['deferred']['level'] = [$was, $m['level'], $c];
             } else {
                 $today += $c > 0 ? 1 : 0;
-                $detail['level'] = [$was, $m['level'], $payLevel($m['level'], $c)];
+                $detail['level'] = [$was, $m['level'], $payLevel($m['level'], $c, $m['level'] === $was + 1)];
             }
         }
         if ($today !== $day) {
