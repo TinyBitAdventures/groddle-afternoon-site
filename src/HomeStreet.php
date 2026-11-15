@@ -24,7 +24,8 @@ use Minn\RestError;
  *       200 {"owner":{"id","name"},"signpost":[{"position","id","name"}],
  *            "poles":[Pole],"sales":[{"op","uid","class","price"}],
  *            "boxes":[{"uid","class","price","stock"}],"key":true,
- *            "restores":[{"job","proto","yard","item","cycle","mult","token"}]}
+ *            "restores":[{"job","proto","yard","item","cycle","mult","token"}],
+ *            "towers":[{"job","floor","token"}]}
  *
  * - signpost: the arms of the owner's post (HomeSignpost).
  * - poles: Note Poles (items/note_pole.js) placed on the home street or in
@@ -43,6 +44,16 @@ use Minn\RestError;
  *   server (projects.go project_home), which runs it as a project everyone
  *   on that street or in that house shares (players/inc_jobs.js 420-470,
  *   quest.js type 5): the save is the only word on what is worn out.
+ * - towers (G795): the Tower floor the owner has started building, if any,
+ *   with a token ({k: home_tower, sub: the caller, o: owner, job, floor,
+ *   got}) the game hands the realtime server the same way, which runs the
+ *   floor as a project everyone on the floor under construction shares
+ *   (home_projects.go kind "tower"). In Glitch the floor was a Workbench job
+ *   (items/tower_expander.js, quests/job_tower_floor_3..9.js) and
+ *   items/include/jobs.js let anyone put items and work into it; starting it
+ *   (tower.js tower_start_expand) was the owner's. got: what the owner had
+ *   put in alone before it was shared, from the save (the server takes it
+ *   once, when it makes the project, and checks it against the floor's needs).
  *
  * Who may read it: the owner, or anyone Neighbours lets visit (not blocked,
  * neither in the tutorial, the owner has a home).
@@ -106,6 +117,7 @@ final readonly class HomeStreet
             'boxes' => LedgerBoxes::shown($db, $owner, $theirs),
             'key' => $owner === $me || LedgerBoxes::hasKey($db, $owner, $me),
             'restores' => $this->restores($theirs, $me, $owner),
+            'towers' => $this->towers($theirs, $me, $owner),
         ]);
     }
 
@@ -191,6 +203,53 @@ final readonly class HomeStreet
             }
         }
         return $out;
+    }
+
+    /**
+     * G795: the floor the owner's Tower is building (the home-tower slice: built, expanding, floors 2
+     * to 8), with its token for the realtime server.
+     *
+     * @return list<array{job: string, floor: int, token: string}>
+     */
+    private function towers(?object $state, int $me, int $owner): array
+    {
+        $secret = (new RealtimeTicket($this->minn))->secret();
+        $row = self::tower($owner, $state?->systems?->features?->{'home-tower'} ?? null);
+        if ($secret === null || $row === null) {
+            return [];
+        }
+        $now = time();
+        $token = RealtimeTicket::sign(['k' => 'home_tower', 'sub' => $me, 'o' => $owner, 'job' => $row['job'], 'floor' => $row['floor'], 'got' => (object) $row['got'], 'iat' => $now, 'exp' => $now + self::TOKEN_TTL], $secret);
+        return [['job' => $row['job'], 'floor' => $row['floor'], 'token' => $token]];
+    }
+
+    /**
+     * G795: a Tower's floor under construction: the job id both games and the realtime server use
+     * (js/home-tower.js towerFloorWire: t, the owner, then the floor being built, base 36), the floor,
+     * and what the save says was put in (requirement ids to whole counts; the server checks them).
+     *
+     * @return array{job: string, floor: int, got: array<string, int>}|null
+     */
+    public static function tower(int $owner, mixed $tower): ?array
+    {
+        if ($owner <= 0 || !is_object($tower) || ($tower->built ?? false) !== true || ($tower->expanding ?? false) !== true || !is_numeric($tower->floors ?? null)) {
+            return null;
+        }
+        $floors = (int) $tower->floors;
+        if ($floors < 2 || $floors > 8) {
+            return null;
+        }
+        $floor = $floors + 1;
+        $got = [];
+        foreach (is_object($tower->expansion ?? null) ? get_object_vars($tower->expansion) : [] as $rid => $n) {
+            if (preg_match('/^r\d{1,6}$/', (string) $rid) === 1 && is_numeric($n) && (int) $n > 0) {
+                $got[(string) $rid] = min(100000, (int) $n);
+            }
+            if (count($got) >= 16) {
+                break;
+            }
+        }
+        return ['job' => 't' . base_convert((string) $owner, 10, 36) . '-' . base_convert((string) $floor, 10, 36), 'floor' => $floor, 'got' => $got];
     }
 
     /**
