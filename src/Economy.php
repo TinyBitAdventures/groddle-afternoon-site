@@ -134,6 +134,17 @@ final class Economy
         return isset($this->timedInputs[$class]);
     }
 
+    /** G905: whether a timed transform (w) makes this class (a machine's output, a garden's crop). */
+    public function timedOutput(string $class): bool
+    {
+        foreach ($this->producing($class) as $t) {
+            if (!empty($t['w'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * G895: the classes artifact assembly takes (the pieces and beads of the "artifact:" and
      * "necklace:" transforms, js/artifacts.js), sorted.

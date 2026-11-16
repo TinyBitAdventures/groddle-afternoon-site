@@ -17,6 +17,14 @@
  *   wp eval-file wp-content/themes/groddle/bin/ledger-refund.php ref=g895               (list, changes nothing)
  *   wp eval-file wp-content/themes/groddle/bin/ledger-refund.php ref=g895 apply users=7 (mail it)
  *
+ * G905 (#436, #438, #439): ref=g905 lists (and with "apply" mails back, once a character) the machine
+ * output, garden crops, Elemental Shake elements, tutorial gifts and rare finds (uncapped Musicblocks,
+ * gems) the save checker took from the v0.43.0 deploy on, never what ref g895 or Austin's g895-hand
+ * refund already paid:
+ *
+ *   wp eval-file wp-content/themes/groddle/bin/ledger-refund.php ref=g905               (list, changes nothing)
+ *   wp eval-file wp-content/themes/groddle/bin/ledger-refund.php ref=g905 apply users=7 (mail it)
+ *
  * Read the list before applying: the log cannot tell an honest card purchase from a forged pile.
  */
 
