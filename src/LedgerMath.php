@@ -34,6 +34,10 @@ namespace Groddle\Minn;
  * the house's starter furniture, homeKit), and a
  * class only drop tables grant gains at most its cap a day (reconcile's
  * $capsLeft).
+ *
+ * G895 (#432) credits what the save's own records say it earned (earned: a
+ * shrine's emblems), as many as the write shows, each rule with a daily
+ * count; one past the count waits in the save outside the ledger.
  */
 final class LedgerMath
 {
@@ -108,8 +112,32 @@ final class LedgerMath
     /** Credited kind: progression currants waiting for a later day's room (ref "level:<n>", "quest:<id>" or "badge:<id>", n what is left). */
     public const PROG_WAIT = 'progwait';
 
-    /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants. */
-    public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY];
+    /**
+     * G895 (#432): what a save's own record says it earned (earned), credited outside the budget.
+     * Credited kind MARK keeps, per character, how far each record has been credited (ref
+     * "emblem:<giant>" the shrine's emblem count); MARK_DAY counts today's credits per rule. A record
+     * seen for the first time is marked without paying (markBaseline), so only what it gains after
+     * that is credited.
+     */
+    public const MARK = 'mark';
+    public const MARK_DAY = 'markday';
+
+    /**
+     * Emblems (Austin 2026-11-16): a shrine's emblem stands up to the number the save's shrine record
+     * shows earned (systems.shrines.emblems, js/shrines.js claimShrineEmblem; items/include/shrines.js
+     * give_emblem 78-166), at most EMBLEM_DAILY a UTC day for all Giants together. The record is the
+     * client's word, so the cap is what bounds a forged save: 4 is 4,000 of value a day, about an
+     * hour of the budget's connected-time refill. Honest play rarely meets it: an emblem costs 1,000
+     * favor and up (100 more each time), donations give a tenth of the base cost as favor and at most
+     * one emblem's worth a Giant a game day (shrines.js 306-327), so each emblem takes some 10,000
+     * currants of donated goods. One past the count is never taken: up to EMBLEM_WAIT of them stand
+     * in the save outside the ledger (held) and are credited on a later day.
+     */
+    public const EMBLEM_DAILY = 4;
+    public const EMBLEM_WAIT = 4;
+
+    /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records. */
+    public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY];
 
     /** How deep explain looks for an input made from other losses in the same write (grain to flour to a bun). */
     public const EXPLAIN_DEPTH = 2;
@@ -529,6 +557,9 @@ final class LedgerMath
      * the ledger after, the credit result, the reconcile result and the
      * credited rows to store (credits and today's capped counts).
      *
+     * G895: then what the save's records say it earned (earned), as many as
+     * the write shows beyond the ledger, before the budget.
+     *
      * Slice 3: $receipts are the realtime server's outcomes not yet shown
      * (LedgerCredits). Each gain they cover stands exactly, outside the
      * budget and before any transform, and 'allowed' says how much of them
@@ -563,6 +594,22 @@ final class LedgerMath
             $credits['rows'] = array_merge($credits['rows'], $kit['rows']);
             $credits['detail']['homeKit'] = (object) $kitIn['items'];
         }
+        // G895: what the save's own records say it earned (a shrine's emblems), outside the budget.
+        $earned = self::earned($view, $holdings, $entries, $credited, $economy);
+        $owed = self::add($owed, $earned['goods']);
+        foreach ([$earned['goods'], $earned['held']] as $g) {
+            foreach ($g['items'] as $c => $n) {
+                $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+            }
+        }
+        foreach ($earned['goods']['items'] as $c => $n) {
+            $credits['goods']['items'][$c] = ($credits['goods']['items'][$c] ?? 0) + $n;
+        }
+        ksort($credits['goods']['items']);
+        $credits['rows'] = array_merge($credits['rows'], $earned['rows']);
+        if ($earned['detail'] !== []) {
+            $credits['detail']['earned'] = $earned['detail'];
+        }
         // Report #246: a credit waiting for a later day's count (a paying level-up or card purchase past
         // today's) is never clamped. As much of it as the write shows stands in the save, outside the
         // ledger and the budget: it is in the view but not owed, so the ledger stays short of the save by
@@ -573,6 +620,7 @@ final class LedgerMath
             $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
         }
         $view['currants'] += $held['currants'];
+        $held = self::add($held, $earned['held']);
         $capsLeft = [];
         foreach ($credited['cap'] ?? [] as $c => $n) {
             $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
@@ -981,6 +1029,106 @@ final class LedgerMath
         }
         ksort($items);
         return ['goods' => ['items' => $items, 'currants' => 0], 'rows' => [['home', 'kit', 1]]];
+    }
+
+    /**
+     * G895: the save's records that earned rules follow, ref -> count: "emblem:<giant>" the
+     * shrine's emblems earned (systems.shrines.emblems, js/shrines.js normalizeShrineState).
+     *
+     * @return array<string,int>
+     */
+    public static function marks(array $entries): array
+    {
+        $state = self::decode($entries['playerState'] ?? null);
+        $state = is_array($state) ? $state : [];
+        $out = [];
+        $emblems = $state['systems']['shrines']['emblems'] ?? null;
+        foreach (is_array($emblems) ? $emblems : [] as $giant => $n) {
+            if (is_string($giant) && preg_match('/^[a-z]{1,16}$/', $giant) === 1) {
+                $out["emblem:{$giant}"] = self::count($n);
+            }
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /**
+     * G895: the rows that mark what a save's records show already, without paying (the first write
+     * the earned rules see for a character; Ledger::write takes them from the stored save, so what
+     * the write itself earns still counts).
+     *
+     * @return list<array{0: string, 1: string, 2: int}>
+     */
+    public static function markBaseline(array $entries): array
+    {
+        $rows = [[self::MARK, 'base', 1]];
+        foreach (self::marks($entries) as $ref => $n) {
+            if ($n > 0) {
+                $rows[] = [self::MARK, $ref, $n];
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * G895 (#432): gains the save's own records say it earned, credited outside the budget, as
+     * many as the write shows beyond the expected view: a shrine's emblems, up to the emblems the
+     * shrine record gained since it was last credited, EMBLEM_DAILY a day for all Giants. What the
+     * record allows past today's count waits (held: it stands in the save outside the ledger, up to
+     * EMBLEM_WAIT, and the record keeps it owed for a later day); what the record allows and the
+     * write does not show (an emblem spent in the write that earned it) is not kept owed. Returns the
+     * goods to credit, what is held, the rows to store and what was credited, for the log.
+     *
+     * @return array{goods: array{items: array<string,int>, currants: int}, held: array{items: array<string,int>, currants: int}, rows: list<array{0: string, 1: string, 2: int}>, detail: array}
+     */
+    public static function earned(array $view, array $holdings, array $entries, array $credited, Economy $economy): array
+    {
+        $out = ['goods' => ['items' => [], 'currants' => 0], 'held' => ['items' => [], 'currants' => 0], 'rows' => [], 'detail' => []];
+        $had = (array) ($credited[self::MARK] ?? []);
+        $marks = self::marks($entries);
+        $gainOf = static fn (string $c): int => max(0, ($holdings['items'][$c] ?? 0) - ($view['items'][$c] ?? 0));
+        // One class from one record: credits what today's room allows, holds what waits, moves the mark.
+        $take = static function (string $ref, string $class, int $now, int &$room, int &$wait) use (&$out, $had, $gainOf): void {
+            $was = (int) ($had[$ref] ?? 0);
+            $allow = max(0, $now - $was);
+            $gain = $gainOf($class);
+            $c = min($allow, $gain, max(0, $room));
+            $w = min($allow - $c, $gain - $c, max(0, $wait));
+            $room -= $c;
+            $wait -= $w;
+            if ($c > 0) {
+                $out['goods']['items'][$class] = ($out['goods']['items'][$class] ?? 0) + $c;
+                $out['detail'][$class] = ($out['detail'][$class] ?? 0) + $c;
+            }
+            if ($w > 0) {
+                $out['held']['items'][$class] = ($out['held']['items'][$class] ?? 0) + $w;
+                $out['detail']['waits'][$class] = $w;
+            }
+            $mark = max($was, $now - $w);
+            if ($mark !== $was) {
+                $out['rows'][] = [self::MARK, $ref, $mark];
+            }
+        };
+        // Today's count of one rule goes up by what it credited.
+        $day = static function (string $rule, int $used) use (&$out, $credited): void {
+            if ($used > 0) {
+                $out['rows'][] = [self::MARK_DAY, $rule, (int) ($credited[self::MARK_DAY][$rule] ?? 0) + $used];
+            }
+        };
+        // Emblems: every Giant's class shares the day's count.
+        $room = max(0, self::EMBLEM_DAILY - (int) ($credited[self::MARK_DAY]['emblem'] ?? 0));
+        $start = $room;
+        $wait = self::EMBLEM_WAIT;
+        foreach ($marks as $ref => $now) {
+            $class = str_starts_with($ref, 'emblem:') ? 'emblem_' . substr($ref, 7) : '';
+            if ($class !== '' && $economy->tradeable($class)) {
+                $take($ref, $class, $now, $room, $wait);
+            }
+        }
+        $day('emblem', $start - $room);
+        ksort($out['goods']['items']);
+        ksort($out['held']['items']);
+        return $out;
     }
 
     /** js/progression.js levelInfoForXp: the level a lifetime xp total reaches. */

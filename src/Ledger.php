@@ -393,12 +393,17 @@ final readonly class Ledger
         $ledger = ['items' => $state['items'], 'currants' => $state['currants']];
         $day = gmdate('Y-m-d', $now);
         $credited = $this->credited($user, $day);
-        if (!isset($credited['base'])) {
+        if (!isset($credited['base']) || !isset($credited[LedgerMath::MARK]['base'])) {
             // First checked write (or the first since slice 2): what the save had done already is marked, not paid.
+            // G895: so are the records the earned rules follow, the first write they see (the stored save's, so
+            // what this write earns still counts).
             $stored = $this->db->value('SELECT data FROM ' . $this->db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ?', [$user]);
             $was = is_string($stored) ? json_decode($stored, true) : null;
             $base = is_array($was['entries'] ?? null) ? array_filter($was['entries'], 'is_string') : $entries;
-            $this->credit($user, LedgerMath::baseline($base, $this->economy), $day, $now);
+            $this->credit($user, array_merge(
+                isset($credited['base']) ? [] : LedgerMath::baseline($base, $this->economy),
+                isset($credited[LedgerMath::MARK]['base']) ? [] : LedgerMath::markBaseline($base),
+            ), $day, $now);
             $credited = $this->credited($user, $day);
         }
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
@@ -468,7 +473,8 @@ final readonly class Ledger
             $out[$kind][$ref] = (int) $r['n'];
         }
         if ($stale) {
-            $this->db->execute("DELETE FROM {$t} WHERE user_id = ? AND kind IN ('cap', 'cardday', 'lvlday', 'progday') AND ref < ?", [$user, $day]);
+            $kinds = LedgerMath::DAILY_KINDS;
+            $this->db->execute("DELETE FROM {$t} WHERE user_id = ? AND kind IN (" . implode(', ', array_fill(0, count($kinds), '?')) . ') AND ref < ?', [$user, ...$kinds, $day]);
         }
         return $out;
     }
