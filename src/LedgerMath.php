@@ -194,6 +194,25 @@ final class LedgerMath
      */
     public const WAITED = 'held';
 
+    /**
+     * G905 (#436, #438, #439): timed production. A Community Machine Room's machine takes a job's
+     * ingredients when it starts and hands the output over on Collect, minutes later
+     * (js/features/machine-rooms-feature.js startJob / collect; players/inc_making.js 306-308,
+     * fuelmaker.js setContents 1533-1544), and a garden seed planted gives its crop when picked: the
+     * inputs leave in one save write and the output comes in a later one, so explain (the same
+     * write's losses) never saw them together and the budget alone paid for every Girder, Board and
+     * Cucumber. Now a write's spent inputs of a timed transform (economy w; what explain did not use
+     * and the write's other gains did not consume) wait in the ledger's pool (credited kind POOL, ref
+     * "<class>@<UTC hour>", n left), and a later write's output of those transforms stands against
+     * them outside the budget (fromPool), the inputs used up oldest first; an input that comes back
+     * (a failed job's ingredients left in the machine, onMakingFailed fuelmaker.js 1408-1411) stands
+     * against them too. Bounded by what was really spent and by the recipe: nothing is made from
+     * nothing, and spent inputs are gone after POOL_HOURS (a machine keeps output 6 game days, 24 real
+     * hours, fuelmaker.js expireOldContents 1146-1158).
+     */
+    public const POOL = 'pool';
+    public const POOL_HOURS = 48;
+
     /** How deep explain looks for an input made from other losses in the same write (grain to flour to a bun). */
     public const EXPLAIN_DEPTH = 2;
 
@@ -385,7 +404,9 @@ final class LedgerMath
      *
      * @param array<string,int>|null $capsLeft capped class -> gains left today (null: a full day)
      * @param array<string,int> $waited class -> how many waited on the last write (paid first)
-     * @return array{delta: array{items: array<string,int>, currants: int}, clamped: array{items: array<string,int>, currants: int}, held: array<string,int>, budget: float, gained: float, made: array<string,int>, runs: array<string,int>, capped: array<string,int>}
+     * G905: spent, the losses no transform used and no gain consumed (what may wait in the pool).
+     *
+     * @return array{delta: array{items: array<string,int>, currants: int}, clamped: array{items: array<string,int>, currants: int}, held: array<string,int>, budget: float, gained: float, made: array<string,int>, runs: array<string,int>, capped: array<string,int>, spent: array<string,int>}
      */
     public static function reconcile(array $view, array $holdings, float $budget, float $capacity, Economy $economy, ?array $capsLeft = null, array $waited = []): array
     {
@@ -497,7 +518,27 @@ final class LedgerMath
         ksort($clamped['items']);
         ksort($capped);
         ksort($held);
-        return ['delta' => $delta, 'clamped' => $clamped, 'held' => $held, 'budget' => max(0.0, min($kept, $capacity, $budget)), 'gained' => $gained, 'made' => $x['made'], 'runs' => $x['runs'], 'capped' => $capped];
+        // G905: the losses no transform used and the write's gains did not consume (the losses pay
+        // first, so what is left is their value past what was kept, shared out class by class).
+        $left = [];
+        $lossValue = max(0, -$dc);
+        foreach ($loss as $c => $n) {
+            $k = $n - ($x['used'][$c] ?? 0);
+            if ($k > 0) {
+                $left[(string) $c] = $k;
+                $lossValue += $k * $economy->value((string) $c);
+            }
+        }
+        $share = $lossValue > 0 ? max(0.0, $lossValue - $gained) / $lossValue : 0.0;
+        $spent = [];
+        foreach ($left as $c => $k) {
+            $m = (int) floor($k * $share + 1e-9);
+            if ($m > 0) {
+                $spent[$c] = $m;
+            }
+        }
+        ksort($spent);
+        return ['delta' => $delta, 'clamped' => $clamped, 'held' => $held, 'budget' => max(0.0, min($kept, $capacity, $budget)), 'gained' => $gained, 'made' => $x['made'], 'runs' => $x['runs'], 'capped' => $capped, 'spent' => $spent];
     }
 
     /**
@@ -513,9 +554,11 @@ final class LedgerMath
      *
      * @param array<string,int> $gain
      * @param array<string,int> $loss
+     * $only (G905): the transforms it may use (null: all).
+     *
      * @return array{made: array<string,int>, used: array<string,int>, runs: array<string,int>}
      */
-    public static function explain(array $gain, array $loss, Economy $economy, float &$budget): array
+    public static function explain(array $gain, array $loss, Economy $economy, float &$budget, ?callable $only = null): array
     {
         $out = ['made' => [], 'used' => [], 'runs' => []];
         if ($gain === [] || $loss === []) {
@@ -531,14 +574,17 @@ final class LedgerMath
                 if (($need[$c] ?? 0) <= 0) {
                     break;
                 }
+                if ($only !== null && !$only($t)) {
+                    continue;
+                }
                 $want = (int) ceil($need[$c] / max(1, (int) $t['o'][$c]));
                 // A dry run says how many the losses cover; the real run then takes exactly that many.
                 $try = $state;
-                $k = self::run($t, $want, $try, $economy, self::EXPLAIN_DEPTH);
+                $k = self::run($t, $want, $try, $economy, self::EXPLAIN_DEPTH, $only);
                 if ($k <= 0) {
                     continue;
                 }
-                self::run($t, $k, $state, $economy, self::EXPLAIN_DEPTH);
+                self::run($t, $k, $state, $economy, self::EXPLAIN_DEPTH, $only);
                 foreach ($t['o'] as $o => $q) {
                     $o = (string) $o;
                     $m = min($need[$o] ?? 0, $k * (int) $q);
@@ -564,7 +610,7 @@ final class LedgerMath
      * Returns the runs made. The state: avail (losses left), used (losses
      * taken), budget, runs.
      */
-    private static function run(array $t, int $want, array &$state, Economy $economy, int $depth): int
+    private static function run(array $t, int $want, array &$state, Economy $economy, int $depth, ?callable $only = null): int
     {
         $k = $want;
         // A roll worth more than its inputs pays the difference from the budget.
@@ -594,14 +640,14 @@ final class LedgerMath
                     if ($short <= 0) {
                         break;
                     }
-                    if (isset($sub['i'][$i])) {
+                    if (isset($sub['i'][$i]) || ($only !== null && !$only($sub))) {
                         continue;
                     }
                     $per = max(1, (int) $sub['o'][$i]);
                     $try = $state;
-                    $m = self::run($sub, (int) ceil($short / $per), $try, $economy, $depth - 1);
+                    $m = self::run($sub, (int) ceil($short / $per), $try, $economy, $depth - 1, $only);
                     if ($m > 0) {
-                        self::run($sub, $m, $state, $economy, $depth - 1);
+                        self::run($sub, $m, $state, $economy, $depth - 1, $only);
                         $state['made'][$i] = ($state['made'][$i] ?? 0) + $m * $per;
                         $short -= $m * $per;
                     }
@@ -661,8 +707,9 @@ final class LedgerMath
      * @param array{items: array<string,int>, currants: int}|null $receipts
      * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>, allowed: array{items: array<string,int>, currants: int}, held: array{items: array<string,int>, currants: int}}
      */
-    public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy, ?array $receipts = null, ?callable $feats = null): array
+    public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy, ?array $receipts = null, ?callable $feats = null, int $now = 0): array
     {
+        $now = $now > 0 ? $now : time();
         $credits = self::credits($entries, $credited, $economy);
         $owed = self::add($ledger, $credits['goods']);
         $view = self::view($owed, $pending);
@@ -718,6 +765,16 @@ final class LedgerMath
         }
         $view['currants'] += $held['currants'];
         $held = self::add($held, $earned['held']);
+        // G905: the output of timed production whose inputs an earlier write spent (the pool).
+        $pool = self::poolOf($credited, $now);
+        $timed = self::fromPool($view, $holdings, $pool['avail'], $economy);
+        $owed = self::add($owed, $timed['goods']);
+        foreach ($timed['goods']['items'] as $c => $n) {
+            $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+        }
+        if ($timed['goods']['items'] !== []) {
+            $credits['detail']['timed'] = (object) $timed['goods']['items'];
+        }
         $waited = [];
         foreach ((array) ($credited[self::WAITED] ?? []) as $c => $n) {
             $waited[(string) $c] = (int) $n;
@@ -731,6 +788,7 @@ final class LedgerMath
                 $rows[] = [self::WAITED, (string) $c, $n];
             }
         }
+        $rows = array_merge($rows, self::poolRows($pool, $timed['used'], $r['spent'], $economy, $now));
         $capped = $earned['capped'];
         foreach ($r['capped'] as $c => $n) {
             $capped[$c] = ($capped[$c] ?? 0) + $n;
@@ -740,6 +798,123 @@ final class LedgerMath
             $rows[] = ['cap', (string) $c, (int) ($credited['cap'][$c] ?? 0) + $n];
         }
         return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed, 'held' => $held];
+    }
+
+    /**
+     * G905: the pool's spent inputs as credited rows hold them (ref "<class>@<YmdH>"), within
+     * POOL_HOURS of $now: avail, class -> n; buckets, class -> list of [ref, n] oldest first; stale,
+     * the refs past it (put to 0, so Ledger deletes them).
+     *
+     * @return array{avail: array<string,int>, buckets: array<string, list<array{0: string, 1: int}>>, stale: list<string>}
+     */
+    public static function poolOf(array $credited, int $now): array
+    {
+        $out = ['avail' => [], 'buckets' => [], 'stale' => []];
+        $from = gmdate('YmdH', $now - self::POOL_HOURS * 3600);
+        $rows = (array) ($credited[self::POOL] ?? []);
+        ksort($rows);
+        foreach ($rows as $ref => $n) {
+            $ref = (string) $ref;
+            if (preg_match('/^([a-z0-9_]{1,64})@(\d{10})$/', $ref, $m) !== 1 || (int) $n <= 0) {
+                continue;
+            }
+            if (strcmp($m[2], $from) < 0) {
+                $out['stale'][] = $ref;
+                continue;
+            }
+            $out['buckets'][$m[1]][] = [$ref, (int) $n, $m[2]];
+            $out['avail'][$m[1]] = ($out['avail'][$m[1]] ?? 0) + (int) $n;
+        }
+        foreach ($out['buckets'] as $c => $list) {
+            usort($list, static fn ($a, $b) => strcmp($a[2], $b[2]));
+            $out['buckets'][$c] = array_map(static fn ($b) => [$b[0], $b[1]], $list);
+        }
+        ksort($out['avail']);
+        return $out;
+    }
+
+    /**
+     * G905: gains a write shows beyond the expected view that the pool's spent inputs explain:
+     * first the output of timed transforms only (economy w, explain), then an input that came back as
+     * itself. Returns the goods that stand (outside the budget) and the pool inputs used.
+     *
+     * @param array<string,int> $avail
+     * @return array{goods: array{items: array<string,int>, currants: int}, used: array<string,int>}
+     */
+    public static function fromPool(array $view, array $holdings, array $avail, Economy $economy): array
+    {
+        $out = ['goods' => ['items' => [], 'currants' => 0], 'used' => []];
+        if ($avail === []) {
+            return $out;
+        }
+        $gain = [];
+        foreach ($holdings['items'] as $c => $n) {
+            $d = (int) $n - (int) ($view['items'][$c] ?? 0);
+            if ($d > 0 && $economy->tradeable((string) $c)) {
+                $gain[(string) $c] = $d;
+            }
+        }
+        $none = 0.0;
+        $x = self::explain($gain, $avail, $economy, $none, static fn (array $t): bool => !empty($t['w']));
+        foreach ($x['made'] as $c => $n) {
+            $out['goods']['items'][$c] = $n;
+            $gain[$c] -= $n;
+        }
+        $out['used'] = $x['used'];
+        // A pooled input that comes back stands as itself (a failed job's ingredients, collected).
+        foreach ($avail as $c => $n) {
+            $k = min($n - ($out['used'][$c] ?? 0), $gain[$c] ?? 0);
+            if ($k > 0) {
+                $out['goods']['items'][$c] = ($out['goods']['items'][$c] ?? 0) + $k;
+                $out['used'][$c] = ($out['used'][$c] ?? 0) + $k;
+            }
+        }
+        ksort($out['goods']['items']);
+        ksort($out['used']);
+        return $out;
+    }
+
+    /**
+     * G905: the pool's rows after a write: what it used comes out oldest first, the timed inputs this
+     * write spent go into this hour's bucket, and stale buckets go to 0.
+     *
+     * @return list<array{0: string, 1: string, 2: int}>
+     */
+    public static function poolRows(array $pool, array $used, array $spent, Economy $economy, int $now): array
+    {
+        $n = [];
+        foreach ($pool['buckets'] as $c => $list) {
+            $take = (int) ($used[$c] ?? 0);
+            foreach ($list as [$ref, $have]) {
+                $t = min($take, $have);
+                $take -= $t;
+                if ($t > 0) {
+                    $n[$ref] = $have - $t;
+                }
+            }
+        }
+        $hour = gmdate('YmdH', $now);
+        foreach ($spent as $c => $k) {
+            if ($k > 0 && $economy->timedInput((string) $c)) {
+                $ref = "{$c}@{$hour}";
+                $was = 0;
+                foreach ($pool['buckets'][$c] ?? [] as [$r, $have]) {
+                    if ($r === $ref) {
+                        $was = $have;
+                    }
+                }
+                $n[$ref] = ($n[$ref] ?? $was) + $k;
+            }
+        }
+        foreach ($pool['stale'] as $ref) {
+            $n[$ref] = 0;
+        }
+        ksort($n);
+        $rows = [];
+        foreach ($n as $ref => $k) {
+            $rows[] = [self::POOL, (string) $ref, $k];
+        }
+        return $rows;
     }
 
     /**

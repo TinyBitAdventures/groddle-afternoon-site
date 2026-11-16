@@ -413,7 +413,7 @@ final readonly class Ledger
         // Slice 3: what the realtime server credited and the save has not shown yet (LedgerCredits).
         $receipts = LedgerCredits::open($this->db, $user, $now);
         // G895: a cracked rock's pieces stand within the rocks the realtime server's Feat rewards gave (asked only then).
-        $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy, $receipts['goods'], fn (): int => $this->featRewards($user));
+        $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy, $receipts['goods'], fn (): int => $this->featRewards($user), $now);
         $r = $c['reconciled'];
         $this->store($user, $ledger, $c['after'], $zeroing ? min($this->capacity, $state['budget'] + self::NEW_BUDGET) : $r['budget'], $now);
         if ($zeroing) {
@@ -423,6 +423,8 @@ final readonly class Ledger
         // Slice 4: the open jar's or bottle's charges follow what the save shows (LedgerUse).
         LedgerUse::observe($this->db, $user, $entries, $credited[LedgerUse::KIND] ?? [], $now);
         $this->credit($user, $c['rows'], $day, $now);
+        // G905: spent inputs the pool used up, or that waited past POOL_HOURS, go.
+        $this->db->execute('DELETE FROM ' . $this->db->table(self::CREDITED) . ' WHERE user_id = ? AND kind = ? AND n = 0', [$user, LedgerMath::POOL]);
         LedgerCredits::used($this->db, $user, $receipts, $c['allowed'], LedgerCredits::charged($r), $now);
         $credits = $c['credits'];
         // G895: capped drops the budget could not pay yet, waiting in the save (LedgerMath::reconcile held).

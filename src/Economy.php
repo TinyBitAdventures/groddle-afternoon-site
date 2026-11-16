@@ -12,7 +12,8 @@ namespace Groddle\Minn;
  * capacity, the kind of words a copy carries (tag, with the rules in tags:
  * CopyTags) and its gate (credit: nothing in the remake grants it; capped:
  * only drop tables do, so a write gains at most cap a day); the transforms
- * a write's losses may explain (recipes, Cubimal boxes, artifact assembly);
+ * a write's losses may explain (recipes, Cubimal boxes, artifact assembly,
+ * garden seeds; w: timed, the output comes in a later write, G905);
  * and the rewards credited once per character (quests, badges, level-ups,
  * imagination cards). Plain PHP, no engine calls, so tests can load it on
  * its own.
@@ -24,13 +25,16 @@ final class Economy
 
     private int $fallback;
 
-    /** @var list<array{s: string, i: array<string,int>, o: array<string,int>, r?: int}> */
+    /** @var list<array{s: string, i: array<string,int>, o: array<string,int>, r?: int, w?: int}> */
     private array $transforms;
 
     /** @var array<string, list<int>> output class -> transform indexes */
     private ?array $producing = null;
 
     private array $credits;
+
+    /** @var array<string, true>|null classes a timed transform takes */
+    private ?array $timedInputs = null;
 
     /** @var array<string, mixed> the rules for a copy's words, by kind (CopyTags) */
     private array $tags;
@@ -109,6 +113,25 @@ final class Economy
             }
         }
         return array_map(fn (int $n) => $this->transforms[$n], $this->producing[$class] ?? []);
+    }
+
+    /**
+     * G905: whether a timed transform (w: a machine's recipe, a garden seed's crop) takes this class,
+     * so a write's loss of it may wait in the ledger's pool for the output a later write shows.
+     */
+    public function timedInput(string $class): bool
+    {
+        if ($this->timedInputs === null) {
+            $this->timedInputs = [];
+            foreach ($this->transforms as $t) {
+                if (!empty($t['w'])) {
+                    foreach (array_keys($t['i']) as $c) {
+                        $this->timedInputs[(string) $c] = true;
+                    }
+                }
+            }
+        }
+        return isset($this->timedInputs[$class]);
     }
 
     /**
