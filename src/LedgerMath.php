@@ -184,6 +184,45 @@ final class LedgerMath
     public const SHAKE_ELEMENTS = ['element_blue', 'element_green', 'element_red', 'element_shiny'];
     public const ELEMENT_STACK = 5000;
 
+    /**
+     * G905 (#438): what the tutorial and the skill quests' practice streets hand a new player, credited
+     * once per character (credited kind TUTORIAL, ref "<set>:<class>", n credited so far) when the
+     * save's own record says the player got there, outside the budget: a new character's NEW_BUDGET
+     * went on these and its first apples and Musicblock were then taken back. Each set: the gate the
+     * save must show, then class => the most it gives. Sources (the game):
+     *  - training2: js/newxp.js TRAINING2_FOOD / TRAINING2_DRINKS 410-418 (newxp_training2.js special_items).
+     *  - house: features/newxp-feature.js harvestEgg 2128-2138, the Egg Plant's one egg.
+     *  - island: Gentle Island's trees (assets/content/street-ecology.json: two Fruit Trees, a Bean
+     *    Tree and a Gas Tree, 3 a harvest without Gardening, yard-verbs arbor), the Spinach garden
+     *    (flag garden: a Spinach Seed's 12), the Gameshow Ticket stand (flag gst, newxp-feature.js
+     *    gullySetup 3485-3495), the Musicblock on Doonboggle Trail (flag musicblock, its class in the
+     *    record, newxp-feature.js 3449-3460) and the two bags buy_two_bags pays for (2715-2726).
+     *  - ak, lgt, ezc: the first skill's practice street (the newxp record's skill, or its quest),
+     *    js/newxp.js PRACTICE_TOOLS 112-118; A L'il Animal Kinship's one chicken, piggy and butterfly
+     *    (js/skillquest-ak.js AK_ANIMALS; their most at the best rank, data/yard-verbs.json ak); Lift
+     *    Your Light Green Thumb's three trees; EZ Cookin's table and counters (js/practice-streets.js
+     *    EZ_KNIFE_AND_BOARD 297, EZ_FOOD 299-307).
+     *  - soil: Talking 'bout Soil Appreciation's Hoe and Shovel (js/practice-streets.js SOIL_TOOLS 495-498).
+     *  - funpickle: the Musicblock the Funpickle gives once every power was used (js/funpickle.js
+     *    AWARD_ITEM 146, recordPower givenAward; GSJS giveAward 372-378).
+     */
+    public const TUTORIAL = 'tut';
+    public const TUTORIAL_SETS = [
+        'training2' => ['gate' => 'stage:training2', 'items' => ['common_crudites' => 1, 'flummery' => 1, 'spicy_grog' => 4, 'fruity_juice' => 3]],
+        'house' => ['gate' => 'stage:house', 'items' => ['egg_plain' => 1]],
+        'island' => ['gate' => 'stage:island', 'items' => ['cherry' => 6, 'bean_plain' => 3, 'general_vapour' => 3, 'bag_generic' => 2]],
+        'islandgarden' => ['gate' => 'flag:garden', 'items' => ['spinach' => 12]],
+        'islandticket' => ['gate' => 'flag:gst', 'items' => ['gameshow_ticket' => 1]],
+        'islandblock' => ['gate' => 'flag:musicblock', 'items' => ['musicblock' => 1]],
+        'ak' => ['gate' => 'skill:animalkinship_1', 'items' => ['butterfly_lotion' => 1, 'meat' => 4, 'milk_butterfly' => 5, 'grain' => 5]],
+        'lgt' => ['gate' => 'skill:light_green_thumb_1:lightgreenthumb_1', 'items' => ['watering_can' => 1, 'plain_bubble' => 3, 'bean_plain' => 3, 'cherry' => 3]],
+        'ezc' => ['gate' => 'skill:ezcooking_1', 'items' => ['knife_and_board' => 1, 'cheese' => 6, 'tomato' => 2, 'bun' => 11, 'meat' => 6]],
+        'soil' => ['gate' => 'quest:soilappreciation_1', 'items' => ['hoe' => 1, 'shovel' => 1]],
+        'funpickle' => ['gate' => 'funpickle', 'items' => ['musicblock_goodnight_groddle' => 1]],
+    ];
+    /** js/newxp.js STAGES, in order. */
+    public const NEWXP_STAGES = ['clouds', 'training1', 'training2', 'house', 'skill', 'island', 'done'];
+
     /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records. */
     public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY];
 
@@ -750,6 +789,19 @@ final class LedgerMath
             ksort($credits['goods']['items']);
             $credits['rows'] = array_merge($credits['rows'], $kit['rows']);
             $credits['detail']['homeKit'] = (object) $kitIn['items'];
+        }
+        // G905: the tutorial's and the practice streets' gifts, once per character, by the save's record.
+        $tut = self::tutorial($entries, $credited, $economy);
+        $tutIn = self::covered($view, $holdings, $tut['goods']);
+        $owed = self::add($owed, $tutIn);
+        foreach ($tutIn['items'] as $c => $n) {
+            $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+            $credits['goods']['items'][$c] = ($credits['goods']['items'][$c] ?? 0) + $n;
+        }
+        if ($tutIn['items'] !== []) {
+            ksort($credits['goods']['items']);
+            $credits['rows'] = array_merge($credits['rows'], self::tutorialRows($tut['refs'], $tutIn['items'], $credited));
+            $credits['detail']['tutorial'] = (object) $tutIn['items'];
         }
         // G895: what the save's own records say it earned (a shrine's emblems, a donation's tickets, a
         // cracked rock's pieces), outside the budget; pieces count toward their class's daily cap.
@@ -1426,7 +1478,10 @@ final class LedgerMath
 
     /**
      * G905: the rows that mark the records G905's rules follow, for a character the G895 baseline
-     * already saw (Ledger::write, from the stored save): the pouch's shakes so far, without paying.
+     * already saw (Ledger::write, from the stored save): the pouch's shakes so far, and every tutorial
+     * set whose part of the game is finished (the tutorial done, the quest completed, the Funpickle's
+     * award given), without paying. A set still under way stays open, so a player in the tutorial
+     * when this ships is still credited.
      *
      * @return list<array{0: string, 1: string, 2: int}>
      */
@@ -1436,6 +1491,110 @@ final class LedgerMath
         $n = self::marks($entries)['shakes'] ?? 0;
         if ($n > 0) {
             $rows[] = [self::MARK, 'shakes', $n];
+        }
+        foreach (self::TUTORIAL_SETS as $set => $def) {
+            if (self::tutorialGate($entries, (string) $def['gate'], true)) {
+                foreach ($def['items'] as $c => $most) {
+                    $rows[] = [self::TUTORIAL, "{$set}:{$c}", (int) $most];
+                }
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * G905: whether the save's record opens a tutorial set's gate ($finished: whether that part of the
+     * game is over, for the baseline). Gates: stage:<s> the newxp record reached stage s (or the
+     * tutorial is done); flag:<f> its island flag f; skill:<id>[:<quest>] its first skill was id, or
+     * the skill's quest (id, else <quest>) is under way or done; quest:<q> the quest is under way or
+     * done; funpickle the Funpickle's award was given.
+     */
+    public static function tutorialGate(array $entries, string $gate, bool $finished = false): bool
+    {
+        $state = self::decode($entries['playerState'] ?? null);
+        $state = is_array($state) ? $state : [];
+        $features = is_array($state['systems']['features'] ?? null) ? $state['systems']['features'] : [];
+        $newxp = is_array($features['newxp'] ?? null) ? $features['newxp'] : [];
+        $done = ($newxp['status'] ?? '') === 'done';
+        $quests = is_array($state['systems']['quests'] ?? null) ? $state['systems']['quests'] : [];
+        $completed = is_array($quests['completed'] ?? null) ? $quests['completed'] : [];
+        $active = is_array($quests['active'] ?? null) ? $quests['active'] : [];
+        $quest = static fn (string $q): bool => in_array($q, $completed, true) || (!$finished && array_key_exists($q, $active));
+        $parts = explode(':', $gate);
+        switch ($parts[0]) {
+            case 'stage':
+                if ($done || $finished) {
+                    return $done;
+                }
+                $want = array_search($parts[1] ?? '', self::NEWXP_STAGES, true);
+                $at = array_search((string) ($newxp['stage'] ?? ''), self::NEWXP_STAGES, true);
+                $stageAt = is_array($newxp['stageAt'] ?? null) ? $newxp['stageAt'] : [];
+                return $want !== false && ((($newxp['status'] ?? '') === 'active' && $at !== false && $at >= $want) || !empty($stageAt[$parts[1]]));
+            case 'flag':
+                return $finished ? $done : in_array($parts[1] ?? '', is_array($newxp['flags'] ?? null) ? $newxp['flags'] : [], true);
+            case 'skill':
+                $q = $parts[2] ?? ($parts[1] ?? '');
+                return $quest($q) || (($finished ? $done : true) && ($newxp['skill'] ?? '') === ($parts[1] ?? '') && ($newxp['skill'] ?? '') !== '');
+            case 'quest':
+                return $quest($parts[1] ?? '');
+            case 'funpickle':
+                return ($features['funpickle']['givenAward'] ?? null) === true;
+        }
+        return false;
+    }
+
+    /**
+     * G905: what the tutorial sets the save's record opens may still credit (each set's class at most
+     * once per character, less what was credited before): goods, and refs class -> list of [ref, left].
+     * The island's Musicblock is the class the record names (one of the island's, js/newxp.js
+     * ISLAND_MUSICBLOCKS).
+     *
+     * @return array{goods: array{items: array<string,int>, currants: int}, refs: array<string, list<array{0: string, 1: int}>>}
+     */
+    public static function tutorial(array $entries, array $credited, Economy $economy): array
+    {
+        $out = ['goods' => ['items' => [], 'currants' => 0], 'refs' => []];
+        $had = (array) ($credited[self::TUTORIAL] ?? []);
+        $state = self::decode($entries['playerState'] ?? null);
+        $block = is_array($state) ? ($state['systems']['features']['newxp']['musicblock'] ?? '') : '';
+        foreach (self::TUTORIAL_SETS as $set => $def) {
+            if (!self::tutorialGate($entries, (string) $def['gate'])) {
+                continue;
+            }
+            foreach ($def['items'] as $c => $most) {
+                $ref = "{$set}:{$c}";
+                $class = $c === 'musicblock' ? (is_string($block) && preg_match('/^musicblock_[a-z]_[a-z]+_0[1-5]$/', $block) === 1 ? $block : '') : (string) $c;
+                $left = (int) $most - (int) ($had[$ref] ?? 0);
+                if ($class === '' || $left <= 0 || !$economy->tradeable($class)) {
+                    continue;
+                }
+                $out['goods']['items'][$class] = ($out['goods']['items'][$class] ?? 0) + $left;
+                $out['refs'][$class][] = [$ref, $left];
+            }
+        }
+        ksort($out['goods']['items']);
+        return $out;
+    }
+
+    /**
+     * G905: the credited rows for what the tutorial credited this write, each class's refs filled in
+     * the sets' order.
+     *
+     * @return list<array{0: string, 1: string, 2: int}>
+     */
+    public static function tutorialRows(array $refs, array $credited, array $had): array
+    {
+        $rows = [];
+        foreach ($credited as $c => $n) {
+            $n = (int) $n;
+            foreach ($refs[$c] ?? [] as [$ref, $left]) {
+                $k = min($n, $left);
+                if ($k <= 0) {
+                    break;
+                }
+                $n -= $k;
+                $rows[] = [self::TUTORIAL, $ref, (int) ($had[self::TUTORIAL][$ref] ?? 0) + $k];
+            }
         }
         return $rows;
     }
