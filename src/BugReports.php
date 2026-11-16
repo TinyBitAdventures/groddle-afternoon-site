@@ -37,8 +37,8 @@ final readonly class BugReports
     public const WINDOW = 600;
     public const PER_WINDOW = 3;
     public const PER_DAY = 50;
-    /** Context keys kept, with the most characters each may carry. */
-    public const CONTEXT = ['street' => 32, 'streetName' => 80, 'x' => 12, 'y' => 12, 'build' => 80, 'page' => 200, 'agent' => 300, 'screen' => 20, 'panels' => 300];
+    /** Context keys kept, with the most characters each may carry. `gpu` is the game's render probe line (renderer, size limits, resolution, off-screen read ok or failed; G844, report #393). */
+    public const CONTEXT = ['street' => 32, 'streetName' => 80, 'x' => 12, 'y' => 12, 'build' => 80, 'page' => 200, 'agent' => 300, 'screen' => 20, 'gpu' => 200, 'panels' => 300];
     public const MAX_ERRORS = 10;
     /** A page error with its top stack frames (report #246: five frames, so the calling line shows); 10 x 600 stays well inside the context column. */
     public const MAX_ERROR = 600;
