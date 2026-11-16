@@ -89,6 +89,16 @@ final class Economy
     }
 
     /**
+     * G905 (#438): gains of this class a day that may stand or wait through the budget: a capped class's
+     * cap, else dcap (the Gameshow Ticket a drop table gives, beyond the donations G895 credits); 0 for
+     * none.
+     */
+    public function dayCap(string $class): int
+    {
+        return $this->cap($class) ?: max(0, (int) ($this->items[$class]['dcap'] ?? 0));
+    }
+
+    /**
      * G905: a drop table gives this class as well as an ordinary source (d 1: a quest's Musicblock, a
      * vendor's Plank, a mined gem), so a gain the budget is short for waits as a capped one does.
      */

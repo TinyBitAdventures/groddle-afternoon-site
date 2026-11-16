@@ -522,9 +522,9 @@ final class LedgerMath
             $most = $n;
             if ($c !== null && $economy->creditOnly($c)) {
                 $most = 0;
-            } elseif ($c !== null && $economy->cap($c) > 0) {
+            } elseif ($c !== null && $economy->dayCap($c) > 0) {
                 // A class split in two (what waited, then the rest) shares one day's cap.
-                $capLeft[$c] ??= max(0, (int) ($capsLeft[$c] ?? $economy->cap($c)));
+                $capLeft[$c] ??= max(0, (int) ($capsLeft[$c] ?? $economy->dayCap($c)));
                 $most = min($n, $capLeft[$c]);
             }
             $keep = (int) min($most, floor(($budget + 1e-9) / $v));
@@ -542,7 +542,7 @@ final class LedgerMath
             }
             if ($keep > 0) {
                 $delta['items'][$c] = ($delta['items'][$c] ?? 0) + $keep;
-                if ($economy->cap($c) > 0) {
+                if ($economy->dayCap($c) > 0) {
                     $capped[$c] = ($capped[$c] ?? 0) + $keep;
                 }
             }
@@ -807,7 +807,7 @@ final class LedgerMath
         // cracked rock's pieces), outside the budget; pieces count toward their class's daily cap.
         $capsLeft = [];
         foreach ($credited['cap'] ?? [] as $c => $n) {
-            $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
+            $capsLeft[(string) $c] = max(0, $economy->dayCap((string) $c) - (int) $n);
         }
         $earned = self::earned($view, $holdings, $entries, $credited, $economy, $capsLeft, $feats);
         $owed = self::add($owed, $earned['goods']);

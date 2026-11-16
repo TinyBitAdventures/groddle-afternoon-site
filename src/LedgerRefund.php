@@ -43,14 +43,15 @@ use Minn\Db;
  * Musicblocks, gems) were taken back. What counts, per character: a clamp
  * row's items (its own detail and "last" when writes were folded in) from
  * G905_FROM on, of those kinds only, within fixed counts: a tutorial class
- * its sets' counts once (LedgerMath::TUTORIAL_SETS, not the Gameshow Ticket), an element SHAKE_DAILY
+ * its sets' counts once (LedgerMath::TUTORIAL_SETS; the island's Gameshow Ticket counts as a ticket), an element SHAKE_DAILY
  * shakes' worth a UTC day, timed output G905_TIMED_DAY of value a UTC day, a
- * rare find G905_DROP_DAY of value a UTC day. Rows G895's refunds already
+ * rare find G905_DROP_DAY of value a UTC day, a Gameshow Ticket a drop table
+ * gave (#438) its dcap a UTC day. Rows G895's refunds already
  * paid are never paid again: for a character marked refund/g895, the G895
  * kinds (emblems, Gameshow Tickets, capped classes) up to that mark's time;
  * for one marked refund/g895-hand (Austin's hand refund: potatoes, Dullite,
  * Earth and currants), those classes up to its time. Planks, apples, Plain
- * Metal, Gameshow Tickets and currants are not in it: no G905 rule credits them.
+ * Metal and currants are not in it: no G905 rule credits them.
  *
  * Applying (one transaction per character): the letters go as GardenPayout's
  * do (LedgerMail's letters from nobody, id 0, delivered at once; collecting
@@ -300,7 +301,11 @@ final class LedgerRefund
             if ($economy->timedOutput($c)) {
                 return ['timed', self::G905_TIMED_DAY, true, false];
             }
-            if ($economy->drop($c) && !str_starts_with($c, 'emblem_') && $c !== LedgerMath::TICKET_CLASS) {
+            // #438: a Gameshow Ticket a drop table gave (mining, a harvest), within its day (dcap).
+            if ($c === LedgerMath::TICKET_CLASS && $economy->dayCap($c) > 0) {
+                return ['ticket', $economy->dayCap($c), false, false];
+            }
+            if ($economy->drop($c) && !str_starts_with($c, 'emblem_')) {
                 return ['drop', self::G905_DROP_DAY, true, false];
             }
             return null;
