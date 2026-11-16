@@ -393,7 +393,7 @@ final readonly class Ledger
         $ledger = ['items' => $state['items'], 'currants' => $state['currants']];
         $day = gmdate('Y-m-d', $now);
         $credited = $this->credited($user, $day);
-        if (!isset($credited['base']) || !isset($credited[LedgerMath::MARK]['base'])) {
+        if (!isset($credited['base']) || !isset($credited[LedgerMath::MARK]['base']) || !isset($credited[LedgerMath::MARK]['base905'])) {
             // First checked write (or the first since slice 2): what the save had done already is marked, not paid.
             // G895: so are the records the earned rules follow, the first write they see (the stored save's, so
             // what this write earns still counts).
@@ -402,7 +402,8 @@ final readonly class Ledger
             $base = is_array($was['entries'] ?? null) ? array_filter($was['entries'], 'is_string') : $entries;
             $this->credit($user, array_merge(
                 isset($credited['base']) ? [] : LedgerMath::baseline($base, $this->economy),
-                isset($credited[LedgerMath::MARK]['base']) ? [] : LedgerMath::markBaseline($base, $this->featRewards($user)),
+                // G905: a character the G895 baseline saw has the records G905 follows marked once more.
+                isset($credited[LedgerMath::MARK]['base905']) ? [] : (isset($credited[LedgerMath::MARK]['base']) ? LedgerMath::markBaseline905($base) : LedgerMath::markBaseline($base, $this->featRewards($user))),
             ), $day, $now);
             $credited = $this->credited($user, $day);
         }

@@ -169,6 +169,21 @@ final class LedgerMath
     public const ROCKS_BASE_MAX = 20;
     public const CRACK_WAIT = 15;
 
+    /**
+     * Elemental Shake (G905, #439): once a game day a pouch's Shake adds round(count x delta) of each
+     * element the shaken pouch holds (js/elemental-pouch.js shakeElement; GSJS items/
+     * bag_elemental_pouch.js doShake 669-690: delta one of 0.08 to 0.12 with Super Elemental Shake,
+     * 0.04 to 0.06 with Elemental Shake, a pouch slot holds 5,000), and the save's pouch record counts
+     * the shakes (systems.features['elemental-pouch'].shakes). Each shake the record gained since it
+     * was last credited allows, per element, round(min(5,000, the ledger's count) x the best delta of
+     * the card the save owns), outside the budget, SHAKE_DAILY a UTC day (a game day is 4 real
+     * hours, so 6 honest shakes and one across the edge). Without the card nothing is allowed.
+     */
+    public const SHAKE_DAILY = 7;
+    public const SHAKE_CARDS = ['element_handling_bonus_2' => 0.12, 'element_handling_bonus_1' => 0.06];
+    public const SHAKE_ELEMENTS = ['element_blue', 'element_green', 'element_red', 'element_shiny'];
+    public const ELEMENT_STACK = 5000;
+
     /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records. */
     public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY];
 
@@ -1370,6 +1385,8 @@ final class LedgerMath
             }
         }
         $out['donations'] = self::count($state['systems']['shrines']['donations'] ?? 0);
+        // G905: the pouch's shakes (js/elemental-pouch.js createPouchState shakes).
+        $out['shakes'] = self::count($state['systems']['features']['elemental-pouch']['shakes'] ?? 0);
         $cracked = $state['systems']['features']['artifacts']['cracked'] ?? null;
         $out['rocks'] = 0;
         foreach (self::CRACK_YIELD as $rock => $y) {
@@ -1389,7 +1406,7 @@ final class LedgerMath
      */
     public static function markBaseline(array $entries, int $feats = 0): array
     {
-        $rows = [[self::MARK, 'base', 1]];
+        $rows = [[self::MARK, 'base', 1], [self::MARK, 'base905', 1]];
         $marks = self::marks($entries);
         foreach ($marks as $ref => $n) {
             if ($n > 0 && !str_starts_with($ref, 'crack:') && $ref !== 'rocks') {
@@ -1403,6 +1420,22 @@ final class LedgerMath
             if ($n > 0) {
                 $rows[] = [self::MARK, $ref, $n];
             }
+        }
+        return $rows;
+    }
+
+    /**
+     * G905: the rows that mark the records G905's rules follow, for a character the G895 baseline
+     * already saw (Ledger::write, from the stored save): the pouch's shakes so far, without paying.
+     *
+     * @return list<array{0: string, 1: string, 2: int}>
+     */
+    public static function markBaseline905(array $entries): array
+    {
+        $rows = [[self::MARK, 'base905', 1]];
+        $n = self::marks($entries)['shakes'] ?? 0;
+        if ($n > 0) {
+            $rows[] = [self::MARK, 'shakes', $n];
         }
         return $rows;
     }
@@ -1484,6 +1517,29 @@ final class LedgerMath
             $take('donations', self::TICKET_CLASS, $marks['donations'] ?? 0, $room, $wait);
         }
         $day('ticket', $start - $room);
+        // G905: Elemental Shake, the elements each new shake on the pouch record allows.
+        $delta = 0.0;
+        $owned = self::markers($entries)['owned'];
+        foreach (self::SHAKE_CARDS as $card => $d) {
+            if (in_array($card, $owned, true)) {
+                $delta = max($delta, $d);
+            }
+        }
+        $was = (int) ($had['shakes'] ?? 0);
+        $fresh = max(0, ($marks['shakes'] ?? 0) - $was);
+        $k = min($fresh, max(0, self::SHAKE_DAILY - (int) ($credited[self::MARK_DAY]['shake'] ?? 0)));
+        if ($k > 0) {
+            foreach ($delta > 0 ? self::SHAKE_ELEMENTS : [] as $class) {
+                $each = (int) round(min(self::ELEMENT_STACK, max(0, (int) ($view['items'][$class] ?? 0))) * $delta);
+                $c = min($gainOf($class), $k * $each);
+                if ($c > 0 && $economy->tradeable($class)) {
+                    $out['goods']['items'][$class] = ($out['goods']['items'][$class] ?? 0) + $c;
+                    $out['detail'][$class] = ($out['detail'][$class] ?? 0) + $c;
+                }
+            }
+            $out['rows'][] = [self::MARK, 'shakes', $was + $k];
+            $day('shake', $k);
+        }
         // Artifact pieces and beads: the cracks' yield, within what the Feat rewards gave rocks for.
         $was = (int) ($had['crackyield'] ?? 0);
         $yield = self::crackYield($marks);
