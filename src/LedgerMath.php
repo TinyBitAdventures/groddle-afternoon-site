@@ -36,7 +36,7 @@ namespace Groddle\Minn;
  * $capsLeft).
  *
  * G895 (#432) credits what the save's own records say it earned (earned: a
- * shrine's emblems), as many as the write shows, each rule with a daily
+ * shrine's emblems and the Gameshow Tickets its donations gave), as many as the write shows, each rule with a daily
  * count; one past the count waits in the save outside the ledger.
  */
 final class LedgerMath
@@ -135,6 +135,19 @@ final class LedgerMath
      */
     public const EMBLEM_DAILY = 4;
     public const EMBLEM_WAIT = 4;
+
+    /**
+     * Gameshow Tickets (G895): a shrine donation may give one (js/shrines.js donateToShrine 460-475,
+     * spinning-wheel.js gameshowTicketChance; GSJS include/shrines.js 546-566: 15% for a donation worth
+     * 300 or more), so a ticket stands up to the donations the save's shrine record counted since it was
+     * last credited (systems.shrines.donations, one ticket a donation at most), TICKET_DAILY a UTC day
+     * (4,000 of value at the ticket's fallback price; an honest 4 takes some 27 large donations), up to
+     * TICKET_WAIT past it waiting. A ticket from a drop table (croppery, herbalism ...) goes through
+     * the budget as before.
+     */
+    public const TICKET_DAILY = 4;
+    public const TICKET_WAIT = 4;
+    public const TICKET_CLASS = 'gameshow_ticket';
 
     /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records. */
     public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY];
@@ -1033,7 +1046,8 @@ final class LedgerMath
 
     /**
      * G895: the save's records that earned rules follow, ref -> count: "emblem:<giant>" the
-     * shrine's emblems earned (systems.shrines.emblems, js/shrines.js normalizeShrineState).
+     * shrine's emblems earned (systems.shrines.emblems, js/shrines.js normalizeShrineState) and
+     * "donations" the shrine donations made (systems.shrines.donations).
      *
      * @return array<string,int>
      */
@@ -1048,6 +1062,7 @@ final class LedgerMath
                 $out["emblem:{$giant}"] = self::count($n);
             }
         }
+        $out['donations'] = self::count($state['systems']['shrines']['donations'] ?? 0);
         ksort($out);
         return $out;
     }
@@ -1073,7 +1088,8 @@ final class LedgerMath
     /**
      * G895 (#432): gains the save's own records say it earned, credited outside the budget, as
      * many as the write shows beyond the expected view: a shrine's emblems, up to the emblems the
-     * shrine record gained since it was last credited, EMBLEM_DAILY a day for all Giants. What the
+     * shrine record gained since it was last credited, EMBLEM_DAILY a day for all Giants; Gameshow
+     * Tickets, one a shrine donation counted since, TICKET_DAILY a day. What the
      * record allows past today's count waits (held: it stands in the save outside the ledger, up to
      * EMBLEM_WAIT, and the record keeps it owed for a later day); what the record allows and the
      * write does not show (an emblem spent in the write that earned it) is not kept owed. Returns the
@@ -1126,6 +1142,14 @@ final class LedgerMath
             }
         }
         $day('emblem', $start - $room);
+        // Gameshow Tickets: one a shrine donation at most.
+        $room = max(0, self::TICKET_DAILY - (int) ($credited[self::MARK_DAY]['ticket'] ?? 0));
+        $start = $room;
+        $wait = self::TICKET_WAIT;
+        if ($economy->tradeable(self::TICKET_CLASS)) {
+            $take('donations', self::TICKET_CLASS, $marks['donations'] ?? 0, $room, $wait);
+        }
+        $day('ticket', $start - $room);
         ksort($out['goods']['items']);
         ksort($out['held']['items']);
         return $out;
