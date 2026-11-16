@@ -93,6 +93,8 @@ html:has(.report-menu) { scroll-padding-top: calc(var(--report-menu-h) + 14px); 
   .report-menu-links .report-menu-out-inline { display: block; }
 }
 .report-menu ~ .band .spot-card { top: calc(var(--report-menu-h) + 16px); }
+/* The street diorama keeps its 1200 by 440 stage's shape before restoration.js sizes it, so the page above an anchor does not grow after a #link has jumped (restoration.js puts the target back too, hash-settle.js). The full width keeps a grid item with a shape from shrinking to its absolute contents. */
+.report-menu ~ .band .diorama-frame { width: 100%; aspect-ratio: 1200 / 440; }
 
 @media (max-width: 640px) {
   :root { --report-menu-h: 40px; }
