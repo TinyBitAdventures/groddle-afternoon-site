@@ -36,7 +36,8 @@ namespace Groddle\Minn;
  * $capsLeft).
  *
  * G895 (#432) credits what the save's own records say it earned (earned: a
- * shrine's emblems and the Gameshow Tickets its donations gave), as many as the write shows, each rule with a daily
+ * shrine's emblems, the Gameshow Tickets its donations gave and a cracked
+ * Petrified Rock's pieces), as many as the write shows, each rule with a daily
  * count; one past the count waits in the save outside the ledger.
  */
 final class LedgerMath
@@ -148,6 +149,25 @@ final class LedgerMath
     public const TICKET_DAILY = 4;
     public const TICKET_WAIT = 4;
     public const TICKET_CLASS = 'gameshow_ticket';
+
+    /**
+     * Artifact pieces and necklace beads (G895): only a cracked Petrified Rock gives them
+     * (js/artifacts.js CRACK_STEPS, petrified_rock_*.js onCrack: a small rock one row of
+     * petrified_rock_small_crack, at most 3 beads or a piece; a medium two artifact_pieces rolls; a large
+     * three and a fifth at 20%), and only a Feat reward gives a rock (feats.go: every contributor a
+     * small one, places 1 to 26 a large or medium one too, ROCKS_PER_FEAT; the rocks are not tradeable,
+     * so the ledger never sees them). So they stand up to CRACK_YIELD for each crack the save's record
+     * counted since it was last credited (systems.features.artifacts.cracked, artifacts-feature.js
+     * finishCrack; mark ref crackyield, in pieces), never more than the realtime server's Feat rewards
+     * could have given rocks for (its signed feat-r- records in groddle_trades, $feats in check: the
+     * mark rockyield holds what the first sighting allowed, the rocks the stored save held then, at most
+     * ROCKS_BASE_MAX, mark feats the rewards counted then), each class within its daily cap (the cap
+     * rows the budget's own drops count too), up to CRACK_WAIT past the cap waiting.
+     */
+    public const CRACK_YIELD = ['petrified_rock_small' => 3, 'petrified_rock_medium' => 2, 'petrified_rock_large' => 4];
+    public const ROCKS_PER_FEAT = 2;
+    public const ROCKS_BASE_MAX = 20;
+    public const CRACK_WAIT = 15;
 
     /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records. */
     public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY];
@@ -582,7 +602,7 @@ final class LedgerMath
      * @param array{items: array<string,int>, currants: int}|null $receipts
      * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>, allowed: array{items: array<string,int>, currants: int}, held: array{items: array<string,int>, currants: int}}
      */
-    public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy, ?array $receipts = null): array
+    public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy, ?array $receipts = null, ?callable $feats = null): array
     {
         $credits = self::credits($entries, $credited, $economy);
         $owed = self::add($ledger, $credits['goods']);
@@ -607,8 +627,13 @@ final class LedgerMath
             $credits['rows'] = array_merge($credits['rows'], $kit['rows']);
             $credits['detail']['homeKit'] = (object) $kitIn['items'];
         }
-        // G895: what the save's own records say it earned (a shrine's emblems), outside the budget.
-        $earned = self::earned($view, $holdings, $entries, $credited, $economy);
+        // G895: what the save's own records say it earned (a shrine's emblems, a donation's tickets, a
+        // cracked rock's pieces), outside the budget; pieces count toward their class's daily cap.
+        $capsLeft = [];
+        foreach ($credited['cap'] ?? [] as $c => $n) {
+            $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
+        }
+        $earned = self::earned($view, $holdings, $entries, $credited, $economy, $capsLeft, $feats);
         $owed = self::add($owed, $earned['goods']);
         foreach ([$earned['goods'], $earned['held']] as $g) {
             foreach ($g['items'] as $c => $n) {
@@ -634,13 +659,14 @@ final class LedgerMath
         }
         $view['currants'] += $held['currants'];
         $held = self::add($held, $earned['held']);
-        $capsLeft = [];
-        foreach ($credited['cap'] ?? [] as $c => $n) {
-            $capsLeft[(string) $c] = max(0, $economy->cap((string) $c) - (int) $n);
-        }
         $r = self::reconcile($view, $holdings, $budget, $capacity, $economy, $capsLeft);
         $rows = $credits['rows'];
+        $capped = $earned['capped'];
         foreach ($r['capped'] as $c => $n) {
+            $capped[$c] = ($capped[$c] ?? 0) + $n;
+        }
+        ksort($capped);
+        foreach ($capped as $c => $n) {
             $rows[] = ['cap', (string) $c, (int) ($credited['cap'][$c] ?? 0) + $n];
         }
         return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed, 'held' => $held];
@@ -1047,7 +1073,8 @@ final class LedgerMath
     /**
      * G895: the save's records that earned rules follow, ref -> count: "emblem:<giant>" the
      * shrine's emblems earned (systems.shrines.emblems, js/shrines.js normalizeShrineState) and
-     * "donations" the shrine donations made (systems.shrines.donations).
+     * "donations" the shrine donations made (systems.shrines.donations), "crack:<rock>" the
+     * Petrified Rocks cracked (systems.features.artifacts.cracked) and "rocks" those held.
      *
      * @return array<string,int>
      */
@@ -1063,6 +1090,12 @@ final class LedgerMath
             }
         }
         $out['donations'] = self::count($state['systems']['shrines']['donations'] ?? 0);
+        $cracked = $state['systems']['features']['artifacts']['cracked'] ?? null;
+        $out['rocks'] = 0;
+        foreach (self::CRACK_YIELD as $rock => $y) {
+            $out["crack:{$rock}"] = self::count(is_array($cracked) ? ($cracked[$rock] ?? 0) : 0);
+            $out['rocks'] += self::count($state['inventory'][$rock] ?? 0);
+        }
         ksort($out);
         return $out;
     }
@@ -1074,10 +1107,19 @@ final class LedgerMath
      *
      * @return list<array{0: string, 1: string, 2: int}>
      */
-    public static function markBaseline(array $entries): array
+    public static function markBaseline(array $entries, int $feats = 0): array
     {
         $rows = [[self::MARK, 'base', 1]];
-        foreach (self::marks($entries) as $ref => $n) {
+        $marks = self::marks($entries);
+        foreach ($marks as $ref => $n) {
+            if ($n > 0 && !str_starts_with($ref, 'crack:') && $ref !== 'rocks') {
+                $rows[] = [self::MARK, $ref, $n];
+            }
+        }
+        // The pieces the cracks so far allowed, and what the rocks held then (and the Feat rewards since) may still give.
+        $yield = self::crackYield($marks);
+        $rocks = min(self::ROCKS_BASE_MAX, $marks['rocks'] ?? 0);
+        foreach (['crackyield' => $yield, 'rockyield' => $yield + $rocks * max(self::CRACK_YIELD), 'feats' => max(0, $feats)] as $ref => $n) {
             if ($n > 0) {
                 $rows[] = [self::MARK, $ref, $n];
             }
@@ -1085,11 +1127,23 @@ final class LedgerMath
         return $rows;
     }
 
+    /** G895: the most pieces and beads the cracks a save's record counts could have given (CRACK_YIELD). */
+    public static function crackYield(array $marks): int
+    {
+        $n = 0;
+        foreach (self::CRACK_YIELD as $rock => $y) {
+            $n += (int) ($marks["crack:{$rock}"] ?? 0) * $y;
+        }
+        return $n;
+    }
+
     /**
      * G895 (#432): gains the save's own records say it earned, credited outside the budget, as
      * many as the write shows beyond the expected view: a shrine's emblems, up to the emblems the
      * shrine record gained since it was last credited, EMBLEM_DAILY a day for all Giants; Gameshow
-     * Tickets, one a shrine donation counted since, TICKET_DAILY a day. What the
+     * Tickets, one a shrine donation counted since, TICKET_DAILY a day; artifact pieces and beads,
+     * CRACK_YIELD a crack counted since, within the rocks the Feat rewards gave ($feats() counts the
+     * realtime server's signed rewards) and each class's daily cap ($capsLeft, lowered). What the
      * record allows past today's count waits (held: it stands in the save outside the ledger, up to
      * EMBLEM_WAIT, and the record keeps it owed for a later day); what the record allows and the
      * write does not show (an emblem spent in the write that earned it) is not kept owed. Returns the
@@ -1097,9 +1151,9 @@ final class LedgerMath
      *
      * @return array{goods: array{items: array<string,int>, currants: int}, held: array{items: array<string,int>, currants: int}, rows: list<array{0: string, 1: string, 2: int}>, detail: array}
      */
-    public static function earned(array $view, array $holdings, array $entries, array $credited, Economy $economy): array
+    public static function earned(array $view, array $holdings, array $entries, array $credited, Economy $economy, array &$capsLeft = [], ?callable $feats = null): array
     {
-        $out = ['goods' => ['items' => [], 'currants' => 0], 'held' => ['items' => [], 'currants' => 0], 'rows' => [], 'detail' => []];
+        $out = ['goods' => ['items' => [], 'currants' => 0], 'held' => ['items' => [], 'currants' => 0], 'rows' => [], 'detail' => [], 'capped' => []];
         $had = (array) ($credited[self::MARK] ?? []);
         $marks = self::marks($entries);
         $gainOf = static fn (string $c): int => max(0, ($holdings['items'][$c] ?? 0) - ($view['items'][$c] ?? 0));
@@ -1150,6 +1204,46 @@ final class LedgerMath
             $take('donations', self::TICKET_CLASS, $marks['donations'] ?? 0, $room, $wait);
         }
         $day('ticket', $start - $room);
+        // Artifact pieces and beads: the cracks' yield, within what the Feat rewards gave rocks for.
+        $was = (int) ($had['crackyield'] ?? 0);
+        $yield = self::crackYield($marks);
+        if ($yield > $was) {
+            $rewards = $feats === null ? 0 : max(0, (int) $feats());
+            $most = (int) ($had['rockyield'] ?? 0) + max(0, $rewards - (int) ($had['feats'] ?? 0)) * self::ROCKS_PER_FEAT * max(self::CRACK_YIELD);
+            $top = min($yield, $most);
+            $allow = max(0, $top - $was);
+            $wait = self::CRACK_WAIT;
+            $waiting = 0;
+            foreach ($economy->assemblyInputs() as $class) {
+                $gain = $gainOf($class);
+                if ($gain <= 0 || $allow <= 0) {
+                    continue;
+                }
+                $capLeft = $economy->cap($class) > 0 ? max(0, (int) ($capsLeft[$class] ?? $economy->cap($class))) : $gain;
+                $c = min($gain, $allow, $capLeft);
+                $allow -= $c;
+                $w = min($gain - $c, $allow, $wait);
+                $allow -= $w;
+                $wait -= $w;
+                $waiting += $w;
+                if ($c > 0) {
+                    $out['goods']['items'][$class] = ($out['goods']['items'][$class] ?? 0) + $c;
+                    $out['detail'][$class] = ($out['detail'][$class] ?? 0) + $c;
+                    if ($economy->cap($class) > 0) {
+                        $capsLeft[$class] = $capLeft - $c;
+                        $out['capped'][$class] = $c;
+                    }
+                }
+                if ($w > 0) {
+                    $out['held']['items'][$class] = ($out['held']['items'][$class] ?? 0) + $w;
+                    $out['detail']['waits'][$class] = $w;
+                }
+            }
+            $mark = max($was, $top - $waiting);
+            if ($mark !== $was) {
+                $out['rows'][] = [self::MARK, 'crackyield', $mark];
+            }
+        }
         ksort($out['goods']['items']);
         ksort($out['held']['items']);
         return $out;

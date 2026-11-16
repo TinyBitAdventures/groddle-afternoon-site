@@ -103,6 +103,27 @@ final class Economy
     }
 
     /**
+     * G895: the classes artifact assembly takes (the pieces and beads of the "artifact:" and
+     * "necklace:" transforms, js/artifacts.js), sorted.
+     *
+     * @return list<string>
+     */
+    public function assemblyInputs(): array
+    {
+        $out = [];
+        foreach ($this->transforms as $t) {
+            if (str_starts_with((string) ($t['s'] ?? ''), 'artifact:') || str_starts_with((string) ($t['s'] ?? ''), 'necklace:')) {
+                foreach (array_keys($t['i']) as $c) {
+                    $out[(string) $c] = true;
+                }
+            }
+        }
+        $out = array_keys($out);
+        sort($out);
+        return $out;
+    }
+
+    /**
      * One part of the credit table: quests, badges, levels, cards (maps),
      * xp (level thresholds), questBonus / badgeBonus (card -> bonus), buff.
      */

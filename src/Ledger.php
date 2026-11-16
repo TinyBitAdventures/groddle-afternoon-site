@@ -402,7 +402,7 @@ final readonly class Ledger
             $base = is_array($was['entries'] ?? null) ? array_filter($was['entries'], 'is_string') : $entries;
             $this->credit($user, array_merge(
                 isset($credited['base']) ? [] : LedgerMath::baseline($base, $this->economy),
-                isset($credited[LedgerMath::MARK]['base']) ? [] : LedgerMath::markBaseline($base),
+                isset($credited[LedgerMath::MARK]['base']) ? [] : LedgerMath::markBaseline($base, $this->featRewards($user)),
             ), $day, $now);
             $credited = $this->credited($user, $day);
         }
@@ -412,7 +412,8 @@ final readonly class Ledger
         $budget = $zeroing ? 0.0 : $this->refilled($state['budget'], $state['budget_at'], $now);
         // Slice 3: what the realtime server credited and the save has not shown yet (LedgerCredits).
         $receipts = LedgerCredits::open($this->db, $user, $now);
-        $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy, $receipts['goods']);
+        // G895: a cracked rock's pieces stand within the rocks the realtime server's Feat rewards gave (asked only then).
+        $c = LedgerMath::check($ledger, $credited, $pending, $entries, $budget, $this->capacity, $this->economy, $receipts['goods'], fn (): int => $this->featRewards($user));
         $r = $c['reconciled'];
         $this->store($user, $ledger, $c['after'], $zeroing ? min($this->capacity, $state['budget'] + self::NEW_BUDGET) : $r['budget'], $now);
         if ($zeroing) {
@@ -442,6 +443,16 @@ final readonly class Ledger
             }
         }
         return ['entries' => $entries, 'clamped' => $r['clamped'], 'text' => $text];
+    }
+
+    /**
+     * G895: the Feat rewards the realtime server settled for this character (feats.go, signed:
+     * LedgerService::feat records each feat-r- id once, LedgerProject, b_id 0). Each gave a Small
+     * Petrified Rock and, to places 1 to 26, a Large or Medium one too.
+     */
+    private function featRewards(int $user): int
+    {
+        return (int) $this->db->value('SELECT COUNT(*) FROM ' . $this->db->table(self::TRADES) . " WHERE a_id = ? AND b_id = 0 AND status = 'settled' AND trade_id LIKE 'feat-r-%'", [$user]);
     }
 
     // —— Credited markers (slice 2) ——
