@@ -281,11 +281,19 @@ final class Restoration
         return '<ol class="recent" id="recent-list">' . $out . '</ol>';
     }
 
+    /**
+     * Gone for good (G910): data.json's lost list (build-restoration.mjs lostList: the checklist's lost
+     * items, then the Known gaps marked Not possible). Data built before it had only the checklist,
+     * whose last lost item came back with the Snaps, so the list drew empty.
+     */
     private static function lost(array $d): string
     {
+        $rows = is_array($d['lost'] ?? null)
+            ? $d['lost']
+            : array_filter($d['items'] ?? [], static fn ($it): bool => is_array($it) && ($it['status'] ?? '') === 'lost');
         $out = '';
-        foreach ($d['items'] ?? [] as $it) {
-            if (($it['status'] ?? '') === 'lost') {
+        foreach ($rows as $it) {
+            if (is_array($it)) {
                 $out .= '<li><b>' . Html::esc((string) ($it['name'] ?? '')) . '</b>: ' . Html::esc((string) ($it['blurb'] ?? '')) . '</li>';
             }
         }
