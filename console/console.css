@@ -205,6 +205,16 @@ a.console-hint { color: var(--fg); }
 .console-context dl { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 2px 10px; margin: 8px 0 2px; font-size: 12px; }
 .console-context dt { color: var(--muted); }
 .console-context dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.console-chip-player { background: #8f2d4a; color: #fff; }
+.console-player-report { margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--row-line); border-radius: 12px; background: var(--surface); }
+.console-player-report h3 { margin: 0 0 2px; font-size: 14px; color: var(--lead); }
+.console-player-report p { margin: 0 0 6px; }
+.console-report-lines { list-style: none; margin: 0; padding: 0; max-height: 22rem; overflow: auto; font-size: 13px; }
+.console-report-lines li { display: flex; flex-wrap: wrap; gap: 0 8px; padding: 3px 6px; border-radius: 6px; }
+.console-report-lines li[data-theirs] { background: color-mix(in srgb, #8f2d4a 14%, transparent); }
+.console-report-lines li[data-deleted] .console-report-text { text-decoration: line-through; }
+.console-report-lines time, .console-report-place { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.console-report-text { flex: 1 1 14rem; overflow-wrap: anywhere; }
 .console-messages { display: grid; gap: 8px; max-height: 460px; overflow: auto; margin-bottom: 10px; padding: 2px; }
 .console-msg { max-width: 88%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 .console-msg-admin { justify-self: end; background: var(--cx-soft); }

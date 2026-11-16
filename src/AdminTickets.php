@@ -35,12 +35,17 @@ use Minn\RestError;
  *                                  no email: a status, like Close, not a reply
  *   POST admin/tickets/migrate     {"made","already","posts","text"}   TicketMigration, once (safe again)
  *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"},"closedBy":"player"|"admin"|null,"closedAt":time|null}
+ *                                  + "playerReport":{"reported":{"id","name"}} on a player's report of another player (G872)
  *                                  closedBy: who closed it, the player (withdrew it) or an administrator; null while it is
  *                                  not closed, and for reports closed before 2026-11-11 (unknown)
  *   Message: Tickets' Message; "edited" is when the player changed the report's words before it was read;
  *                                "pictures" the message's own pictures in order ([{"url","width","height"}], up to four;
  *                                a new report's own picture is the thread's "picture"), and "picture" the first of them
  *                                for older readers (G791), or null
+ *   A player's report of another player (PlayerReports, G872) also has "playerReport" in its thread:
+ *                                  {"reported":{"id","name"},"linesStatus":"ok"|"off"|"down","windowMinutes":30,
+ *                                  "lines":[{"at","kind":"local"|"channel"|"party","place","id","name","text","shown","deleted","reported"}]}
+ *                                  the public chat the reporter could see, oldest first (never an IM); null on any other report
  *
  * A reply emails the player (PlayerMail::ticketReply, in the site's look,
  * by their character name, never the username), unless the administrator
@@ -70,9 +75,10 @@ final readonly class AdminTickets
         $store = $this->store();
         $list = $store->listAll(in_array($status, TicketStore::STATUSES, true) ? $status : null, (int) $offset);
         $names = (new Characters($this->minn->db))->namesOf(array_map(static fn (array $r): int => (int) $r['player_user_id'], $list['rows']));
+        $reported = PlayerReports::reportedOf($this->minn->db, array_map(static fn (array $r): int => (int) $r['id'], $list['rows']));
         $out = [];
         foreach ($list['rows'] as $r) {
-            $out[] = $this->row($r, $names);
+            $out[] = $this->row($r, $names, $reported);
         }
         return Response::json([
             'tickets' => $out,
@@ -214,23 +220,35 @@ final readonly class AdminTickets
         $store = $this->store();
         $row = (array) $store->find($id);
         $names = (new Characters($this->minn->db))->namesOf([(int) $row['player_user_id']]);
+        $report = PlayerReports::forTicket($this->minn->db, $id, $this->streetIndex());
         return Response::json($extra + [
-            'ticket' => $this->row($row, $names),
+            'ticket' => $this->row($row, $names, $report === null ? [] : [$id => $report['reported']]),
             'messages' => TicketStore::messagesOut($store->messages($id), $store->revisions($id), $store->messagePictures($id)),
             'context' => (object) TicketStore::contextOf($row),
             'picture' => $store->pictureOut($id),
+            'playerReport' => $report,
         ])->withHeader('Cache-Control', 'no-store');
     }
 
-    private function row(array $r, array $names): array
+    /** @param array<int, array{id: int, name: string}> $reported ticket id => the player it reports (PlayerReports::reportedOf) */
+    private function row(array $r, array $names, array $reported = []): array
     {
         $player = (int) $r['player_user_id'];
         $closedBy = TicketStore::closedBy($r);
+        $about = $reported[(int) $r['id']] ?? null;
         return TicketStore::summary($r, TicketStore::ADMIN) + [
             'player' => ['id' => $player, 'name' => (string) ($names[$player] ?? "#{$player}")],
             'closedBy' => $closedBy,
             'closedAt' => $closedBy !== null && ($r['closed_at'] ?? null) ? SaveShape::time((string) $r['closed_at']) : null,
-        ];
+        ] + ($about === null ? [] : ['playerReport' => ['reported' => $about]]);
+    }
+
+    /** The game's street index (names for the places a report's lines were said). */
+    private function streetIndex(): array
+    {
+        $file = StaticRoot::fromSite($this->minn)->dir . '/assets/streets/index.json';
+        $data = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+        return is_array($data['streets'] ?? null) ? $data['streets'] : [];
     }
 
     private function ticket(int $id): array

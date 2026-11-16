@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.53",
+  "version": "0.5.54",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -352,6 +352,20 @@
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (note_id,reporter_id)",
       "KEY reporter_id (reporter_id)"
+    ],
+    "groddle_player_reports": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "ticket_id bigint(20) unsigned NOT NULL",
+      "reporter_id bigint(20) unsigned NOT NULL",
+      "reporter_login bigint(20) unsigned NOT NULL",
+      "reported_id bigint(20) unsigned NOT NULL",
+      "lines_status varchar(8) NOT NULL DEFAULT 'ok'",
+      "chat_lines mediumtext NOT NULL",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "UNIQUE KEY ticket_id (ticket_id)",
+      "KEY reporter_login (reporter_login,created_at)",
+      "KEY reported_id (reported_id,created_at)"
     ],
     "groddle_home_signposts": [
       "owner_id bigint(20) unsigned NOT NULL",

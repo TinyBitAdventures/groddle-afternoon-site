@@ -187,6 +187,21 @@ export function contextRows(ctx) {
   return rows;
 }
 
+/**
+ * G872: a player's report of another player (src/PlayerReports.php): the line over the public chat
+ * the reporter could see (street, channel and party lines; never IMs), or why none came.
+ */
+export function playerReportNote(rep) {
+  const r = rep && typeof rep === 'object' ? rep : {};
+  const name = r.reported?.name || 'the player';
+  const mins = Number(r.windowMinutes) || 30;
+  const n = Array.isArray(r.lines) ? r.lines.length : 0;
+  if (r.linesStatus === 'off') return 'The realtime server keeps no chat log, so no chat came with it.';
+  if (r.linesStatus === 'down') return 'The realtime server did not answer, so no chat came with it.';
+  if (n === 0) return `No public chat the reporter could see in the ${mins} minutes before.`;
+  return `${n === 1 ? '1 public chat line' : `${n} public chat lines`} the reporter could see in the ${mins} minutes before (street, channel and party chat; never IMs). ${name}'s lines are marked.`;
+}
+
 export const COPY = Object.freeze({
   serverUp: (n) => (n === 1 ? 'Realtime server up · 1 online' : `Realtime server up · ${n} online`),
   serverDown: 'Realtime server not answering',
@@ -1213,6 +1228,7 @@ function boot() {
         el('span', { class: 'console-ticket-top' },
           t.unread ? el('span', { class: 'console-dot', title: 'Unread', 'aria-label': 'Unread' }) : null,
           el('b', { text: t.subject || '(no words)' }),
+          t.playerReport ? el('span', { class: 'console-chip console-chip-player', text: 'Player report' }) : null,
           chip(t.status)),
         el('span', { class: 'console-sub', text: `${t.player.name} · ${t.lastAuthor === 'admin' ? 'you replied' : 'they wrote'} ${when(t.lastMessageAt)}` }));
       return el('li', { 'data-unread': t.unread ? '1' : null }, btn);
@@ -1297,6 +1313,7 @@ function boot() {
     const rows = contextRows(r.context);
     $('[data-console-context]').hidden = rows.length === 0;
     $('[data-console-context-list]').replaceChildren(...rows.flatMap(([k, v]) => [el('dt', { text: k }), el('dd', { text: v })]));
+    renderPlayerReport(r.playerReport);
     const src = pictureSrc(r.picture);
     const fig = $('[data-console-picture]');
     const img = $('[data-console-picture-img]');
@@ -1321,6 +1338,22 @@ function boot() {
     if (row) Object.assign(row, { status: t.status, lastAuthor: t.lastAuthor, lastMessageAt: t.lastMessageAt });
     renderTickets();
     if (focus) $('[data-console-thread-subject]').focus();
+  }
+  /** G872: a player report's reported player and the public chat lines that came with it (their own lines marked). */
+  function renderPlayerReport(rep) {
+    const box = $('[data-console-player-report]');
+    box.hidden = !rep;
+    if (!rep) return;
+    $('[data-console-player-report-title]').textContent = `Player report: ${rep.reported?.name || ''}`;
+    $('[data-console-player-report-note]').textContent = playerReportNote(rep);
+    const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+    $('[data-console-player-report-lines]').replaceChildren(...(rep.lines || []).map((l) => el('li', { class: 'console-report-line', 'data-theirs': l.reported ? '1' : null, 'data-deleted': l.deleted ? '1' : null },
+      el('time', { datetime: l.at, text: clock(l.at) }),
+      el('span', { class: 'console-report-place', text: l.place }),
+      el('b', { text: l.name }),
+      el('span', { class: 'console-report-text', text: l.text }),
+      l.shown ? el('span', { class: 'console-sub', text: ` (shown as “${l.shown}”)` }) : null,
+      l.deleted ? el('span', { class: 'console-sub', text: ' (deleted since)' }) : null)));
   }
   /** The pictures a player's message carries (G791; up to four), under its words; a click opens one in the popup, Cmd-click in a tab. */
   function replyPictures(m) {

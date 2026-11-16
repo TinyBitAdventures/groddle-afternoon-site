@@ -77,7 +77,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-7';
+    public const ASSET_KEY = 'skin-8';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its key in their imports). */
     public const SERVER_ASSET_KEY = 'server-2';
@@ -303,6 +303,11 @@ HTML
           <summary>What the game knew</summary>
           <dl data-console-context-list></dl>
         </details>
+        <section class="console-player-report" aria-labelledby="console-player-report-title" data-console-player-report hidden>
+          <h3 id="console-player-report-title" data-console-player-report-title></h3>
+          <p class="console-sub" data-console-player-report-note></p>
+          <ol class="console-report-lines" data-console-player-report-lines aria-label="Public chat the reporter could see"></ol>
+        </section>
         <figure class="console-picture" data-console-picture hidden>
           <a data-console-picture-link target="_blank" rel="noopener" aria-label="Open the picture of the game full size"><img data-console-picture-img alt="The game when the player reported it" /></a>
           <p class="console-sub console-picture-failed">The picture could not be loaded.</p>
