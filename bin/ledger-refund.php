@@ -10,6 +10,13 @@
  *
  *   wp eval-file wp-content/themes/groddle/bin/ledger-refund.php tables=_rehearsal (copies of the three tables)
  *
+ * G895 (#432): ref=g895 lists (and with "apply" mails back, once a character) the emblems, Gameshow
+ * Tickets, beads, artifact pieces and other capped drops the save checker took from the v0.43.0
+ * deploy on (since=YYYY-MM-DDTHH:MM:SS, UTC, moves the start):
+ *
+ *   wp eval-file wp-content/themes/groddle/bin/ledger-refund.php ref=g895               (list, changes nothing)
+ *   wp eval-file wp-content/themes/groddle/bin/ledger-refund.php ref=g895 apply users=7 (mail it)
+ *
  * Read the list before applying: the log cannot tell an honest card purchase from a forged pile.
  */
 
@@ -26,6 +33,8 @@ $argv2 = $args ?? [];
 $apply = in_array('apply', $argv2, true);
 $users = null;
 $suffix = '';
+$ref = Groddle\Minn\LedgerRefund::REF;
+$since = null;
 foreach ($argv2 as $a) {
     if (str_starts_with($a, 'users=')) {
         $users = array_values(array_filter(array_map('intval', explode(',', substr($a, 6))), static fn (int $u): bool => $u > 0));
@@ -33,7 +42,13 @@ foreach ($argv2 as $a) {
     if (str_starts_with($a, 'tables=')) {
         $suffix = substr($a, 7);
     }
+    if (str_starts_with($a, 'ref=')) {
+        $ref = substr($a, 4);
+    }
+    if (str_starts_with($a, 'since=')) {
+        $since = str_replace('T', ' ', substr($a, 6));
+    }
 }
 $db = Minn\Runtime\Runtime::current()->db;
-$result = Groddle\Minn\LedgerRefund::run($db, Groddle\Minn\Economy::shared(), $apply, $users, null, $suffix);
+$result = Groddle\Minn\LedgerRefund::run($db, Groddle\Minn\Economy::shared(), $apply, $users, null, $suffix, $ref, $since);
 echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
