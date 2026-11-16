@@ -425,7 +425,8 @@ final readonly class Ledger
         $this->credit($user, $c['rows'], $day, $now);
         // G905: spent inputs the pool used up, or that waited past POOL_HOURS, go.
         $this->db->execute('DELETE FROM ' . $this->db->table(self::CREDITED) . ' WHERE user_id = ? AND kind = ? AND n = 0', [$user, LedgerMath::POOL]);
-        LedgerCredits::used($this->db, $user, $receipts, $c['allowed'], LedgerCredits::charged($r), $now);
+        // G905: receipts a transform in the write used up count as used too.
+        LedgerCredits::used($this->db, $user, $receipts, LedgerMath::add($c['allowed'], $c['inputs']), LedgerCredits::charged($r), $now);
         $credits = $c['credits'];
         // G895: capped drops the budget could not pay yet, waiting in the save (LedgerMath::reconcile held).
         if ($r['held'] !== []) {

@@ -705,7 +705,10 @@ final class LedgerMath
      *
      * @param array<string, array<string,int>> $credited kind -> ref -> n (daily kinds: today's)
      * @param array{items: array<string,int>, currants: int}|null $receipts
-     * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>, allowed: array{items: array<string,int>, currants: int}, held: array{items: array<string,int>, currants: int}}
+     * G905: receipts the write does not show as themselves may stand for what a transform made from
+     * them in the same write ('inputs': the receipts so used, for LedgerCredits::used).
+     *
+     * @return array{after: array, credits: array, reconciled: array, rows: list<array{0: string, 1: string, 2: int}>, allowed: array{items: array<string,int>, currants: int}, held: array{items: array<string,int>, currants: int}, inputs: array{items: array<string,int>, currants: int}}
      */
     public static function check(array $ledger, array $credited, array $pending, array $entries, float $budget, float $capacity, Economy $economy, ?array $receipts = null, ?callable $feats = null, int $now = 0): array
     {
@@ -765,6 +768,18 @@ final class LedgerMath
         }
         $view['currants'] += $held['currants'];
         $held = self::add($held, $earned['held']);
+        // G905: the realtime server's receipts the write does not show as themselves may be what the
+        // write turned into something else (chunks mined then smelted or crushed, planks cut then made
+        // into boards): their transforms' output stands outside the budget, and the receipts are used.
+        $unused = self::less($receipts ?? ['items' => [], 'currants' => 0], $allowed);
+        $fromReceipts = self::fromPool($view, $holdings, $unused['items'], $economy, false);
+        $owed = self::add($owed, $fromReceipts['goods']);
+        foreach ($fromReceipts['goods']['items'] as $c => $n) {
+            $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+        }
+        if ($fromReceipts['goods']['items'] !== []) {
+            $credits['detail']['made from receipts'] = (object) $fromReceipts['goods']['items'];
+        }
         // G905: the output of timed production whose inputs an earlier write spent (the pool).
         $pool = self::poolOf($credited, $now);
         $timed = self::fromPool($view, $holdings, $pool['avail'], $economy);
@@ -797,7 +812,7 @@ final class LedgerMath
         foreach ($capped as $c => $n) {
             $rows[] = ['cap', (string) $c, (int) ($credited['cap'][$c] ?? 0) + $n];
         }
-        return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed, 'held' => $held];
+        return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed, 'held' => $held, 'inputs' => ['items' => $fromReceipts['used'], 'currants' => 0]];
     }
 
     /**
@@ -836,12 +851,14 @@ final class LedgerMath
     /**
      * G905: gains a write shows beyond the expected view that the pool's spent inputs explain:
      * first the output of timed transforms only (economy w, explain), then an input that came back as
-     * itself. Returns the goods that stand (outside the budget) and the pool inputs used.
+     * itself. Returns the goods that stand (outside the budget) and the pool inputs used. $pool false:
+     * the realtime server's unused receipts in the same write instead (any transform, nothing comes
+     * back as itself: covered took those already).
      *
      * @param array<string,int> $avail
      * @return array{goods: array{items: array<string,int>, currants: int}, used: array<string,int>}
      */
-    public static function fromPool(array $view, array $holdings, array $avail, Economy $economy): array
+    public static function fromPool(array $view, array $holdings, array $avail, Economy $economy, bool $pool = true): array
     {
         $out = ['goods' => ['items' => [], 'currants' => 0], 'used' => []];
         if ($avail === []) {
@@ -855,12 +872,16 @@ final class LedgerMath
             }
         }
         $none = 0.0;
-        $x = self::explain($gain, $avail, $economy, $none, static fn (array $t): bool => !empty($t['w']));
+        $x = self::explain($gain, $avail, $economy, $none, $pool ? static fn (array $t): bool => !empty($t['w']) : static fn (array $t): bool => empty($t['r']));
         foreach ($x['made'] as $c => $n) {
             $out['goods']['items'][$c] = $n;
             $gain[$c] -= $n;
         }
         $out['used'] = $x['used'];
+        if (!$pool) {
+            ksort($out['goods']['items']);
+            return $out;
+        }
         // A pooled input that comes back stands as itself (a failed job's ingredients, collected).
         foreach ($avail as $c => $n) {
             $k = min($n - ($out['used'][$c] ?? 0), $gain[$c] ?? 0);
@@ -934,6 +955,20 @@ final class LedgerMath
         }
         ksort($items);
         return ['items' => $items, 'currants' => max(0, min((int) $receipts['currants'], $holdings['currants'] - $view['currants']))];
+    }
+
+    /** G905: a less b, class by class (never below 0). */
+    public static function less(array $a, array $b): array
+    {
+        $items = [];
+        foreach ($a['items'] as $c => $n) {
+            $k = (int) $n - (int) ($b['items'][$c] ?? 0);
+            if ($k > 0) {
+                $items[(string) $c] = $k;
+            }
+        }
+        ksort($items);
+        return ['items' => $items, 'currants' => max(0, (int) $a['currants'] - (int) $b['currants'])];
     }
 
     /** The ledger with changes added (counts never below 0). */
