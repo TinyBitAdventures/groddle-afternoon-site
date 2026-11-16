@@ -172,6 +172,17 @@ final class LedgerMath
     /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records. */
     public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY];
 
+    /**
+     * G895 (#432): the most value of capped drops (classes only drop tables give, at most their cap a
+     * day: Musicblocks, artifact pieces ...) that waits in a write when the budget cannot pay for them
+     * yet, instead of being taken back. A rare drop is the find a player remembers; taking it because
+     * other gains drained the budget a minute before was the worst kind of correction. 3,000 is about
+     * six Musicblocks, 50 minutes of the budget's connected-time refill; what waits never enters the
+     * ledger until a later write pays for it (so it cannot be traded, mailed or auctioned meanwhile),
+     * and it waits only within its class's cap, so a forged pile of drops gains nothing by waiting.
+     */
+    public const CAPPED_HOLD_VALUE = 3000.0;
+
     /** How deep explain looks for an input made from other losses in the same write (grain to flour to a bun). */
     public const EXPLAIN_DEPTH = 2;
 
@@ -354,12 +365,14 @@ final class LedgerMath
      * The other gains stand smallest first (by their whole value) while the
      * write's losses and then the budget last, so a forged pile never crowds
      * out an honest pick. A credit-only class never stands as a gain; a capped
-     * class stands at most $capsLeft[class] (default its daily cap). Returns
-     * the changes that stand (to add to the ledger), what was clamped, the
-     * budget left, what transforms explained and the capped counts taken.
+     * class stands at most $capsLeft[class] (default its daily cap), and what
+     * of that the budget cannot pay yet waits (held, G895: up to
+     * CAPPED_HOLD_VALUE a write). Returns the changes that stand (to add to
+     * the ledger), what was clamped, what waits, the budget left, what
+     * transforms explained and the capped counts taken.
      *
      * @param array<string,int>|null $capsLeft capped class -> gains left today (null: a full day)
-     * @return array{delta: array{items: array<string,int>, currants: int}, clamped: array{items: array<string,int>, currants: int}, budget: float, gained: float, made: array<string,int>, runs: array<string,int>, capped: array<string,int>}
+     * @return array{delta: array{items: array<string,int>, currants: int}, clamped: array{items: array<string,int>, currants: int}, held: array<string,int>, budget: float, gained: float, made: array<string,int>, runs: array<string,int>, capped: array<string,int>}
      */
     public static function reconcile(array $view, array $holdings, float $budget, float $capacity, Economy $economy, ?array $capsLeft = null): array
     {
@@ -408,6 +421,8 @@ final class LedgerMath
         usort($gains, static fn ($a, $b) => $a[1] * $a[2] <=> $b[1] * $b[2] ?: strcmp((string) $a[0], (string) $b[0]));
         $gained = 0.0;
         $capped = [];
+        $held = [];
+        $holdRoom = self::CAPPED_HOLD_VALUE;
         foreach ($gains as [$c, $n, $v]) {
             $most = $n;
             if ($c !== null && $economy->creditOnly($c)) {
@@ -431,14 +446,25 @@ final class LedgerMath
                     $capped[$c] = $keep;
                 }
             }
-            if ($keep < $n) {
-                $clamped['items'][$c] = $n - $keep;
+            // G895: a capped drop within today's cap that only the budget is short for waits in the save
+            // (outside the ledger, so it cannot be traded or mailed) and is tried again on the next write.
+            $hold = 0;
+            if ($economy->cap($c) > 0 && $keep < $most) {
+                $hold = (int) min($most - $keep, floor(($holdRoom + 1e-9) / $v));
+                $holdRoom -= $hold * $v;
+                if ($hold > 0) {
+                    $held[$c] = $hold;
+                }
+            }
+            if ($keep + $hold < $n) {
+                $clamped['items'][$c] = $n - $keep - $hold;
             }
         }
         ksort($delta['items']);
         ksort($clamped['items']);
         ksort($capped);
-        return ['delta' => $delta, 'clamped' => $clamped, 'budget' => max(0.0, min($kept, $capacity, $budget)), 'gained' => $gained, 'made' => $x['made'], 'runs' => $x['runs'], 'capped' => $capped];
+        ksort($held);
+        return ['delta' => $delta, 'clamped' => $clamped, 'held' => $held, 'budget' => max(0.0, min($kept, $capacity, $budget)), 'gained' => $gained, 'made' => $x['made'], 'runs' => $x['runs'], 'capped' => $capped];
     }
 
     /**

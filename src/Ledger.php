@@ -425,6 +425,10 @@ final readonly class Ledger
         $this->credit($user, $c['rows'], $day, $now);
         LedgerCredits::used($this->db, $user, $receipts, $c['allowed'], LedgerCredits::charged($r), $now);
         $credits = $c['credits'];
+        // G895: capped drops the budget could not pay yet, waiting in the save (LedgerMath::reconcile held).
+        if ($r['held'] !== []) {
+            $credits['detail']['waiting'] = (object) $r['held'];
+        }
         if ($credits['detail'] !== []) {
             $this->log($user, 'credit', $credits['detail'] + ['goods' => ['items' => (object) $credits['goods']['items'], 'currants' => $credits['goods']['currants']]], $now);
         }
