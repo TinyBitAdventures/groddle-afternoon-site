@@ -85,6 +85,15 @@ final class Economy
     }
 
     /**
+     * G905: a drop table gives this class as well as an ordinary source (d 1: a quest's Musicblock, a
+     * vendor's Plank, a mined gem), so a gain the budget is short for waits as a capped one does.
+     */
+    public function drop(string $class): bool
+    {
+        return !empty($this->items[$class]['d']) || $this->cap($class) > 0;
+    }
+
+    /**
      * The transforms that make this class, in the table's order.
      *
      * @return list<array{s: string, i: array<string,int>, o: array<string,int>, r?: int}>

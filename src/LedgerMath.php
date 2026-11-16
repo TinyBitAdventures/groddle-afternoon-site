@@ -183,6 +183,17 @@ final class LedgerMath
      */
     public const CAPPED_HOLD_VALUE = 3000.0;
 
+    /**
+     * G905 (#436, #438, #439): the credited kind that remembers what waited on the last write (ref the
+     * class, n how many). On the next write those gains are paid first, before the write's other
+     * gains (still within the budget), so a Musicblock that waited is not starved by the cheap
+     * harvests that drain the budget each minute. A class only drop tables give (capped) waits as
+     * G895 made it; so does one a drop table gives besides an ordinary source (Economy::drop: a
+     * quest's Musicblock, a mined gem, a home Wood Tree's Planks), not past CAPPED_HOLD_VALUE a write,
+     * but one find worth more than that (the 9,000 secret Musicblock) may always wait alone.
+     */
+    public const WAITED = 'held';
+
     /** How deep explain looks for an input made from other losses in the same write (grain to flour to a bun). */
     public const EXPLAIN_DEPTH = 2;
 
@@ -367,14 +378,16 @@ final class LedgerMath
      * out an honest pick. A credit-only class never stands as a gain; a capped
      * class stands at most $capsLeft[class] (default its daily cap), and what
      * of that the budget cannot pay yet waits (held, G895: up to
-     * CAPPED_HOLD_VALUE a write). Returns the changes that stand (to add to
+     * CAPPED_HOLD_VALUE a write; G905: a drop class too, Economy::drop, and
+     * what waited last write, $waited, is paid first). Returns the changes that stand (to add to
      * the ledger), what was clamped, what waits, the budget left, what
      * transforms explained and the capped counts taken.
      *
      * @param array<string,int>|null $capsLeft capped class -> gains left today (null: a full day)
+     * @param array<string,int> $waited class -> how many waited on the last write (paid first)
      * @return array{delta: array{items: array<string,int>, currants: int}, clamped: array{items: array<string,int>, currants: int}, held: array<string,int>, budget: float, gained: float, made: array<string,int>, runs: array<string,int>, capped: array<string,int>}
      */
-    public static function reconcile(array $view, array $holdings, float $budget, float $capacity, Economy $economy, ?array $capsLeft = null): array
+    public static function reconcile(array $view, array $holdings, float $budget, float $capacity, Economy $economy, ?array $capsLeft = null, array $waited = []): array
     {
         $delta = ['items' => [], 'currants' => 0];
         $clamped = ['items' => [], 'currants' => 0];
@@ -407,8 +420,14 @@ final class LedgerMath
             if ($made > 0) {
                 $delta['items'][$c] = $made;
             }
-            if ($n - $made > 0) {
-                $gains[] = [(string) $c, $n - $made, $economy->value((string) $c)];
+            $left = $n - $made;
+            // G905: what waited last write is paid first (its own group, ahead of the rest).
+            $first = $economy->drop((string) $c) ? min($left, max(0, (int) ($waited[$c] ?? 0))) : 0;
+            if ($first > 0) {
+                $gains[] = [(string) $c, $first, $economy->value((string) $c), 0];
+            }
+            if ($left - $first > 0) {
+                $gains[] = [(string) $c, $left - $first, $economy->value((string) $c), 1];
             }
         }
         $dc = $holdings['currants'] - $view['currants'];
@@ -416,21 +435,27 @@ final class LedgerMath
             $delta['currants'] = $dc;
             $budget += -$dc;
         } elseif ($dc > 0) {
-            $gains[] = [null, $dc, 1.0];
+            $gains[] = [null, $dc, 1.0, 1];
         }
-        usort($gains, static fn ($a, $b) => $a[1] * $a[2] <=> $b[1] * $b[2] ?: strcmp((string) $a[0], (string) $b[0]));
+        usort($gains, static fn ($a, $b) => $a[3] <=> $b[3] ?: ($a[1] * $a[2] <=> $b[1] * $b[2] ?: strcmp((string) $a[0], (string) $b[0])));
         $gained = 0.0;
         $capped = [];
         $held = [];
         $holdRoom = self::CAPPED_HOLD_VALUE;
+        $capLeft = [];
         foreach ($gains as [$c, $n, $v]) {
             $most = $n;
             if ($c !== null && $economy->creditOnly($c)) {
                 $most = 0;
             } elseif ($c !== null && $economy->cap($c) > 0) {
-                $most = min($n, max(0, (int) ($capsLeft[$c] ?? $economy->cap($c))));
+                // A class split in two (what waited, then the rest) shares one day's cap.
+                $capLeft[$c] ??= max(0, (int) ($capsLeft[$c] ?? $economy->cap($c)));
+                $most = min($n, $capLeft[$c]);
             }
             $keep = (int) min($most, floor(($budget + 1e-9) / $v));
+            if ($c !== null && isset($capLeft[$c])) {
+                $capLeft[$c] -= $keep;
+            }
             $budget -= $keep * $v;
             $gained += $keep * $v;
             if ($c === null) {
@@ -443,21 +468,29 @@ final class LedgerMath
             if ($keep > 0) {
                 $delta['items'][$c] = ($delta['items'][$c] ?? 0) + $keep;
                 if ($economy->cap($c) > 0) {
-                    $capped[$c] = $keep;
+                    $capped[$c] = ($capped[$c] ?? 0) + $keep;
                 }
             }
             // G895: a capped drop within today's cap that only the budget is short for waits in the save
             // (outside the ledger, so it cannot be traded or mailed) and is tried again on the next write.
+            // G905: so does a class a drop table gives besides an ordinary source (Economy::drop), and one
+            // find worth more than the whole room may wait alone.
             $hold = 0;
-            if ($economy->cap($c) > 0 && $keep < $most) {
+            if ($economy->drop($c) && $keep < $most) {
                 $hold = (int) min($most - $keep, floor(($holdRoom + 1e-9) / $v));
+                if ($hold === 0 && $held === [] && $holdRoom >= self::CAPPED_HOLD_VALUE) {
+                    $hold = 1;
+                }
                 $holdRoom -= $hold * $v;
                 if ($hold > 0) {
-                    $held[$c] = $hold;
+                    $held[$c] = ($held[$c] ?? 0) + $hold;
+                }
+                if (isset($capLeft[$c])) {
+                    $capLeft[$c] -= $hold;
                 }
             }
             if ($keep + $hold < $n) {
-                $clamped['items'][$c] = $n - $keep - $hold;
+                $clamped['items'][$c] = ($clamped['items'][$c] ?? 0) + $n - $keep - $hold;
             }
         }
         ksort($delta['items']);
@@ -685,8 +718,19 @@ final class LedgerMath
         }
         $view['currants'] += $held['currants'];
         $held = self::add($held, $earned['held']);
-        $r = self::reconcile($view, $holdings, $budget, $capacity, $economy, $capsLeft);
+        $waited = [];
+        foreach ((array) ($credited[self::WAITED] ?? []) as $c => $n) {
+            $waited[(string) $c] = (int) $n;
+        }
+        $r = self::reconcile($view, $holdings, $budget, $capacity, $economy, $capsLeft, $waited);
         $rows = $credits['rows'];
+        // G905: what waits now is remembered for the next write (0 once it no longer waits).
+        foreach (array_unique(array_merge(array_keys($waited), array_keys($r['held']))) as $c) {
+            $n = (int) ($r['held'][$c] ?? 0);
+            if ($n !== ($waited[$c] ?? 0)) {
+                $rows[] = [self::WAITED, (string) $c, $n];
+            }
+        }
         $capped = $earned['capped'];
         foreach ($r['capped'] as $c => $n) {
             $capped[$c] = ($capped[$c] ?? 0) + $n;
