@@ -61,6 +61,14 @@ final readonly class GardenPayout
     public const SUBJECT = 'Your garden crops';
     public const TEXT = 'Good news: the public gardens have been upgraded from solo play to shared play! Everyone on a street now sees and tends the same plots. Your old plots there have been cleared, and here are the crops they held. Happy gardening!';
 
+    /**
+     * G940 (report #469): the letter for the crops of plots on a bed the shared gardens' layout no
+     * longer has (the made-up herb bed on the 2012 crop-garden streets): the realtime server credits
+     * them, why "garden" (groddle-afternoon-server gardens_payout.go), and LedgerCredits sends them.
+     */
+    public const BED_SUBJECT = 'Your garden crops';
+    public const BED_TEXT = 'The public gardens are now laid out as they were in 2012, and the bed you planted in is no longer there. Here is what your plants would have given you. Happy gardening!';
+
     /** spawnGarden's beds: the crop bed 4 by 2, the herb bed 3 by 2. */
     public const BEDS = ['default' => [4, 2], 'herb' => [3, 2]];
 
@@ -144,14 +152,7 @@ final readonly class GardenPayout
         }
         $stamp = gmdate('Y-m-d H:i:s', $now);
         if (!$before) {
-            $t = $db->table(LedgerMail::TABLE);
-            foreach ($items as $class => $n) {
-                for ($left = $n; $left > 0; $left -= LedgerMail::COUNT_MAX) {
-                    $db->execute("INSERT INTO {$t} (id, from_id, to_id, deliver_to, text, class_tsid, count, currants, postage, status, created_at, deliver_at) VALUES (?, 0, ?, ?, ?, ?, ?, 0, 0, 'sent', ?, ?)",
-                        [bin2hex(random_bytes(8)), $user, $user, self::TEXT, $class, min($left, LedgerMail::COUNT_MAX), $stamp, $stamp]);
-                    $out['letters']++;
-                }
-            }
+            $out['letters'] = self::mail($db, $user, $items, self::TEXT, $stamp);
             $db->execute("INSERT INTO {$c} (user_id, kind, ref, n, at) VALUES (?, ?, ?, ?, ?)", [$user, self::KIND, self::REF, array_sum($items), $stamp]);
             Ledger::fromSeams($minn)->log($user, 'gardens', ['payout' => (object) $items, 'streets' => $streets, 'letters' => $out['letters']], $now);
         }
@@ -162,6 +163,44 @@ final readonly class GardenPayout
         $json = SaveShape::encode(SaveShape::with($save, $entries));
         // Nobody's page wrote this copy: an open page is asked before it writes its old plots back.
         $db->execute("UPDATE {$saves} SET data = ?, version = version + 1, updated_at = ?, writer = '', seq = 0 WHERE user_id = ? AND version = ?", [$json, $stamp, $user, (int) $row['version']]);
+        return $out;
+    }
+
+    /**
+     * Sends crops as letters from nobody (from_id 0, signed LedgerMail::SYSTEM_NAME), delivered at
+     * once: one letter a crop, at most LedgerMail::COUNT_MAX a letter (letters). Collecting one is
+     * the ordinary collect: the ledger takes the crop in. Returns how many letters went.
+     *
+     * @param array<string, int> $items
+     */
+    public static function mail(\Minn\Db $db, int $user, array $items, string $text, string $stamp): int
+    {
+        $t = $db->table(LedgerMail::TABLE);
+        $n = 0;
+        foreach (self::letters($items) as [$class, $count]) {
+            $db->execute("INSERT INTO {$t} (id, from_id, to_id, deliver_to, text, class_tsid, count, currants, postage, status, created_at, deliver_at) VALUES (?, 0, ?, ?, ?, ?, ?, 0, 0, 'sent', ?, ?)",
+                [bin2hex(random_bytes(8)), $user, $user, $text, $class, $count, $stamp, $stamp]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /**
+     * PURE: the letters a payout's crops go in, in class order: [class, count], at most
+     * LedgerMail::COUNT_MAX a letter; a count at or under zero sends nothing.
+     *
+     * @param array<string, int> $items
+     * @return list<array{0: string, 1: int}>
+     */
+    public static function letters(array $items): array
+    {
+        ksort($items);
+        $out = [];
+        foreach ($items as $class => $n) {
+            for ($left = (int) $n; $left > 0; $left -= LedgerMail::COUNT_MAX) {
+                $out[] = [(string) $class, min($left, LedgerMail::COUNT_MAX)];
+            }
+        }
         return $out;
     }
 

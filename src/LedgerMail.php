@@ -136,7 +136,7 @@ final readonly class LedgerMail
     /**
      * G570: a letter from nobody carries a subject the mailbox shows as its title. The table keeps
      * no subject, so it is known by its words (every payout letter, sent or still to come, has
-     * GardenPayout::TEXT, PatchPayout's two letters, LedgerRefund's TEXT, TEXT_G895 and TEXT_G905); a player's letter has none (the game titles it as
+     * GardenPayout::TEXT and BED_TEXT, PatchPayout's two letters, LedgerRefund's TEXT, TEXT_G895 and TEXT_G905); a player's letter has none (the game titles it as
      * before).
      */
     public static function subject(array $row): ?string
@@ -147,6 +147,7 @@ final readonly class LedgerMail
         $text = (string) ($row['text'] ?? '');
         return match ($text) {
             GardenPayout::TEXT => GardenPayout::SUBJECT,
+            GardenPayout::BED_TEXT => GardenPayout::BED_SUBJECT,
             LedgerRefund::TEXT, LedgerRefund::TEXT_G895 => LedgerRefund::SUBJECT,
             LedgerRefund::TEXT_G905 => LedgerRefund::SUBJECT,
             default => PatchPayout::subject($text),

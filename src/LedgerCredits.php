@@ -56,6 +56,14 @@ use Minn\RestError;
  * resend, an overlap or a second realtime server adds nothing. An event is
  * at most ONLINE_MOST seconds (credits.go sends one a minute).
  *
+ * Crops owed by mail (G940, report #469): "garden" events carry the crops of
+ * plots on a bed the shared gardens' layout no longer has (groddle-afternoon-server
+ * gardens_payout.go: the made-up herb bed on the 2012 crop-garden streets), one
+ * event per planter. They are no receipt: each goes as letters from nobody
+ * (GardenPayout::mail, BED_TEXT), which the player collects through the ledger
+ * like any letter, so nothing is taken back. The event id is kept as for any
+ * credit, so a resend sends no second letter.
+ *
  * Users 1 and 54 are players like the others here: the realtime server
  * credits whoever played.
  */
@@ -79,8 +87,9 @@ final readonly class LedgerCredits
     /** Charges kept per character (the oldest go first). */
     public const CHARGES_KEPT = 40;
 
-    // charades: a Charades guess's 250 currants (main.js:1782; the server's verbs.go); online: connected time (no goods).
-    public const WHY = ['quoin', 'shard', 'race', 'take', 'charades', 'online'];
+    // charades: a Charades guess's 250 currants (main.js:1782; the server's verbs.go); online: connected time (no goods);
+    // garden: crops owed by mail from plots on a bed the shared gardens' layout no longer has (G940, below).
+    public const WHY = ['quoin', 'shard', 'race', 'take', 'charades', 'online', 'garden'];
 
     /** The longest interval one online event may carry (seconds; credits.go sends one each minute). */
     public const ONLINE_MOST = 3600;
@@ -235,6 +244,13 @@ final readonly class LedgerCredits
                 $db->execute("INSERT IGNORE INTO {$t} (event_id, user_id, why, got, unused, created_at) VALUES (?, ?, 'online', ?, '', ?)",
                     [$ev['id'], $user, (string) json_encode(['from' => $ev['from'], 'to' => $ev['to'], 'secs' => $o['secs']]), $stamp]);
                 $why['online'] = ($why['online'] ?? 0) + 1;
+                continue;
+            }
+            if ($ev['why'] === 'garden') {
+                $letters = GardenPayout::mail($db, $user, $ev['got']['items'], GardenPayout::BED_TEXT, $stamp);
+                $db->execute("INSERT IGNORE INTO {$t} (event_id, user_id, why, got, unused, created_at) VALUES (?, ?, 'garden', ?, '', ?)",
+                    [$ev['id'], $user, self::json($ev['got']), $stamp]);
+                $ledger->log($user, 'gardens', ['bed_gone' => (object) $ev['got']['items'], 'letters' => $letters, 'event' => $ev['id']], $now);
                 continue;
             }
             // Only a write at or after the event can have shown it (no time: it happened now).
