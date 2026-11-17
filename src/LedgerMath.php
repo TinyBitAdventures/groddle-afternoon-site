@@ -416,6 +416,14 @@ final class LedgerMath
                 $add($class, 1);
             }
             $add($features['cubimal-battle']['out']['c'] ?? null, 1);
+            // G948 (G942 gap A1): the Funpickle out of the pack using a power (features/funpickle-feature.js
+            // deploy: out, and the load puts it back, js/funpickle.js normalizeFunpickleState; GSJS
+            // special_item_that_only_beta_testers_get.js deployItem 349-370 puts it in the street and
+            // tryAddToPack back) is still the player's, so its return is not a 1,000 gain after every use.
+            // Only when the pack has none: there is one Funpickle.
+            if (($features['funpickle']['out'] ?? null) === true && self::count($state['inventory']['special_item_that_only_beta_testers_get'] ?? 0) === 0) {
+                $add('special_item_that_only_beta_testers_get', 1);
+            }
         }
         $dropped = self::decode($entries['droppedItems'] ?? null);
         if (is_array($dropped)) {
