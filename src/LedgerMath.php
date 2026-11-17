@@ -364,6 +364,23 @@ final class LedgerMath
                     }
                 }
             }
+            $features = is_array($state['systems']['features'] ?? null) ? $state['systems']['features'] : [];
+            // G948 (G942 gap A3): the Craftybot's jobs hold what it fetched (holder general) and what it made
+            // (holder complete) until Collect (js/craftybot.js hold / unhold, collectJob; GSJS
+            // npc_crafty_bot.js). Fetching, crafting and collecting are then moves and same-write
+            // transforms, not ingredients lost in one write and outputs from nowhere in a later one. A held
+            // tool (its row names the tool's ids, tsid) stays where it was and is counted there.
+            $bot = $features['craftybot'] ?? null;
+            foreach (is_array($bot['queue'] ?? null) ? $bot['queue'] : [] as $job) {
+                foreach (['general', 'complete'] as $h) {
+                    $rows = is_array($job) && is_array($job['holder'][$h] ?? null) ? $job['holder'][$h] : [];
+                    foreach ($rows as $class => $row) {
+                        if (is_array($row) && empty($row['tsid'])) {
+                            $add($class, $row['count'] ?? 0);
+                        }
+                    }
+                }
+            }
         }
         $dropped = self::decode($entries['droppedItems'] ?? null);
         if (is_array($dropped)) {
