@@ -205,6 +205,13 @@ final class LedgerMath
      *  - soil: Talking 'bout Soil Appreciation's Hoe and Shovel (js/practice-streets.js SOIL_TOOLS 495-498).
      *  - funpickle: the Musicblock the Funpickle gives once every power was used (js/funpickle.js
      *    AWARD_ITEM 146, recordPower givenAward; GSJS giveAward 372-378).
+     *  - startblock (G938): the Musicblock a new player finds on their start street, the street the
+     *    tutorial left them on or Hechey Track, when they own none (features/musicblocks-feature.js
+     *    layStartStreetMusicblock, its class in the record's startBlock; GSJS locations/location.js
+     *    646-667, one of the twenty D and X blocks).
+     *  - musicblockgift (G938, desk FUNPICKLE): Musicblock GNG, sent once when all 25 series tunes are
+     *    owned (features/musicblocks-feature.js sendEndgameGift, the record's gift; the way GSJS
+     *    giveAward 372-378 sends it).
      */
     public const TUTORIAL = 'tut';
     public const TUTORIAL_SETS = [
@@ -219,7 +226,12 @@ final class LedgerMath
         'ezc' => ['gate' => 'skill:ezcooking_1', 'items' => ['knife_and_board' => 1, 'cheese' => 6, 'tomato' => 2, 'bun' => 11, 'meat' => 6]],
         'soil' => ['gate' => 'quest:soilappreciation_1', 'items' => ['hoe' => 1, 'shovel' => 1]],
         'funpickle' => ['gate' => 'funpickle', 'items' => ['musicblock_goodnight_groddle' => 1]],
+        'startblock' => ['gate' => 'startblock', 'items' => ['startblock' => 1]],
+        'musicblockgift' => ['gate' => 'musicblockgift', 'items' => ['musicblock_goodnight_groddle' => 1]],
     ];
+
+    /** G938: the start street's twenty (GSJS locations/location.js 663: the D and X series, no BB). */
+    public const START_BLOCK_CLASS = '/^musicblock_(d_(blue|green|red)|x_shiny)_0[1-5]$/';
     /** js/newxp.js STAGES, in order. */
     public const NEWXP_STAGES = ['clouds', 'training1', 'training2', 'house', 'skill', 'island', 'done'];
 
@@ -1507,7 +1519,8 @@ final class LedgerMath
      * game is over, for the baseline). Gates: stage:<s> the newxp record reached stage s (or the
      * tutorial is done); flag:<f> its island flag f; skill:<id>[:<quest>] its first skill was id, or
      * the skill's quest (id, else <quest>) is under way or done; quest:<q> the quest is under way or
-     * done; funpickle the Funpickle's award was given.
+     * done; funpickle the Funpickle's award was given; startblock the start street's Musicblock was
+     * laid (its class one of the twenty); musicblockgift the 25-tune GNG gift was sent.
      */
     public static function tutorialGate(array $entries, string $gate, bool $finished = false): bool
     {
@@ -1539,6 +1552,10 @@ final class LedgerMath
                 return $quest($parts[1] ?? '');
             case 'funpickle':
                 return ($features['funpickle']['givenAward'] ?? null) === true;
+            case 'startblock':
+                return self::startBlockClass($state) !== '';
+            case 'musicblockgift':
+                return ($features['musicblocks']['gift'] ?? null) === true;
         }
         return false;
     }
@@ -1547,7 +1564,7 @@ final class LedgerMath
      * G905: what the tutorial sets the save's record opens may still credit (each set's class at most
      * once per character, less what was credited before): goods, and refs class -> list of [ref, left].
      * The island's Musicblock is the class the record names (one of the island's, js/newxp.js
-     * ISLAND_MUSICBLOCKS).
+     * ISLAND_MUSICBLOCKS); the start street's is the class the musicblocks record names (G938).
      *
      * @return array{goods: array{items: array<string,int>, currants: int}, refs: array<string, list<array{0: string, 1: int}>>}
      */
@@ -1563,7 +1580,11 @@ final class LedgerMath
             }
             foreach ($def['items'] as $c => $most) {
                 $ref = "{$set}:{$c}";
-                $class = $c === 'musicblock' ? (is_string($block) && preg_match('/^musicblock_[a-z]_[a-z]+_0[1-5]$/', $block) === 1 ? $block : '') : (string) $c;
+                $class = match ((string) $c) {
+                    'musicblock' => is_string($block) && preg_match('/^musicblock_[a-z]_[a-z]+_0[1-5]$/', $block) === 1 ? $block : '',
+                    'startblock' => self::startBlockClass(is_array($state) ? $state : []),
+                    default => (string) $c,
+                };
                 $left = (int) $most - (int) ($had[$ref] ?? 0);
                 if ($class === '' || $left <= 0 || !$economy->tradeable($class)) {
                     continue;
@@ -1574,6 +1595,13 @@ final class LedgerMath
         }
         ksort($out['goods']['items']);
         return $out;
+    }
+
+    /** G938: the start street Musicblock's class in a decoded save (features.musicblocks.startBlock), or ''. */
+    public static function startBlockClass(array $state): string
+    {
+        $c = $state['systems']['features']['musicblocks']['startBlock']['classTsid'] ?? '';
+        return is_string($c) && preg_match(self::START_BLOCK_CLASS, $c) === 1 ? $c : '';
     }
 
     /**

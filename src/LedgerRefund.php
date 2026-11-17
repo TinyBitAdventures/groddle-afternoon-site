@@ -268,6 +268,9 @@ final class LedgerRefund
         return $out;
     }
 
+    /** G938: tutorial sets added after G905's refund window, left out of what it owes. */
+    public const G905_LATER_SETS = ['startblock', 'musicblockgift'];
+
     /**
      * G905: what each character lost of the kinds G905 credits or lets wait, from clamp rows
      * ({id, user_id, at, kind, detail}) from $from on, within the fixed counts (see the class comment),
@@ -281,7 +284,11 @@ final class LedgerRefund
     {
         $since = strtotime($from . ' UTC');
         $tutorial = [];
-        foreach (LedgerMath::TUTORIAL_SETS as $def) {
+        foreach (LedgerMath::TUTORIAL_SETS as $set => $def) {
+            // G938's sets came after the window this refund covers (their gains did not exist then).
+            if (in_array($set, self::G905_LATER_SETS, true)) {
+                continue;
+            }
             foreach ($def['items'] as $c => $n) {
                 // The island's Musicblock is a rare find below; a Gameshow Ticket is G895's (its donations rule).
                 if ($c !== 'musicblock' && $c !== LedgerMath::TICKET_CLASS) {
