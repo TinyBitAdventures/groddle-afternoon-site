@@ -408,6 +408,14 @@ final class LedgerMath
                     $add($row['cls'] ?? null, 1);
                 }
             }
+            // G948 (G942 gap A9): a Cubimal out racing, battling or saying goodbye before it is set free is
+            // still the player's: the feature's slice names it (features/cubimal-race-feature.js save out,
+            // cubimal-battle-feature.js save out.c) and a reload puts it back in the pack, so its return is
+            // a move, not a 1,000 gain after every race.
+            foreach ((array) ($features['cubimal-race']['out'] ?? []) as $class) {
+                $add($class, 1);
+            }
+            $add($features['cubimal-battle']['out']['c'] ?? null, 1);
         }
         $dropped = self::decode($entries['droppedItems'] ?? null);
         if (is_array($dropped)) {
