@@ -212,6 +212,12 @@ final class LedgerMath
      *  - musicblockgift (G938, desk FUNPICKLE): Musicblock GNG, sent once when all 25 series tunes are
      *    owned (features/musicblocks-feature.js sendEndgameGift, the record's gift; the way GSJS
      *    giveAward 372-378 sends it).
+     *  - islandcurrants (G948, G942 gap A14): the 978 currants Gentle Island's rock hands a new player
+     *    (features/newxp-feature.js islandRockScript, js/newxp.js ISLAND_CURRANTS; GSJS newbie_island.js
+     *    revealCurrants2 stats_add_currants(978)), by the island flag island_currants the game sets in
+     *    the same tick. A set's currants are credited like its items, once per character (ref
+     *    "<set>:currants"). They came out of the new character's NEW_BUDGET and were taken back when
+     *    other gains had spent it first.
      */
     public const TUTORIAL = 'tut';
     public const TUTORIAL_SETS = [
@@ -228,6 +234,7 @@ final class LedgerMath
         'funpickle' => ['gate' => 'funpickle', 'items' => ['musicblock_goodnight_groddle' => 1]],
         'startblock' => ['gate' => 'startblock', 'items' => ['startblock' => 1]],
         'musicblockgift' => ['gate' => 'musicblockgift', 'items' => ['musicblock_goodnight_groddle' => 1]],
+        'islandcurrants' => ['gate' => 'flag:island_currants', 'items' => [], 'currants' => 978],
     ];
 
     /** G938: the start street's twenty (GSJS locations/location.js 663: the D and X series, no BB). */
@@ -810,10 +817,13 @@ final class LedgerMath
             $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
             $credits['goods']['items'][$c] = ($credits['goods']['items'][$c] ?? 0) + $n;
         }
-        if ($tutIn['items'] !== []) {
+        // G948: a set's currants (the island rock's 978), as much as the write shows beyond the view.
+        $view['currants'] += $tutIn['currants'];
+        $credits['goods']['currants'] += $tutIn['currants'];
+        if ($tutIn['items'] !== [] || $tutIn['currants'] > 0) {
             ksort($credits['goods']['items']);
-            $credits['rows'] = array_merge($credits['rows'], self::tutorialRows($tut['refs'], $tutIn['items'], $credited));
-            $credits['detail']['tutorial'] = (object) $tutIn['items'];
+            $credits['rows'] = array_merge($credits['rows'], self::tutorialRows($tut['refs'], $tutIn['items'] + ($tutIn['currants'] > 0 ? ['$' => $tutIn['currants']] : []), $credited));
+            $credits['detail']['tutorial'] = (object) ($tutIn['items'] + ($tutIn['currants'] > 0 ? ['currants' => $tutIn['currants']] : []));
         }
         // G895: what the save's own records say it earned (a shrine's emblems, a donation's tickets, a
         // cracked rock's pieces), outside the budget; pieces count toward their class's daily cap.
@@ -1509,6 +1519,9 @@ final class LedgerMath
                 foreach ($def['items'] as $c => $most) {
                     $rows[] = [self::TUTORIAL, "{$set}:{$c}", (int) $most];
                 }
+                if ((int) ($def['currants'] ?? 0) > 0) {
+                    $rows[] = [self::TUTORIAL, "{$set}:currants", (int) $def['currants']];
+                }
             }
         }
         return $rows;
@@ -1564,7 +1577,8 @@ final class LedgerMath
      * G905: what the tutorial sets the save's record opens may still credit (each set's class at most
      * once per character, less what was credited before): goods, and refs class -> list of [ref, left].
      * The island's Musicblock is the class the record names (one of the island's, js/newxp.js
-     * ISLAND_MUSICBLOCKS); the start street's is the class the musicblocks record names (G938).
+     * ISLAND_MUSICBLOCKS); the start street's is the class the musicblocks record names (G938). A set's
+     * currants (G948) are goods currants, their refs under the key "$".
      *
      * @return array{goods: array{items: array<string,int>, currants: int}, refs: array<string, list<array{0: string, 1: int}>>}
      */
@@ -1591,6 +1605,11 @@ final class LedgerMath
                 }
                 $out['goods']['items'][$class] = ($out['goods']['items'][$class] ?? 0) + $left;
                 $out['refs'][$class][] = [$ref, $left];
+            }
+            $left = (int) ($def['currants'] ?? 0) - (int) ($had["{$set}:currants"] ?? 0);
+            if ($left > 0) {
+                $out['goods']['currants'] += $left;
+                $out['refs']['$'][] = ["{$set}:currants", $left];
             }
         }
         ksort($out['goods']['items']);
