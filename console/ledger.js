@@ -5,7 +5,7 @@
  * maxima. Flagged characters come first and open; Everyone shows the rest. #ledger opens it.
  */
 
-import { fmt, el, createApi } from './charts.js?v=charts-1';
+import { fmt, el, createApi } from './charts.js';
 
 /** admin/ledger's ranges (days), in the buttons' order. */
 export const RANGES = Object.freeze([[1, 'Today'], [7, '7 days'], [14, '14 days']]);

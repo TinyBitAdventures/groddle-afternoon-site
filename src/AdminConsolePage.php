@@ -79,14 +79,14 @@ final readonly class AdminConsolePage
     /** Bumped when console.js or console.css changes. */
     public const ASSET_KEY = 'skin-8';
 
-    /** Bumped when console/server.js or console/server.css changes (console/charts.js has its key in their imports). */
-    public const SERVER_ASSET_KEY = 'server-2';
+    /** Bumped when console/server.js or console/server.css changes (console/charts.js has its own content key: Extension::importMap). */
+    public const SERVER_ASSET_KEY = 'server-3';
 
     /** Bumped when console/analytics.js or console/analytics.css changes. */
-    public const ANALYTICS_ASSET_KEY = 'analytics-2';
+    public const ANALYTICS_ASSET_KEY = 'analytics-3';
 
     /** Bumped when console/ledger.js or console/ledger.css changes. */
-    public const LEDGER_ASSET_KEY = 'ledger-1';
+    public const LEDGER_ASSET_KEY = 'ledger-2';
 
     public function __construct(private Seams $minn)
     {
@@ -154,6 +154,8 @@ final readonly class AdminConsolePage
             . "<meta name=\"robots\" content=\"noindex\" />\n"
             . '<title>' . Html::esc('Console') . " &#8211; Groddle Afternoon</title>\n"
             . Extension::head()
+            // G966: console/charts.js (server.js, analytics.js and ledger.js import it bare) by its content key.
+            . Extension::importMap()
             // The chat app's look (Austin 2026-11-09): its palette, header and surfaces come from community.css.
             . "<link rel=\"stylesheet\" href=\"" . CommunityPages::ASSETS . "community.css?v=" . CommunityPages::ASSET_KEY . "\" />\n"
             . "<link rel=\"stylesheet\" href=\"{$a}console.css?v={$v}\" />\n"

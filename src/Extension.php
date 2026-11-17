@@ -45,6 +45,18 @@ final class Extension implements MinnExtension
     /** The theme's own files, served from this repo through the theme folder. */
     private const THEME_URL = '/wp-content/themes/groddle/';
 
+    /**
+     * The modules the site's scripts import by a plain address (G966, root R19): importMap() sends
+     * each to its keyed address. A script under community/ or console/ writes these imports bare,
+     * the game's module-keys rule; tests/site-module-keys.test.js (game repo) fails on an import
+     * that is neither listed here nor carries its importer's key.
+     */
+    public const MODULE_IMPORTS = [
+        '/js/chat-links.js',
+        '/js/ui/context-menu.js',
+        '/wp-content/themes/groddle/console/charts.js',
+    ];
+
     /** The built game's folder (StaticRoot), for the keys of the files head() links; set in register(). */
     private static string $staticDir = '';
 
@@ -106,6 +118,28 @@ final class Extension implements MinnExtension
         return str_starts_with($href, self::THEME_URL)
             ? AssetKeys::url($href, dirname(__DIR__), substr($href, strlen(self::THEME_URL)))
             : AssetKeys::url($href, self::$staticDir, ltrim($href, '/'));
+    }
+
+    /**
+     * The import map for the pages that load the site's modules (/chat/ and the console): each of
+     * MODULE_IMPORTS mapped to its content-keyed address, so a deploy that changes chat-links.js
+     * or charts.js changes the address the browser fetches (G540 #95, G559: a module imported by a
+     * bare path stayed cached). Goes before the page's first module script; a file this build
+     * lacks is left out and loads at its plain address.
+     */
+    public static function importMap(): string
+    {
+        $imports = [];
+        foreach (self::MODULE_IMPORTS as $href) {
+            $keyed = self::keyed($href);
+            if ($keyed !== $href) {
+                $imports[$href] = $keyed;
+            }
+        }
+        if ($imports === []) {
+            return '';
+        }
+        return '<script type="importmap">' . json_encode(['imports' => $imports], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) . "</script>\n";
     }
 
     /** The stylesheets, theme script and icons every page in the site's look carries (PlayerPages draws its own pages with it). */

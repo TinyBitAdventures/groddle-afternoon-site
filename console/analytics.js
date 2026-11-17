@@ -17,7 +17,7 @@
  * the Server tab) and server.css's chart styles; analytics.css adds the tallies' grid and the records.
  */
 
-import { fmt, el, sv, createApi, lineChart, linkCharts } from './charts.js?v=charts-1';
+import { fmt, el, sv, createApi, lineChart, linkCharts } from './charts.js';
 
 /** admin/analytics's ranges, in the buttons' order. */
 export const RANGES = Object.freeze([['30d', '30 days'], ['90d', '90 days'], ['365d', '365 days'], ['all', 'All']]);

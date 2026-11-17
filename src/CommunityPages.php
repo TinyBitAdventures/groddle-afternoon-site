@@ -768,6 +768,8 @@ final readonly class CommunityPages
             . ($canonical !== null ? '<link rel="canonical" href="' . Html::attr($home . $canonical) . "\" />\n" : '')
             . (!$index || $canonical === null || $status !== 200 ? "<meta name=\"robots\" content=\"noindex\" />\n" : '')
             . Extension::head()
+            // G966: /js/chat-links.js and /js/ui/context-menu.js (the game's) by their content keys.
+            . Extension::importMap()
             . "<link rel=\"stylesheet\" href=\"{$a}community.css?v={$v}\" />\n"
             . "</head>\n<body class=\"notes community-page\"" . ($demo ? ' data-notif-demo=""' : '') . ">\n"
             // The chat app's own header: the menu's links laid out over the app's columns, with the bell for a signed-in reader.

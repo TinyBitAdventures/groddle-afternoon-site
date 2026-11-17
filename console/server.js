@@ -21,9 +21,9 @@
  * textContent.
  */
 
-import { round, fmt, niceTicks, bytes, duration, el, sv, createApi, lineChart, linkCharts } from './charts.js?v=charts-1';
+import { round, fmt, niceTicks, bytes, duration, el, sv, createApi, lineChart, linkCharts } from './charts.js';
 
-export { niceTicks, timeTicks, bytes, duration } from './charts.js?v=charts-1';
+export { niceTicks, timeTicks, bytes, duration } from './charts.js';
 
 /** admin/health's ranges, in the buttons' order. */
 export const RANGES = Object.freeze([['24h', '24 hours'], ['7d', '7 days'], ['30d', '30 days'], ['90d', '90 days'], ['all', 'All']]);
