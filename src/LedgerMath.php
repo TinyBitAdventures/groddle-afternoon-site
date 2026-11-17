@@ -191,7 +191,9 @@ final class LedgerMath
      * went on these and its first apples and Musicblock were then taken back. Each set: the gate the
      * save must show, then class => the most it gives. Sources (the game):
      *  - training2: js/newxp.js TRAINING2_FOOD / TRAINING2_DRINKS 410-418 (newxp_training2.js special_items).
-     *  - house: features/newxp-feature.js harvestEgg 2128-2138, the Egg Plant's one egg.
+     *  - house: features/newxp-feature.js harvestEgg 2135-2146, the Egg Plant's one egg. G948 (G942 gap
+     *    A25): its gate is stage training2, where the Dustbunny's egg scene harvests it (runTraining2),
+     *    not house, which the record only reaches after the egg was given; the ref keeps its name.
      *  - island: Gentle Island's trees (assets/content/street-ecology.json: two Fruit Trees, a Bean
      *    Tree and a Gas Tree, 3 a harvest without Gardening, yard-verbs arbor), the Spinach garden
      *    (flag garden: a Spinach Seed's 12), the Gameshow Ticket stand (flag gst, newxp-feature.js
@@ -222,7 +224,7 @@ final class LedgerMath
     public const TUTORIAL = 'tut';
     public const TUTORIAL_SETS = [
         'training2' => ['gate' => 'stage:training2', 'items' => ['common_crudites' => 1, 'flummery' => 1, 'spicy_grog' => 4, 'fruity_juice' => 3]],
-        'house' => ['gate' => 'stage:house', 'items' => ['egg_plain' => 1]],
+        'house' => ['gate' => 'stage:training2', 'items' => ['egg_plain' => 1]],
         'island' => ['gate' => 'stage:island', 'items' => ['cherry' => 6, 'bean_plain' => 3, 'general_vapour' => 3, 'bag_generic' => 2]],
         'islandgarden' => ['gate' => 'flag:garden', 'items' => ['spinach' => 12]],
         'islandticket' => ['gate' => 'flag:gst', 'items' => ['gameshow_ticket' => 1]],
