@@ -381,6 +381,33 @@ final class LedgerMath
                     }
                 }
             }
+            // G948 (G942 gap A11): things set down where the save keeps them, not in the pack, so a pick-up
+            // is a move and not a gain each time: Garden Gnomes (features/garden-gnome-feature.js placed),
+            // Giant Icons on streets (js/giant-icons.js placeIcon, placed by street, the class
+            // icon_<giant>), Note Poles at home (features/home-street-mp-feature.js placePole, poles) and
+            // Zilloween pumpkins (features/seasons-feature.js placed, each row's class).
+            foreach ((array) ($features['garden-gnome']['placed'] ?? []) as $row) {
+                if (is_array($row)) {
+                    $add('npc_garden_gnome', 1);
+                }
+            }
+            foreach ((array) ($features['giant-icons']['placed'] ?? []) as $rows) {
+                foreach (is_array($rows) ? $rows : [] as $row) {
+                    if (is_array($row) && is_string($row['giant'] ?? null) && preg_match('/^[a-z]+$/', $row['giant']) === 1) {
+                        $add('icon_' . $row['giant'], 1);
+                    }
+                }
+            }
+            foreach ((array) ($features['home-street-mp']['poles'] ?? []) as $row) {
+                if (is_array($row)) {
+                    $add('note_pole', 1);
+                }
+            }
+            foreach ((array) ($features['seasons']['placed'] ?? []) as $row) {
+                if (is_array($row)) {
+                    $add($row['cls'] ?? null, 1);
+                }
+            }
         }
         $dropped = self::decode($entries['droppedItems'] ?? null);
         if (is_array($dropped)) {
