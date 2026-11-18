@@ -96,6 +96,8 @@ use Minn\RestError;
  *   POST groddle/v1/homes/yard            (the realtime server, signed)
  *        {"op":"yd-<16 hex>","owner":7,"visitor":9,"kind":"animal|plot|tree","id":"a3|patch:0","verb":"pet"}
  *        200 {"status":"settled","act":{…},"added":4,"today":12} | 409 {"status":"refused","why":"…","text":"…"}
+ *        (G947: a swing or dig a home crew helped names "help":{"bonus":3} or {"items":1,"class":"earth","loam":false};
+ *        the act's "help" is the bonus it took and credited, inside "took" for a rock)
  *   GET  groddle/v1/homes/{owner}/yard    a visitor: the owner's Patches, trees and animals as they stand, and my uses today
  *        (and, to look at only, the owner's placed Magic Sticks and yard machines: "sticks", "machines")
  *   GET  groddle/v1/homes/yard            the owner: the acts waiting for my game
@@ -191,6 +193,8 @@ final readonly class HomeYard
         $id = is_array($b) ? ($b['id'] ?? null) : null;
         $verb = is_array($b) ? ($b['verb'] ?? null) : null;
         $what = is_array($b) ? ($b['what'] ?? null) : null;
+        // G947 (M3): the help a home crew gave this swing or dig (the realtime server's home_crew.go).
+        $help = is_array($b) && is_array($b['help'] ?? null) ? self::crewHelp($b['help']) : [];
         if ($verb === 'plant' && (!is_string($what) || !isset(self::rules()['beans'][$what]))) {
             throw new RestError('groddle_yard_invalid', 'Name the bean.', 400);
         }
@@ -207,7 +211,7 @@ final readonly class HomeYard
         $db = $this->minn->db;
         $rules = self::rules();
         $ledger = Ledger::fromSeams($this->minn);
-        $out = Ledger::atomically($db, function () use ($db, $ledger, $rules, $op, $owner, $visitor, $kind, $id, $verb, $what): array {
+        $out = Ledger::atomically($db, function () use ($db, $ledger, $rules, $op, $owner, $visitor, $kind, $id, $verb, $what, $help): array {
             $db->value('SELECT version FROM ' . $db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ? FOR UPDATE', [$owner]);
             $day = HomePool::today();
             $opMark = 'op-' . substr($op, 3);
@@ -231,7 +235,7 @@ final readonly class HomeYard
             $uses = self::usesOf($db, $owner, $visitor, $day);
             $nowMs = (int) floor(microtime(true) * 1000);
             $judged = $kind === 'rock' || $kind === 'node'
-                ? self::judgeStock($rules, $state, $waiting, $uses, self::upgrades($visitorState), $kind, $id, $verb, $nowMs, static fn (int $lo, int $hi): int => random_int($lo, $hi))
+                ? self::judgeStock($rules, $state, $waiting, $uses, self::upgrades($visitorState), $kind, $id, $verb, $nowMs, static fn (int $lo, int $hi): int => random_int($lo, $hi), $help)
                 : self::judge($rules, $state, $waiting, $uses, $skills, $kind, $id, $verb, $nowMs, $kind === 'tree' ? self::careOf($db, $owner, $visitor, $day) : []);
             if (isset($judged['why'])) {
                 return ['status' => 'refused', 'why' => $judged['why'], 'text' => $judged['text']];
@@ -272,7 +276,7 @@ final readonly class HomeYard
                 'status' => 'settled',
                 'added' => $pool,
                 'today' => $today,
-                'act' => ['id' => $op, 'kind' => $kind, 'target' => $id, 'verb' => $verb, 'took' => $took, 'at' => $nowMs, 'got' => (object) $got] + (isset($judged['left']) ? ['left' => $judged['left']] : []) + ($planted !== null ? ['what' => $planted] : []),
+                'act' => ['id' => $op, 'kind' => $kind, 'target' => $id, 'verb' => $verb, 'took' => $took, 'at' => $nowMs, 'got' => (object) $got] + (isset($judged['left']) ? ['left' => $judged['left']] : []) + (isset($judged['help']) ? ['help' => $judged['help']] : []) + ($planted !== null ? ['what' => $planted] : []),
             ] + ($receipt !== null ? ['receipt' => $receipt] : []);
         });
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
@@ -758,9 +762,14 @@ final readonly class HomeYard
      * @param array<string, int> $uses "<verb>:<id>" => the visitor's uses today
      * @param list<string> $upgrades the visitor's imagination upgrades (daily limits)
      * @param callable(int, int): int $roll random_int
+     * @param array{bonus?: int, items?: int, class?: string, loam?: bool} $help the home crew's help
+     *        (G947: the realtime server's home_crew.go, cleaned by crewHelp): a rock's bonus chunks
+     *        come off the rock with the swing's own and are credited (include/mining.js 327-383: "the
+     *        whole take"; "took" is the whole, "help" the bonus); a Dirt Pile's bonus items are credited,
+     *        Loam when the crew's chance came up, the dig's own yield too (dirt_pile.js 345-450)
      * @return array<string, mixed>
      */
-    public static function judgeStock(array $rules, ?object $state, array $waiting, array $uses, array $upgrades, string $kind, string $id, string $verb, int $nowMs, callable $roll): array
+    public static function judgeStock(array $rules, ?object $state, array $waiting, array $uses, array $upgrades, string $kind, string $id, string $verb, int $nowMs, callable $roll, array $help = []): array
     {
         if ($kind === 'rock') {
             $row = null;
@@ -781,9 +790,11 @@ final readonly class HomeYard
                 return ['why' => 'empty', 'text' => self::TEXT_MINED];
             }
             // include/mining.js: the whole roll, even past what is left (js/mining.js mineRock).
-            $took = $roll((int) $def['min'], (int) $def['max']);
+            $bonus = (int) ($help['bonus'] ?? 0);
+            $took = $roll((int) $def['min'], (int) $def['max']) + $bonus;
             $cleared = $rock['chunksRemaining'] - $took <= 0;
-            return ['pool' => $cleared ? 'rock:' . $def['type'] : '', 'took' => $took, 'got' => [(string) $def['chunk'] => $took], 'left' => max(0, $rock['chunksRemaining'] - $took)];
+            return ['pool' => $cleared ? 'rock:' . $def['type'] : '', 'took' => $took, 'got' => [(string) $def['chunk'] => $took], 'left' => max(0, $rock['chunksRemaining'] - $took)]
+                + ($bonus > 0 ? ['help' => $bonus] : []);
         }
         $row = null;
         foreach (self::homeNodes($rules, $state, $nowMs) as $n) {
@@ -825,7 +836,39 @@ final readonly class HomeYard
             return ['pool' => $caught % (int) $rules['jarFull'] === 0 ? 'firefly_jar:full' : '', 'took' => 1, 'got' => [], 'left' => $left];
         }
         [$c, $n] = $rule['yield'];
-        return ['pool' => 'node:' . $row['cls'], 'took' => 1, 'got' => [(string) $c => (int) $n], 'left' => $left];
+        $got = [(string) $c => (int) $n];
+        $items = $row['cls'] === 'dirt_pile' ? (int) ($help['items'] ?? 0) : 0;
+        if ($items > 0) {
+            // dirt_pile.js 380-450: the crew's Loam chance turns the dig's yield and the bonus items to Loam.
+            $loam = ($help['loam'] ?? false) === true;
+            $bonusClass = $loam || ($help['class'] ?? '') === 'loam' ? 'loam' : (string) $c;
+            $got = [($loam ? 'loam' : (string) $c) => (int) $n];
+            $got[$bonusClass] = ($got[$bonusClass] ?? 0) + $items;
+        }
+        return ['pool' => 'node:' . $row['cls'], 'took' => 1, 'got' => $got, 'left' => $left] + ($items > 0 ? ['help' => $items] : []);
+    }
+
+    /**
+     * The home crew's help as the realtime server sends it, bounded: a rock's bonus is at most 9
+     * helps' worth (include/mining.js 327-342: 1+2+3+4*6 = 30), a dig's at most 3 items
+     * (dirt_pile.js 345-358), its class Earth or Loam.
+     *
+     * @return array{bonus?: int, items?: int, class?: string, loam?: bool}
+     */
+    public static function crewHelp(array $h): array
+    {
+        $out = [];
+        $bonus = is_int($h['bonus'] ?? null) ? $h['bonus'] : 0;
+        if ($bonus > 0) {
+            $out['bonus'] = min(30, $bonus);
+        }
+        $items = is_int($h['items'] ?? null) ? $h['items'] : 0;
+        if ($items > 0) {
+            $out['items'] = min(3, $items);
+            $out['class'] = ($h['class'] ?? '') === 'loam' ? 'loam' : 'earth';
+            $out['loam'] = ($h['loam'] ?? false) === true;
+        }
+        return $out;
     }
 
     /** The street's live rocks in cultivation order (homes-feature rockItems): id, class, rx, the cultivation. */
