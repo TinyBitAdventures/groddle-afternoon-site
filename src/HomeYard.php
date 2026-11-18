@@ -195,6 +195,10 @@ final readonly class HomeYard
         $what = is_array($b) ? ($b['what'] ?? null) : null;
         // G947 (M3): the help a home crew gave this swing or dig (the realtime server's home_crew.go).
         $help = is_array($b) && is_array($b['help'] ?? null) ? self::crewHelp($b['help']) : [];
+        // When a crew member's swing started (Unix ms): one that started while the rock had chunks is paid.
+        if (is_array($b) && is_int($b['started'] ?? null) && $b['started'] > 0) {
+            $help['started'] = $b['started'];
+        }
         if ($verb === 'plant' && (!is_string($what) || !isset(self::rules()['beans'][$what]))) {
             throw new RestError('groddle_yard_invalid', 'Name the bean.', 400);
         }
@@ -762,11 +766,13 @@ final readonly class HomeYard
      * @param array<string, int> $uses "<verb>:<id>" => the visitor's uses today
      * @param list<string> $upgrades the visitor's imagination upgrades (daily limits)
      * @param callable(int, int): int $roll random_int
-     * @param array{bonus?: int, items?: int, class?: string, loam?: bool} $help the home crew's help
+     * @param array{bonus?: int, items?: int, class?: string, loam?: bool, started?: int} $help the home crew's help
      *        (G947: the realtime server's home_crew.go, cleaned by crewHelp): a rock's bonus chunks
      *        come off the rock with the swing's own and are credited (include/mining.js 327-383: "the
      *        whole take"; "took" is the whole, "help" the bonus); a Dirt Pile's bonus items are credited,
-     *        Loam when the crew's chance came up, the dig's own yield too (dirt_pile.js 345-450)
+     *        Loam when the crew's chance came up, the dig's own yield too (dirt_pile.js 345-450);
+     *        "started": when a crew member's swing started (Unix ms), so one that started while the
+     *        rock had chunks is paid after another emptied it
      * @return array<string, mixed>
      */
     public static function judgeStock(array $rules, ?object $state, array $waiting, array $uses, array $upgrades, string $kind, string $id, string $verb, int $nowMs, callable $roll, array $help = []): array
@@ -786,12 +792,27 @@ final readonly class HomeYard
                 return ['why' => 'worn', 'text' => self::TEXT_WORN];
             }
             $rock = self::rockNow($rules, $state, $waiting, $row, $nowMs);
+            $late = false;
             if ($rock['depleted'] || $rock['chunksRemaining'] <= 0) {
-                return ['why' => 'empty', 'text' => self::TEXT_MINED];
+                // G947: a crew member's swing that started while the rock had chunks lands though another
+                // emptied it since (include/mining.js startMining 215-217 checks isUseable only as the
+                // swing starts; onMiningComplete 293-383 never again): its take, the rock stays at 0.
+                $started = (int) ($help['started'] ?? 0);
+                $then = $started > 0 && $started <= $nowMs && $nowMs - $started < 120000
+                    ? self::rockNow($rules, $state, array_values(array_filter($waiting, static fn (array $w): bool => (int) $w['at_ms'] <= $started)), $row, $started)
+                    : null;
+                if ($then === null || $then['depleted'] || $then['chunksRemaining'] <= 0) {
+                    return ['why' => 'empty', 'text' => self::TEXT_MINED];
+                }
+                $late = true;
             }
             // include/mining.js: the whole roll, even past what is left (js/mining.js mineRock).
             $bonus = (int) ($help['bonus'] ?? 0);
             $took = $roll((int) $def['min'], (int) $def['max']) + $bonus;
+            if ($late) {
+                // Only the swing that mined it out pays the pool (include/mining.js 388-401).
+                return ['pool' => '', 'took' => $took, 'got' => [(string) $def['chunk'] => $took], 'left' => 0, 'late' => true] + ($bonus > 0 ? ['help' => $bonus] : []);
+            }
             $cleared = $rock['chunksRemaining'] - $took <= 0;
             return ['pool' => $cleared ? 'rock:' . $def['type'] : '', 'took' => $took, 'got' => [(string) $def['chunk'] => $took], 'left' => max(0, $rock['chunksRemaining'] - $took)]
                 + ($bonus > 0 ? ['help' => $bonus] : []);
