@@ -883,3 +883,133 @@ a.cc-name:focus { outline: none; }
   .maps-modal { padding: 10px; }
   .maps-modal-hint { display: none; }
 }
+/* The New content page (groddle-afternoon tools/new-content/to-minn.mjs): Pot Luck Day and the rules for new pieces, in the Project page's sewn-on card look. Each card wears a Tiny Speck icon (nc-icon-<name>, CC0, the game's public/assets/sprites/icons) and a tone (nc-tone-<name>); colours come from the report's tokens only, so light and dark both hold. */
+.nc-tone-moss { --nc-tone: var(--moss); } .nc-tone-sky { --nc-tone: var(--sky); } .nc-tone-sun { --nc-tone: var(--sun); } .nc-tone-plum { --nc-tone: var(--plum); } .nc-tone-accent { --nc-tone: var(--accent); }
+.nc-icon-tinkertool { --nc-icon: url("/assets/sprites/icons/tinkertool@3x.webp"); }
+.nc-icon-note { --nc-icon: url("/assets/sprites/icons/note@3x.webp"); }
+.nc-icon-egghunt_egg_1 { --nc-icon: url("/assets/sprites/icons/egghunt_egg_1@3x.webp"); }
+.nc-icon-bag_gift_box_wrapped { --nc-icon: url("/assets/sprites/icons/bag_gift_box_wrapped@3x.webp"); }
+.nc-icon-street_spirit_groddle { --nc-icon: url("/assets/sprites/icons/street_spirit_groddle@3x.webp"); }
+.nc-icon-emblem_pot { --nc-icon: url("/assets/sprites/icons/emblem_pot@3x.webp"); }
+.nc-icon-potians_feast { --nc-icon: url("/assets/sprites/icons/potians_feast@3x.webp"); }
+.nc-icon-chick { --nc-icon: url("/assets/sprites/icons/chick@3x.webp"); }
+.nc-icon-pumpkin_pie { --nc-icon: url("/assets/sprites/icons/pumpkin_pie@3x.webp"); }
+.nc-icon-furniture_table { --nc-icon: url("/assets/sprites/icons/furniture_table@3x.webp"); }
+.nc-icon-chicken_egg { --nc-icon: url("/assets/sprites/icons/chicken_egg@3x.webp"); }
+.nc-icon-paper { --nc-icon: url("/assets/sprites/icons/paper@3x.webp"); }
+.nc-icon-party_pack_double_rainbow { --nc-icon: url("/assets/sprites/icons/party_pack_double_rainbow@3x.webp"); }
+.nc-icon-quill { --nc-icon: url("/assets/sprites/icons/quill@3x.webp"); }
+.nc-icon-awesome_pot { --nc-icon: url("/assets/sprites/icons/awesome_pot@3x.webp"); }
+.nc-icon-cornucopia_crops { --nc-icon: url("/assets/sprites/icons/cornucopia_crops@3x.webp"); }
+.nc-icon-camera { --nc-icon: url("/assets/sprites/icons/camera@3x.webp"); }
+/* The disc behind an icon: the page's surface, a light one in dark so the dark Tiny Speck outlines still read (as .pj-cards). */
+.wp-block-post-content:has(.nc-rules) { --nc-disc: var(--surface); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .wp-block-post-content:has(.nc-rules) { --nc-disc: color-mix(in srgb, var(--fg) 82%, var(--surface)); } }
+:root[data-theme="dark"] .wp-block-post-content:has(.nc-rules) { --nc-disc: color-mix(in srgb, var(--fg) 82%, var(--surface)); }
+/* Flow: no block margins inside the cards; each part of the Pot Luck Day band 44px from the last. */
+.page-wide :is(.nc-rules, .nc-rule, .nc-event, .nc-split, .nc-part, .nc-badges, .nc-badge, .nc-feature, .nc-items, .nc-item, .nc-lasts, .nc-last, .nc-callout, .nc-note) > * { margin-block: 0; }
+.page-wide .nc-band > .wrap > * { margin-block: 0; }
+.page-wide .nc-band > .wrap > * + * { margin-top: 44px; }
+.nc-part > * + * { margin-top: 12px !important; }
+.nc-part > h3 + * { margin-top: 6px !important; }
+.nc-part > .nc-part-lead { color: var(--muted); max-width: 44em; }
+.nc-part > :is(.nc-badges, .nc-items, .nc-lasts, .nc-steps) { margin-top: 18px !important; }
+/* Chips: a small rounded label; a toned one takes its colour. */
+.nc-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.nc-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px; font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.5; white-space: nowrap; color: var(--fg); background: var(--chip-bg); border: 1px solid var(--border); }
+.nc-chip:is(.nc-chip-moss, .nc-chip-sky, .nc-chip-sun, .nc-chip-plum, .nc-chip-status) { background: color-mix(in srgb, var(--nc-chip) 20%, var(--surface)); border-color: var(--nc-chip); }
+.nc-chip-moss { --nc-chip: var(--moss); } .nc-chip-sky { --nc-chip: var(--sky); } .nc-chip-sun { --nc-chip: var(--sun); } .nc-chip-plum { --nc-chip: var(--plum); } .nc-chip-status { --nc-chip: var(--accent); }
+.nc-chip-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--nc-chip); }
+/* The sewn-on look (.pj-card): a tint of the card's tone, a stitched line inside the edge, fine cloth lines. */
+:is(.nc-rule, .nc-event, .nc-badge, .nc-feature) { --nc-tone: var(--moss); --muted: color-mix(in srgb, var(--fg) 15%, var(--muted)); position: relative; border: 1px solid color-mix(in srgb, var(--nc-tone) 40%, var(--border)); border-radius: 18px; outline: 2px dashed color-mix(in srgb, var(--nc-tone) 75%, var(--surface)); outline-offset: -9px; box-shadow: 0 12px 22px -20px rgba(0, 0, 0, 0.5);
+  background-color: color-mix(in srgb, var(--nc-tone) 6%, var(--surface));
+  background-image: repeating-linear-gradient(0deg, color-mix(in srgb, var(--nc-tone) 8%, transparent) 0 1px, transparent 1px 5px), repeating-linear-gradient(90deg, color-mix(in srgb, var(--fg) 4%, transparent) 0 1px, transparent 1px 5px); }
+:is(.nc-rule, .nc-event, .nc-feature, .nc-note)::before { content: ""; flex: none; width: 64px; height: 64px; box-sizing: border-box; padding: 11px; border-radius: 50%; border: 2px solid var(--nc-tone); outline: 1.5px dashed color-mix(in srgb, var(--nc-tone) 60%, var(--surface)); outline-offset: -7px; background: var(--nc-icon) center / contain no-repeat content-box, var(--nc-disc); transition: transform 0.25s ease; }
+@media (prefers-reduced-motion: no-preference) { :is(.nc-rule, .nc-event, .nc-feature, .nc-badge):hover::before, .nc-badge:hover .nc-medal { transform: rotate(-8deg) scale(1.06); } }
+/* How new content is made: five small cards. */
+.nc-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 196px), 1fr)); gap: 16px; }
+.nc-rule { display: flex; flex-direction: column; gap: 10px; padding: 22px 20px 20px; }
+.nc-rule::before { width: 58px; height: 58px; padding: 10px; }
+.page-wide .nc-rule > h3.nc-rule-title { margin: 4px 0 0; font-size: 19px; line-height: 1.2; }
+.nc-rule-line { font-size: 15px; line-height: 1.45; color: var(--muted); }
+/* Pot Luck Day's header strip: Pot's emblem, the status and dates, the name. */
+.nc-event { --nc-tone: var(--accent); display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto 1fr; column-gap: 24px; align-items: start; padding: 28px 30px 26px; }
+.nc-event::before { grid-row: 1 / span 3; width: 104px; height: 104px; padding: 14px; }
+.page-wide .nc-event > h2.nc-event-title { margin: 10px 0 6px; }
+.nc-event-line { max-width: 40em; font-size: 18px; color: var(--lead); }
+/* Why, beside the size table. */
+.nc-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 36px; align-items: start; }
+.nc-split .nc-part > p { max-width: 36em; }
+/* The size table in the Notes table look; Pot Luck Day's own row stands out. */
+.wp-block-table.note-table-wrap.nc-size tbody tr:last-child td { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.wp-block-table.note-table-wrap.nc-size tbody tr:last-child td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.wp-block-table.note-table-wrap.nc-size th.has-text-align-right { font-family: inherit; }
+.wp-block-table.note-table-wrap.nc-size td.has-text-align-right { white-space: normal; }
+.wp-block-table.note-table-wrap.nc-size td:first-child { min-width: 8.5em; }
+/* Badges: a medallion waiting for its picture (a dashed rim, the icon inside, "art coming"), the name, how it is earned. */
+.nc-badges { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 18px; }
+.nc-badge { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 20px 22px; text-align: center; }
+.nc-medal { position: relative; width: 108px; height: 108px; box-sizing: border-box; padding: 22px; margin-bottom: 14px !important; border-radius: 50%; border: 3px dashed color-mix(in srgb, var(--nc-tone) 80%, var(--surface)); box-shadow: inset 0 0 0 6px color-mix(in srgb, var(--nc-tone) 12%, var(--surface)); background: var(--nc-icon) center / contain no-repeat content-box, var(--nc-disc); transition: transform 0.25s ease; }
+.nc-medal span { position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%); padding: 2px 9px; border-radius: 999px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
+.page-wide .nc-badge > h4.nc-badge-name { font-family: var(--font-display); font-size: 21px; font-weight: 600; line-height: 1.2; }
+.nc-badge-line { font-size: 15px; line-height: 1.45; color: var(--muted); max-width: 22em; }
+.nc-tiers { justify-content: center; margin-top: 4px !important; }
+.nc-tiers .nc-chip { background: color-mix(in srgb, var(--nc-tone) 16%, var(--surface)); border-color: color-mix(in srgb, var(--nc-tone) 60%, var(--border)); }
+/* A short feature (the Harvest Table, chicken costumes): the icon beside the words. */
+.nc-feature { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; column-gap: 22px; align-items: start; padding: 26px 28px 24px; }
+.nc-feature::before { grid-row: 1 / span 2; width: 80px; height: 80px; padding: 13px; }
+.page-wide .nc-feature > h3.nc-feature-title { margin: 4px 0 6px; font-size: 24px; }
+.nc-feature-line { max-width: 46em; font-size: 16px; }
+/* The quest: numbered step cards, a row on wide screens and a column on phones. */
+.nc-steps { list-style: none; padding: 0; counter-reset: nc-step; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; }
+.nc-steps li { counter-increment: nc-step; position: relative; padding: 18px 18px 18px; border: 1px solid var(--border); border-top: 4px solid var(--accent); border-radius: var(--radius-lg); background: var(--surface); font-size: 15.5px; line-height: 1.45; }
+.nc-steps li::before { content: counter(nc-step); display: grid; place-items: center; width: 34px; height: 34px; margin-bottom: 10px; border-radius: 50%; font-family: var(--font-display); font-size: 19px; font-weight: 700; color: var(--fg); background: color-mix(in srgb, var(--accent) 22%, var(--surface)); border: 1.5px solid var(--accent); }
+.nc-steps li + li { margin-top: 0; }
+/* New items: a card each, with what becomes of it after the season. */
+.nc-items { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 196px), 1fr)); gap: 14px; }
+.nc-item { --nc-chip: var(--nc-tone); display: flex; flex-direction: column; gap: 8px; padding: 16px 16px 14px; border: 1px solid var(--border); border-top: 4px solid var(--nc-tone); border-radius: var(--radius-lg); background: var(--surface); }
+.nc-item::before { content: ""; width: 56px; height: 56px; background: var(--nc-icon) center / contain no-repeat; }
+.page-wide .nc-item > h4.nc-item-name { font-family: var(--font-display); font-size: 19px; font-weight: 600; line-height: 1.2; }
+.nc-item-line { flex: 1; font-size: 14.5px; line-height: 1.45; color: var(--muted); }
+.nc-item-after { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding-top: 10px !important; border-top: 1px solid var(--row-line); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+/* What lasts: side-by-side columns, each in its tone. */
+.nc-lasts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.nc-last { padding: 18px 20px; border: 1px solid var(--border); border-top: 5px solid var(--nc-tone); border-radius: var(--radius-lg); background: var(--surface); }
+.page-wide .nc-last > h4.nc-last-title { margin-bottom: 8px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, var(--nc-tone) 55%, var(--fg)); }
+.nc-last ul { padding-left: 1.2em; }
+.nc-last li + li { margin-top: 6px; }
+.nc-last p, .nc-last li { font-size: 15.5px; line-height: 1.5; }
+/* Still to decide: a callout in the chip colour. */
+.nc-callout { padding: 22px 26px; border: 1px solid var(--border); border-left: 5px solid var(--sun); border-radius: var(--radius-lg); background: var(--chip-bg); }
+.page-wide .nc-callout > h3 { margin-bottom: 10px; }
+.nc-callout ul { padding-left: 1.2em; max-width: 52em; }
+.nc-callout li + li { margin-top: 6px; }
+/* Art: a note, quieter than the cards. */
+.nc-note { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto 1fr; column-gap: 16px; align-items: start; padding: 16px 20px; border: 1.5px dashed var(--border); border-radius: var(--radius-lg); }
+.nc-note::before { grid-row: 1 / span 2; width: 48px; height: 48px; padding: 8px; }
+.page-wide .nc-note > h3.nc-note-title { font-size: 18px; margin: 2px 0 2px; }
+.nc-note-line { font-size: 15px; color: var(--muted); max-width: 52em; }
+@media (max-width: 860px) { .nc-split { grid-template-columns: minmax(0, 1fr); gap: 32px; } }
+@media (max-width: 560px) {
+  .page-wide .nc-band > .wrap > * + * { margin-top: 34px; }
+  .nc-event { column-gap: 16px; padding: 22px 18px 20px; outline-offset: -7px; border-radius: 14px; }
+  .nc-event::before { width: 68px; height: 68px; padding: 10px; grid-row: 1; }
+  .page-wide .nc-event > h2.nc-event-title, .nc-event-line { grid-column: 1 / -1; }
+  .nc-event > .nc-chips { align-self: center; }
+  .nc-event-line { font-size: 16.5px; }
+  .nc-feature { column-gap: 14px; padding: 20px 18px 18px; outline-offset: -7px; border-radius: 14px; }
+  .nc-feature::before { width: 60px; height: 60px; padding: 9px; grid-row: 1; align-self: center; }
+  .page-wide .nc-feature > h3.nc-feature-title { font-size: 21px; }
+  .nc-feature-line { grid-column: 1 / -1; margin-top: 8px !important; }
+  .nc-rule { display: grid; grid-template-columns: auto 1fr; column-gap: 14px; row-gap: 6px; align-items: center; padding: 18px 18px 16px; outline-offset: -7px; border-radius: 14px; }
+  .nc-rule::before { width: 50px; height: 50px; padding: 8px; }
+  .page-wide .nc-rule > h3.nc-rule-title { margin: 0; }
+  .nc-rule-line { grid-column: 1 / -1; }
+  .nc-item { display: grid; grid-template-columns: 48px 1fr; column-gap: 14px; row-gap: 4px; }
+  .nc-item::before { grid-row: 1 / span 2; width: 48px; height: 48px; }
+  .nc-item-after { grid-column: 1 / -1; margin-top: 6px !important; }
+  .nc-callout { padding: 18px; }
+  .nc-steps li { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: start; padding: 14px 16px; }
+  .nc-steps li::before { margin: -2px 0 0; width: 30px; height: 30px; font-size: 17px; }
+  .nc-medal { width: 92px; height: 92px; padding: 18px; }
+}
