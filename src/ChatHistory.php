@@ -23,6 +23,8 @@ use Minn\RestError;
  *
  *   POST chat/ingest {"entries":[…]}         the server's signed call (ServiceCall), idempotent:
  *                                            a line by its lid, an IM line by its pair, id and time; reactions as the whole set
+ *   POST chat/line {"room","lid"}            the server's signed call: is that a kept line of the room (threads.go, R5)?
+ *                                            {"status":"settled"} | {"status":"refused"}
  *   GET  chat/channels                       {"channels":[{"key","label","room"}],"silenced":[…]}  the ones this player may read
  *   GET  chat/channels/{key}?before=<lid>&limit=n           {"lines":[Line…] newest first,"more":bool}
  *   GET  chat/channels/{key}?after=<lid>&since=<ms>         {"lines":[Line…] oldest first,"changed":[{"lid","r"}],"now":ms}
@@ -142,6 +144,31 @@ final readonly class ChatHistory
         // The words of lines deleted 30 days ago go (G568), at most once an hour.
         self::clearWhenDue($this->minn->site, $db, Community::ms());
         return Response::json(['status' => 'ok', 'stored' => $stored]);
+    }
+
+    /**
+     * R5 (G1025): whether a line is kept here as a line of a room (not a thread reply, not deleted), for
+     * the realtime server's threads.go: a reply in the game to a line older than the server's own history
+     * (or from before a restart) goes when the line is here. The server's signed call (ServiceCall), as
+     * ingest; the room is the one the player has the channel open in, so nothing is told that the player
+     * could not read. 200 {"status":"settled"} kept | {"status":"refused"} not kept.
+     */
+    #[Route(Method::Post, '/groddle/v1/chat/line', policy: new Policy(Access::Public))]
+    public function line(Request $request): Response
+    {
+        $secret = (new RealtimeTicket($this->minn))->secret();
+        if ($secret === null || !ServiceCall::verify($request->header(ServiceCall::HEADER), 'POST', '/groddle/v1/chat/line', $request->body, $secret, time())) {
+            throw new RestError('groddle_service_unsigned', 'Not signed.', 401);
+        }
+        $body = $request->json();
+        $room = $body['room'] ?? null;
+        $lid = $body['lid'] ?? null;
+        if (!is_string($room) || preg_match(self::ROOM, $room) !== 1 || !is_int($lid) || $lid <= 0) {
+            throw new RestError('groddle_chat_bad', 'Not a line.', 400);
+        }
+        $row = $this->minn->db->row('SELECT parent_lid, deleted_ms FROM ' . $this->minn->db->table(self::LINES) . ' WHERE room = ? AND lid = ?', [$room, $lid]);
+        $kept = $row !== null && (int) $row['parent_lid'] === 0 && (int) $row['deleted_ms'] === 0;
+        return self::private(Response::json(['status' => $kept ? 'settled' : 'refused']));
     }
 
     /**
