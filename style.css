@@ -902,6 +902,17 @@ a.cc-name:focus { outline: none; }
 .nc-icon-awesome_pot { --nc-icon: url("/assets/sprites/icons/awesome_pot@3x.webp"); }
 .nc-icon-cornucopia_crops { --nc-icon: url("/assets/sprites/icons/cornucopia_crops@3x.webp"); }
 .nc-icon-camera { --nc-icon: url("/assets/sprites/icons/camera@3x.webp"); }
+/* Pot Luck Day's own art, made for Groddle (game tools/provenance/made-sprites.json): its five badges and five items. */
+.nc-icon-pld_feast_bringer { --nc-icon: url("/assets/badges/pld_feast_bringer.webp"); }
+.nc-icon-pld_plume_fluffer_1 { --nc-icon: url("/assets/badges/pld_plume_fluffer_1.webp"); }
+.nc-icon-pld_good_neighbor { --nc-icon: url("/assets/badges/pld_good_neighbor.webp"); }
+.nc-icon-turkey_tailfan { --nc-icon: url("/assets/sprites/icons/turkey_tailfan@3x.webp"); }
+.nc-icon-rooster_plume { --nc-icon: url("/assets/sprites/icons/rooster_plume@3x.webp"); }
+.nc-icon-fancy_feather { --nc-icon: url("/assets/sprites/icons/fancy_feather@3x.webp"); }
+.nc-icon-harvest_stuffing { --nc-icon: url("/assets/sprites/icons/harvest_stuffing@3x.webp"); }
+.nc-icon-pots_cornucopia { --nc-icon: url("/assets/sprites/icons/pots_cornucopia@3x.webp"); }
+/* A badge is round art already: it fills its medal instead of sitting inside it like an item icon. */
+:is(.nc-icon-pld_feast_bringer, .nc-icon-pld_plume_fluffer_1, .nc-icon-pld_good_neighbor) .nc-medal { padding: 8px; }
 /* The disc behind an icon: the page's surface, a light one in dark so the dark Tiny Speck outlines still read (as .pj-cards). */
 .wp-block-post-content:has(.nc-rules) { --nc-disc: var(--surface); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .wp-block-post-content:has(.nc-rules) { --nc-disc: color-mix(in srgb, var(--fg) 82%, var(--surface)); } }
