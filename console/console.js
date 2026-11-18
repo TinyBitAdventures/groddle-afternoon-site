@@ -34,6 +34,11 @@
  *   own chip; no email) and Close or Reopen. A first message the player
  *   changed before anyone read it says edited. Polled every TICKETS_POLL_MS
  *   while the tab is visible. #reports opens the tab, #report=<id> a report.
+ *   Each message has the chat's reactions (Austin 2026-11-18): its chips (who reacted in the tip,
+ *   yours pressed; a click puts yours on or takes it off) and React, the set in a row (reactionSet,
+ *   from main[data-reactions]: the site's data/reactions.json, the game's js/chat-reactions.js
+ *   REACTIONS). POST admin/tickets/<id>/messages/<message>/reactions: no email, no status change,
+ *   not a reply.
  * - Chat log (a tab of its own; src/AdminConsole.php chatlog, the realtime server's log): what
  *   players said on streets, in channels and in parties, newest first, refused lines marked
  *   (too fast, or silenced in a channel). Search by player (a name, or #id), words, kind, and
@@ -168,6 +173,39 @@ export function messageHistory(m, when) {
     el('ol', {}, ...revs.map((r, i) => el('li', {},
       el('p', { class: 'console-msg-who' }, el('time', { datetime: r.at, text: `Version ${i + 1} · written ${when(r.at)}, replaced ${when(r.replaced)}` })),
       el('p', { class: 'console-msg-body', text: r.body })))));
+}
+
+/**
+ * The chat's reactions as the page carries them (main[data-reactions]: src/AdminConsolePage.php from
+ * CommunityText::reactions(), data/reactions.json, the game's js/chat-reactions.js REACTIONS):
+ * [{ key, glyph, label, art }] in order; [] for anything unreadable.
+ */
+export function reactionSet(json) {
+  let raw = [];
+  try { raw = JSON.parse(String(json || '[]')); } catch { return []; }
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((r) => r && typeof r.key === 'string' && /^[a-z]{1,12}$/.test(r.key)).map((r) => ({ key: r.key, glyph: String(r.glyph || ''), label: String(r.label || r.key), art: String(r.art || '') }));
+}
+
+/** How many names a reaction's tip lists before "and N others" (the chat's NAMES_SHOWN). */
+export const REACTION_NAMES = 8;
+
+/**
+ * Who reacted, in the chat's words (js/chat-reactions.js chipTip): "Thumbs up: You and Ada", you
+ * first, then the rest in the order they reacted; "Thumbs up" alone with nobody.
+ */
+export function reactionTip(def, by, max = REACTION_NAMES) {
+  const list = Array.isArray(by) ? by : [];
+  const names = [];
+  if (list.some((b) => b?.you)) names.push('You');
+  for (const b of list) if (!b?.you) names.push(String(b?.name || 'Someone'));
+  const label = def?.label || '';
+  if (!names.length) return label;
+  let who;
+  if (names.length > max) who = `${names.slice(0, max - 1).join(', ')} and ${names.length - (max - 1)} others`;
+  else if (names.length === 1) who = names[0];
+  else who = `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  return `${label}: ${who}`;
 }
 
 /** A message's byline time: when it was written, and edited when the player changed it (ticket 49). */
@@ -1329,7 +1367,8 @@ function boot() {
       el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${messageWhen(m, when)}`, title: m.edited ? `Edited ${when(m.edited)}` : null })),
       el('p', { class: 'console-msg-body', text: m.body }),
       replyPictures(m),
-      messageHistory(m, when))));
+      messageHistory(m, when),
+      reactionRow(t.id, m))));
     const msgs = $('[data-console-messages]');
     msgs.scrollTop = msgs.scrollHeight;
     // Read now: its row loses the dot.
@@ -1373,6 +1412,95 @@ function boot() {
       return a;
     }));
   }
+  // == Reactions on a message (Austin 2026-11-18): the chat's set, the boards' chips and reactPicker ==
+  const reactions = reactionSet(root.dataset.reactions);
+  const reactionDef = (key) => reactions.find((r) => r.key === key) || null;
+  function reactionGlyph(def) {
+    return def.art ? el('span', { class: `cchip-art cchip-${def.key}`, 'aria-hidden': 'true' }) : el('span', { class: 'cchip-glyph', 'aria-hidden': 'true', text: def.glyph });
+  }
+  /** A message's chips (yours pressed, who in the tip) and React, which opens the set. */
+  function reactionRow(ticketId, m) {
+    if (!reactions.length || !(Number(m?.id) > 0)) return null;
+    const box = el('div', { class: 'console-msg-reactions', 'data-console-reactions': m.id, 'data-ticket': ticketId });
+    fillReactions(box, m.reactions);
+    return box;
+  }
+  function fillReactions(box, list) {
+    const chips = [];
+    for (const r of Array.isArray(list) ? list : []) {
+      const def = reactionDef(r?.e);
+      if (!def || !Array.isArray(r.by) || !r.by.length) continue;
+      const tip = reactionTip(def, r.by);
+      chips.push(el('button', { type: 'button', class: 'cchip', 'data-react': def.key, 'aria-pressed': r.mine ? 'true' : 'false', title: tip, 'aria-label': `${def.glyph || def.label} ${r.by.length}, ${tip}` }, reactionGlyph(def), el('span', { text: String(r.by.length) })));
+    }
+    const add = el('button', { type: 'button', class: 'console-react-add', 'data-console-react-open': '', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'aria-label': 'React to this message', title: 'React' }, el('span', { class: 'console-react-add-face', 'aria-hidden': 'true', text: '☺' }), el('span', { 'aria-hidden': 'true', text: '+' }));
+    box.replaceChildren(...chips, add);
+    box.toggleAttribute('data-empty', chips.length === 0);
+  }
+  async function react(box, key, on) {
+    const ticket = Number(box.dataset.ticket);
+    const message = Number(box.dataset.consoleReactions);
+    try {
+      const r = await api.call(`admin/tickets/${ticket}/messages/${message}/reactions`, { method: 'POST', body: { e: key, on } });
+      if (!box.isConnected) return;
+      fillReactions(box, r.reactions);
+      const m = tickets.thread?.messages?.find((x) => x.id === message);
+      if (m) m.reactions = r.reactions;
+    } catch (err) { failed(err); }
+  }
+  let reactPicker = null;
+  let pickerFor = null;
+  function closePicker(back = false) {
+    if (!reactPicker || reactPicker.hidden) return;
+    reactPicker.hidden = true;
+    const opener = pickerFor?.querySelector('[data-console-react-open]');
+    opener?.setAttribute('aria-expanded', 'false');
+    if (back && opener?.isConnected) opener.focus();
+    pickerFor = null;
+  }
+  function openPicker(box, opener) {
+    if (!reactPicker) {
+      reactPicker = el('div', { class: 'cpicker console-react-picker', role: 'group', 'aria-label': 'Add a reaction', 'data-console-picker': '' });
+      for (const def of reactions) reactPicker.append(el('button', { type: 'button', 'data-pick': def.key, title: def.label, 'aria-label': def.label }, def.art ? reactionGlyph(def) : document.createTextNode(def.glyph)));
+      reactPicker.hidden = true;
+      document.body.append(reactPicker);
+      reactPicker.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-pick]');
+        if (!b || !pickerFor) return;
+        const at = pickerFor;
+        closePicker(true);
+        react(at, b.dataset.pick, b.getAttribute('aria-pressed') !== 'true');
+      });
+      reactPicker.addEventListener('keydown', (e) => {
+        const items = [...reactPicker.querySelectorAll('button')];
+        const at = items.indexOf(document.activeElement);
+        if (e.key === 'Escape') { e.preventDefault(); closePicker(true); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); items[(at + 1) % items.length].focus(); }
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); items[(at - 1 + items.length) % items.length].focus(); }
+      });
+      document.addEventListener('pointerdown', (e) => {
+        if (reactPicker.hidden || reactPicker.contains(e.target) || e.target.closest?.('[data-console-react-open]')) return;
+        closePicker();
+      });
+    }
+    pickerFor = box;
+    for (const b of reactPicker.querySelectorAll('[data-pick]')) b.setAttribute('aria-pressed', String(box.querySelector(`[data-react="${b.dataset.pick}"]`)?.getAttribute('aria-pressed') === 'true'));
+    reactPicker.hidden = false;
+    const r = opener.getBoundingClientRect();
+    const w = reactPicker.offsetWidth;
+    reactPicker.style.left = `${Math.max(8, Math.min(window.scrollX + r.left, window.scrollX + document.documentElement.clientWidth - w - 8))}px`;
+    reactPicker.style.top = `${window.scrollY + r.bottom + 6}px`;
+    opener.setAttribute('aria-expanded', 'true');
+    reactPicker.querySelector('button')?.focus();
+  }
+  $('[data-console-messages]').addEventListener('click', (e) => {
+    const box = e.target.closest('[data-console-reactions]');
+    if (!box) return;
+    const chip = e.target.closest('button[data-react]');
+    if (chip) return void react(box, chip.dataset.react, chip.getAttribute('aria-pressed') !== 'true');
+    const open = e.target.closest('[data-console-react-open]');
+    if (open) return void (pickerFor === box && !reactPicker?.hidden ? closePicker() : openPicker(box, open));
+  });
   async function openTicket(id, focus = true) {
     try { renderThread(await api.call(`admin/tickets/${id}`), focus); } catch (err) { return failed(err); }
     loadCredit(id);

@@ -36,6 +36,9 @@ use Minn\RestError;
  *                                administrator has read it (TicketStore::editable); after that 409 groddle_ticket_read
  *   POST tickets/{id}/unread     {"ticket","unread":n}               the new reply dot back (the game's Reports list menu,
  *                                2026-11-12): only on a report an administrator wrote in last, else nothing changes
+ *   POST tickets/{id}/messages/{message}/reactions  {"e","on"}  {"message","reactions"}   one of the chat's reactions on
+ *                                (or off) any message of your own report (TicketReactions, Austin 2026-11-18); no email,
+ *                                the report's status, read marks and lastMessageAt stay as they are
  *   Summary: {"id","status":"open"|"answered"|"working"|"closed","subject","createdAt","updatedAt","lastMessageAt","lastAuthor":"player"|"admin","unread":bool}
  *            adminReplied: an administrator wrote in it at some point, kept after it closes (#225)
  *            readByTeamAt: time|null, when an administrator first opened it after the player's latest
@@ -47,6 +50,8 @@ use Minn\RestError;
  *            who wrote is a role, never a name; pictures: the message's own, in order (/report-pictures/{ticket}/
  *            {message}/{n}; a new report's own picture is the thread's "picture", not in its first message's list);
  *            picture: the first of them again for older readers (G791, /report-pictures/{ticket}/{message})
+ *            reactions: [{"e","by":[{"id","name","you"}],"mine"}] (TicketReactions::out), the player's by character
+ *            name and an administrator's by display name
  *   editable: whether the first message can still be edited (every thread answer carries it)
  *
  * A new report keeps the old one's rules (BugReports: the message required
@@ -193,6 +198,21 @@ final readonly class Tickets
     }
 
     /**
+     * A reaction on (or off) a message of the caller's own report (TicketReactions). Not a reply:
+     * no email, no status, read mark or lastMessageAt change, so it is no news for anyone.
+     */
+    #[Route(Method::Post, '/groddle/v1/tickets/{id:\d+}/messages/{message:\d+}/reactions', policy: new Policy(Access::SignedIn))]
+    public function react(Request $request, string $id, string $message): Response
+    {
+        $me = $this->me();
+        $row = $this->mine($me, (int) $id);
+        $body = $request->json();
+        $reactions = new TicketReactions($this->minn->db);
+        $reactions->toggle((int) $row['id'], (int) $message, $me->id, TicketStore::PLAYER, $body['e'] ?? null, ($body['on'] ?? true) !== false, time());
+        return Response::json(['message' => (int) $message, 'reactions' => $reactions->ofMessage((int) $row['id'], (int) $message, $me->id)])->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
      * A message's pictures (ReportPicture::fromBody): none kept unless every one passes. The ones the
      * picture limit counts ($free: a new report's own picture has the report's limits) must fit in
      * what PICTURES_PER_WINDOW and PICTURES_PER_DAY leave.
@@ -221,7 +241,7 @@ final readonly class Tickets
         $row = (array) $store->find($id);
         return Response::json([
             'ticket' => TicketStore::summary($row, TicketStore::PLAYER),
-            'messages' => TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id)),
+            'messages' => (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id)), $player),
             'picture' => $store->pictureOut($id),
             'editable' => TicketStore::editable($row, $store->first($id), $player),
         ])->withHeader('Cache-Control', 'no-store');

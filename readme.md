@@ -64,6 +64,7 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `POST tickets` (also `POST feedback`) | A new bug report: the message (at most 2,000 characters), what the game knew (street, place, build, page, browser, screen, the last errors) and, when the player leaves it ticked, a picture of the game (a base64 JPEG); 3 in 10 minutes and 50 a day |
 | `POST tickets/{id}/messages`, `POST tickets/{id}/close` | A reply (it opens a closed report again) and closing your own report |
 | `GET admin/tickets`, `GET admin/tickets/{id}`, `POST admin/tickets/{id}/reply\|close\|reopen`, `POST admin/tickets/migrate` | The console's Reports tab, `manage_options` only, each action in the console's activity log |
+| `POST tickets/{id}/messages/{message}/reactions`, `POST admin/tickets/{id}/messages/{message}/reactions` | One of the chat's reactions (data/reactions.json) on or off a report message: the player on any message of their own report, an administrator on any (`groddle_ticket_message_reactions`, TicketReactions). No email, and the report's status and news stay as they were |
 
 A login (an email and a password) may have up to 3 characters, each its own account: `groddle_character_logins`
 ties an extra character to its login (a character with no row is its own login), and `GET/POST characters`,

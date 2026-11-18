@@ -77,7 +77,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-8';
+    public const ASSET_KEY = 'skin-9';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its own content key: Extension::importMap). */
     public const SERVER_ASSET_KEY = 'server-3';
@@ -174,7 +174,8 @@ final readonly class AdminConsolePage
             . "</head>\n<body class=\"notes console-page\">\n"
             // The chat app's header (as /chat/ draws it): full width, the bell, and the Console link marked as the page being read.
             . SiteNav::nav(SiteNav::links($this->minn, 0), $path, $badges, ['bell' => $badges[SiteNav::COMMUNITY] ?? 0, 'console' => true]) . "\n"
-            . '<main class="console" id="console" data-console data-community-v="' . Html::attr(CommunityPages::ASSET_KEY) . '">'
+            // The chat's reactions for a report message's picker (TicketReactions; data/reactions.json, the game's set).
+            . '<main class="console" id="console" data-console data-community-v="' . Html::attr(CommunityPages::ASSET_KEY) . '" data-reactions="' . Html::attr(self::reactionsJson()) . '">'
             . <<<'HTML'
 
  <nav class="console-rail" aria-label="Console sections">
@@ -467,5 +468,15 @@ HTML
     </section>
   </div>
 HTML;
+    }
+
+    /** The chat's reactions as console/console.js reactionSet reads them (CommunityText::reactions(), never a copy). */
+    public static function reactionsJson(): string
+    {
+        $set = [];
+        foreach (CommunityText::reactions() as $key => [$glyph, $label, $art]) {
+            $set[] = ['key' => $key, 'glyph' => $glyph, 'label' => $label, 'art' => $art];
+        }
+        return (string) json_encode($set, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 }

@@ -33,6 +33,9 @@ use Minn\RestError;
  *   POST admin/tickets/{id}/working {"working":bool}  the thread: Working on it (ticket 49, 2026-11-02), or
  *                                  taken off (open, or answered when an administrator wrote last). Read marks untouched;
  *                                  no email: a status, like Close, not a reply
+ *   POST admin/tickets/{id}/messages/{message}/reactions  {"e","on"}  {"message","reactions"}  one of the chat's
+ *                                  reactions on (or off) any message, as the administrator (TicketReactions, Austin
+ *                                  2026-11-18): no email, no activity line, status, read marks and lastMessageAt untouched
  *   POST admin/tickets/migrate     {"made","already","posts","text"}   TicketMigration, once (safe again)
  *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"},"closedBy":"player"|"admin"|null,"closedAt":time|null}
  *                                  + "playerReport":{"reported":{"id","name"}} on a player's report of another player (G872)
@@ -41,7 +44,8 @@ use Minn\RestError;
  *   Message: Tickets' Message; "edited" is when the player changed the report's words before it was read;
  *                                "pictures" the message's own pictures in order ([{"url","width","height"}], up to four;
  *                                a new report's own picture is the thread's "picture"), and "picture" the first of them
- *                                for older readers (G791), or null
+ *                                for older readers (G791), or null; "reactions" as Tickets' Message, "you" the
+ *                                administrator asking
  *   A player's report of another player (PlayerReports, G872) also has "playerReport" in its thread:
  *                                  {"reported":{"id","name"},"linesStatus":"ok"|"off"|"down","windowMinutes":30,
  *                                  "lines":[{"at","kind":"local"|"channel"|"party","place","id","name","text","shown","deleted","reported"}]}
@@ -157,6 +161,18 @@ final readonly class AdminTickets
         return $this->thread((int) $row['id'], ['text' => $on ? 'Marked working on it.' : 'No longer marked working on it.']);
     }
 
+    /** A reaction on (or off) any report message, as the administrator: not a reply, so nothing else changes. */
+    #[Route(Method::Post, '/groddle/v1/admin/tickets/{id:\d+}/messages/{message:\d+}/reactions', policy: new Policy(Access::Cap, self::ADMIN))]
+    public function react(Request $request, string $id, string $message): Response
+    {
+        $admin = $this->admin();
+        $row = $this->ticket((int) $id);
+        $body = $request->json();
+        $reactions = new TicketReactions($this->minn->db);
+        $reactions->toggle((int) $row['id'], (int) $message, $admin->id, TicketStore::ADMIN, $body['e'] ?? null, ($body['on'] ?? true) !== false, time());
+        return Response::json(['message' => (int) $message, 'reactions' => $reactions->ofMessage((int) $row['id'], (int) $message, $admin->id)])->withHeader('Cache-Control', 'no-store');
+    }
+
     #[Route(Method::Post, '/groddle/v1/admin/tickets/migrate', policy: new Policy(Access::Cap, self::ADMIN))]
     public function migrate(Request $request): Response
     {
@@ -223,7 +239,7 @@ final readonly class AdminTickets
         $report = PlayerReports::forTicket($this->minn->db, $id, $this->streetIndex());
         return Response::json($extra + [
             'ticket' => $this->row($row, $names, $report === null ? [] : [$id => $report['reported']]),
-            'messages' => TicketStore::messagesOut($store->messages($id), $store->revisions($id), $store->messagePictures($id)),
+            'messages' => (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), $store->revisions($id), $store->messagePictures($id)), (int) ($this->minn->user()?->id ?? 0)),
             'context' => (object) TicketStore::contextOf($row),
             'picture' => $store->pictureOut($id),
             'playerReport' => $report,
