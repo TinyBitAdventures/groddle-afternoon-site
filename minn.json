@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.54",
+  "version": "0.5.55",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -183,6 +183,8 @@
       "from_id bigint(20) unsigned NOT NULL",
       "class_tsid varchar(64) NOT NULL DEFAULT ''",
       "count int(10) unsigned NOT NULL DEFAULT 0",
+      "r int(10) unsigned NULL DEFAULT NULL",
+      "tag text NULL",
       "message varchar(500) NOT NULL DEFAULT ''",
       "box text NULL",
       "at_ms bigint(20) unsigned NOT NULL DEFAULT 0",
@@ -196,6 +198,8 @@
       "owner_id bigint(20) unsigned NOT NULL",
       "class_tsid varchar(64) NOT NULL DEFAULT ''",
       "count int(10) unsigned NOT NULL DEFAULT 0",
+      "r int(10) unsigned NULL DEFAULT NULL",
+      "tag text NULL",
       "adopted tinyint(1) unsigned NOT NULL DEFAULT 0",
       "updated_at datetime NOT NULL",
       "PRIMARY KEY  (owner_id)"

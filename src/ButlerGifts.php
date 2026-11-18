@@ -75,6 +75,15 @@ use Minn\RestError;
  * once per owner, paid from the owner's ledger budget like any other gain of
  * that value (so a save that claims a gift it never had cannot mint one).
  * Each visit's row is kept 90 days.
+ *
+ * A copy's own wear and words (G974, R18): a give may carry "r" and "t" (a
+ * Cubimal's name ...: CopyTags, words on one copy only), kept with the stock
+ * (columns r and tag) and on the copy each visitor gets, on an old gift sent
+ * back and in the give's and the visit's goods; so a named Cubimal left as the
+ * gift reaches a visitor named (giveGift handed over the itemstack itself,
+ * bag_butler.js 2482-2540). Copies merge only when they are alike (the same
+ * wear, no words of their own); a different copy takes the old gift's place.
+ * A stock without them goes as before.
  */
 final readonly class ButlerGifts
 {
@@ -159,7 +168,7 @@ final readonly class ButlerGifts
 
         $stock = $db->table(self::STOCK);
         $gifted = $db->table(self::GIFTED);
-        $held = self::stack($db->row("SELECT class_tsid, count FROM {$stock} WHERE owner_id = ? FOR UPDATE", [$owner]));
+        $held = self::stack($db->row("SELECT class_tsid, count, r, tag FROM {$stock} WHERE owner_id = ? FOR UPDATE", [$owner]));
         $had = $held === null ? null : $db->value("SELECT class_tsid FROM {$gifted} WHERE owner_id = ? AND visitor_id = ?", [$owner, $visitor]);
         $out = self::handOut($held, is_string($had) ? $had : null);
         if ($out['give'] === null) {
@@ -169,15 +178,16 @@ final readonly class ButlerGifts
         $ledger = Ledger::fromSeams($this->minn);
         $mine = $ledger->lock($visitor, $now);
         self::move($db, $visitor, $mine, [$class => 1], $now);
-        $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$op, $visitor, self::EMPTY_GOODS, self::goodsJson([$class => 1]), $stamp, $stamp]);
+        $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$op, $visitor, self::EMPTY_GOODS, self::goodsJson([$out['item']]), $stamp, $stamp]);
         $ledger->log($visitor, 'butler', ['butler' => $op, 'from' => $owner, 'gift' => [$class => 1]], $now);
-        $db->execute("UPDATE {$stock} SET class_tsid = ?, count = ?, updated_at = ? WHERE owner_id = ?", [$out['after']['c'] ?? '', $out['after']['n'] ?? 0, $stamp, $owner]);
+        [$afterR, $afterTag] = self::copyColumns($out['after']);
+        $db->execute("UPDATE {$stock} SET class_tsid = ?, count = ?, r = ?, tag = ?, updated_at = ? WHERE owner_id = ?", [$out['after']['c'] ?? '', $out['after']['n'] ?? 0, $afterR, $afterTag, $stamp, $owner]);
         if ($out['clear']) {
             $db->execute("DELETE FROM {$gifted} WHERE owner_id = ?", [$owner]);
         } else {
             $db->execute("INSERT INTO {$gifted} (owner_id, visitor_id, class_tsid, op, given_at) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE class_tsid = VALUES(class_tsid), op = VALUES(op), given_at = VALUES(given_at)", [$owner, $visitor, $class, $op, $stamp]);
         }
-        return ['status' => 'visited', 'gift' => ['c' => $class, 'n' => 1], 'credit' => $op];
+        return ['status' => 'visited', 'gift' => $out['item'], 'credit' => $op];
     }
 
     // —— The owner ——
@@ -188,7 +198,7 @@ final readonly class ButlerGifts
     {
         $db = $this->minn->db;
         $me = $this->minn->reader->userId;
-        $row = $db->row('SELECT class_tsid, count FROM ' . $db->table(self::STOCK) . ' WHERE owner_id = ?', [$me]);
+        $row = $db->row('SELECT class_tsid, count, r, tag FROM ' . $db->table(self::STOCK) . ' WHERE owner_id = ?', [$me]);
         $rows = $db->rows('SELECT visitor_id, at_ms FROM ' . $db->table(self::VISITS) . ' WHERE owner_id = ? ORDER BY at_ms DESC, id DESC LIMIT ' . self::VISITS_READ, [$me]);
         $names = (new Characters($db))->namesOf(array_map(static fn (array $r): int => (int) $r['visitor_id'], $rows));
         $visits = [];
@@ -212,15 +222,18 @@ final readonly class ButlerGifts
         if (!self::giftId($op) || !is_string($class) || preg_match('/^[a-z0-9_]{1,64}$/', $class) !== 1 || !is_int($n) || $n < 1 || $n > self::COUNT_MAX) {
             throw new RestError('groddle_butler_gift', 'Not a gift.', 400);
         }
+        // G974: the copy's own wear and words, checked (CopyTags).
+        $copy = ButlerParcels::copyOf(['c' => $class, 'n' => $n, 'r' => $body['r'] ?? null, 't' => $body['t'] ?? null]);
         $me = $this->minn->reader->userId;
-        $out = Ledger::atomically($this->minn->db, fn () => $this->take($op, $me, $class, $n, $keep, time()));
+        $out = Ledger::atomically($this->minn->db, fn () => $this->take($op, $me, $class, $n, $keep, time(), $copy));
         if ($out === null) {
             throw new RestError('groddle_butler_gift', 'Not a gift.', 409);
         }
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
-    private function take(string $op, int $me, string $class, int $n, bool $keep, int $now): ?array
+    /** @param array{r: ?int, tag: ?string} $copy */
+    private function take(string $op, int $me, string $class, int $n, bool $keep, int $now, array $copy = ['r' => null, 'tag' => null]): ?array
     {
         $db = $this->minn->db;
         $trades = $db->table(Ledger::TRADES);
@@ -230,7 +243,7 @@ final readonly class ButlerGifts
             if ((int) $was['a_id'] !== $me) {
                 return null;
             }
-            return ['status' => 'done', 'op' => $op, 'gave' => self::firstItem((string) $was['a_gave']), 'got' => self::firstItem((string) $was['b_gave']), 'gift' => self::stack($db->row("SELECT class_tsid, count FROM {$stock} WHERE owner_id = ?", [$me]))];
+            return ['status' => 'done', 'op' => $op, 'gave' => self::firstItem((string) $was['a_gave']), 'got' => self::firstItem((string) $was['b_gave']), 'gift' => self::stack($db->row("SELECT class_tsid, count, r, tag FROM {$stock} WHERE owner_id = ?", [$me]))];
         }
         if (!Economy::shared()->tradeable($class)) {
             return ['status' => 'refused', 'why' => 'type', 'text' => self::TEXT_TYPE_FAIL];
@@ -246,9 +259,10 @@ final readonly class ButlerGifts
             return ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
         }
         $stamp = gmdate('Y-m-d H:i:s', $now);
-        $merged = self::leave(self::stack($db->row("SELECT class_tsid, count FROM {$stock} WHERE owner_id = ? FOR UPDATE", [$me])), $class, $n, $keep);
+        $merged = self::leave(self::stack($db->row("SELECT class_tsid, count, r, tag FROM {$stock} WHERE owner_id = ? FOR UPDATE", [$me])), $class, $n, $keep, $copy['r'], CopyTags::decode($copy['tag']));
         $after = $merged['after'];
         $got = $merged['back'] === null ? [] : [$merged['back']['c'] => $merged['back']['n']];
+        $gave = ['c' => $class, 'n' => $n] + ($copy['r'] !== null ? ['r' => $copy['r']] : []) + ($copy['tag'] !== null ? ['t' => CopyTags::decode($copy['tag'])] : []);
         if ($merged['clear']) {
             $db->execute('DELETE FROM ' . $db->table(self::GIFTED) . ' WHERE owner_id = ?', [$me]);
         }
@@ -257,11 +271,11 @@ final readonly class ButlerGifts
             $by[$c] = ($by[$c] ?? 0) + $k;
         }
         self::move($db, $me, $mine, $by, $now);
-        $db->execute("INSERT INTO {$stock} (owner_id, class_tsid, count, adopted, updated_at) VALUES (?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE class_tsid = VALUES(class_tsid), count = VALUES(count), adopted = 1, updated_at = VALUES(updated_at)", [$me, $after['c'], $after['n'], $stamp]);
-        $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$op, $me, self::goodsJson([$class => $n]), $got === [] ? self::EMPTY_GOODS : self::goodsJson($got), $stamp, $stamp]);
+        [$afterR, $afterTag] = self::copyColumns($after);
+        $db->execute("INSERT INTO {$stock} (owner_id, class_tsid, count, r, tag, adopted, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE class_tsid = VALUES(class_tsid), count = VALUES(count), r = VALUES(r), tag = VALUES(tag), adopted = 1, updated_at = VALUES(updated_at)", [$me, $after['c'], $after['n'], $afterR, $afterTag, $stamp]);
+        $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$op, $me, self::goodsJson([$gave]), $got === [] ? self::EMPTY_GOODS : self::goodsJson([$merged['back']]), $stamp, $stamp]);
         $ledger->log($me, 'butler', ['butler' => $op, 'gift' => [$class => $n], 'back' => (object) $got], $now);
-        $gotItem = $got === [] ? null : ['c' => (string) array_key_first($got), 'n' => (int) reset($got)];
-        return ['status' => 'given', 'op' => $op, 'gave' => ['c' => $class, 'n' => $n], 'got' => $gotItem, 'gift' => $after];
+        return ['status' => 'given', 'op' => $op, 'gave' => $gave, 'got' => $merged['back'], 'gift' => $after];
     }
 
     /** Once per owner: the gift a save's Butler held before the stock lived on the site. */
@@ -310,8 +324,11 @@ final readonly class ButlerGifts
      * the stock after, and whether the list of who had one goes (the last
      * one given: 2534-2537).
      *
-     * @param array{c: string, n: int}|null $held
-     * @return array{give: ?string, after: array{c: string, n: int}|null, clear: bool}
+     * G974: the copy given (item) is the stock's own, its wear and words with
+     * it; what is left keeps the wear (words are on one copy only).
+     *
+     * @param array{c: string, n: int, r?: int, t?: mixed}|null $held
+     * @return array{give: ?string, item?: array{c: string, n: int, r?: int, t?: mixed}, after: array{c: string, n: int, r?: int}|null, clear: bool}
      */
     public static function handOut(?array $held, ?string $had): array
     {
@@ -319,24 +336,30 @@ final readonly class ButlerGifts
             return ['give' => null, 'after' => $held, 'clear' => false];
         }
         $left = $held['n'] - 1;
-        return ['give' => $held['c'], 'after' => $left > 0 ? ['c' => $held['c'], 'n' => $left] : null, 'clear' => $left <= 0];
+        $wear = isset($held['r']) ? ['r' => $held['r']] : [];
+        $item = ['c' => $held['c'], 'n' => 1] + $wear + (isset($held['t']) && $held['n'] === 1 ? ['t' => $held['t']] : []);
+        return ['give' => $held['c'], 'item' => $item, 'after' => $left > 0 ? ['c' => $held['c'], 'n' => $left] + $wear : null, 'clear' => $left <= 0];
     }
 
     /**
      * onLeaveVisitorGift (bag_butler.js 3846-3912): a stack of the same class
      * merges when the owner's game says it fits (keep), anything else takes
      * the old gift's place and sends it back (onReturnOldGift 4494-4517), and
-     * the visitors start over (the remake's setGift).
+     * the visitors start over (the remake's setGift). G974: `r` and `t` are
+     * the copy's own wear and words; copies merge only when alike (the same
+     * wear, no words of their own on either), as the source's itemstacks did.
      *
-     * @param array{c: string, n: int}|null $held
-     * @return array{after: array{c: string, n: int}, back: array{c: string, n: int}|null, clear: bool}
+     * @param array{c: string, n: int, r?: int, t?: mixed}|null $held
+     * @return array{after: array{c: string, n: int, r?: int, t?: mixed}, back: array{c: string, n: int, r?: int, t?: mixed}|null, clear: bool}
      */
-    public static function leave(?array $held, string $class, int $n, bool $keep): array
+    public static function leave(?array $held, string $class, int $n, bool $keep, ?int $r = null, mixed $t = null): array
     {
-        if ($held !== null && $held['c'] === $class && $keep && $held['n'] + $n <= self::COUNT_MAX) {
-            return ['after' => ['c' => $class, 'n' => $held['n'] + $n], 'back' => null, 'clear' => false];
+        $alike = $held !== null && ($held['r'] ?? null) === $r && !isset($held['t']) && $t === null;
+        if ($held !== null && $held['c'] === $class && $keep && $alike && $held['n'] + $n <= self::COUNT_MAX) {
+            return ['after' => ['c' => $class, 'n' => $held['n'] + $n] + ($r !== null ? ['r' => $r] : []), 'back' => null, 'clear' => false];
         }
-        return ['after' => ['c' => $class, 'n' => $n], 'back' => $held, 'clear' => true];
+        $after = ['c' => $class, 'n' => $n] + ($r !== null ? ['r' => $r] : []) + ($t !== null && $n === 1 ? ['t' => $t] : []);
+        return ['after' => $after, 'back' => $held, 'clear' => true];
     }
 
     // —— Helpers ——
@@ -368,24 +391,52 @@ final readonly class ButlerGifts
         return is_string($op) && preg_match('/^bgift-[0-9a-f]{16}$/', $op) === 1;
     }
 
-    /** @return array{c: string, n: int}|null */
+    /** A stock row as a stack, with its copy's wear (r) and words (t, one copy only). @return array{c: string, n: int, r?: int, t?: mixed}|null */
     public static function stack(?array $row): ?array
     {
         if ($row === null || (string) $row['class_tsid'] === '' || (int) $row['count'] <= 0) {
             return null;
         }
-        return ['c' => (string) $row['class_tsid'], 'n' => (int) $row['count']];
+        $out = ['c' => (string) $row['class_tsid'], 'n' => (int) $row['count']];
+        if (($row['r'] ?? null) !== null) {
+            $out['r'] = (int) $row['r'];
+        }
+        if ($out['n'] === 1 && is_string($row['tag'] ?? null) && $row['tag'] !== '' && ($t = CopyTags::decode($row['tag'])) !== null) {
+            $out['t'] = $t;
+        }
+        return $out;
     }
 
-    /** The first stack in goods as the trades table keeps them. */
+    /** A stack's copy as the stock's columns keep it: [r, tag JSON]. @return array{0: ?int, 1: ?string} */
+    private static function copyColumns(?array $stack): array
+    {
+        if ($stack === null) {
+            return [null, null];
+        }
+        $tag = isset($stack['t']) && $stack['n'] === 1 ? json_encode($stack['t'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null;
+        return [isset($stack['r']) ? (int) $stack['r'] : null, is_string($tag) ? $tag : null];
+    }
+
+    /** The first stack in goods as the trades table keeps them, its copy's r and t with it. */
     private static function firstItem(string $json): ?array
     {
-        $goods = LedgerMath::goods(json_decode($json, true));
+        $raw = json_decode($json, true);
+        $goods = LedgerMath::goods($raw);
         if ($goods['items'] === []) {
             return null;
         }
         $c = (string) array_key_first($goods['items']);
-        return ['c' => $c, 'n' => (int) $goods['items'][$c]];
+        $out = ['c' => $c, 'n' => (int) $goods['items'][$c]];
+        $first = is_array($raw['items'][0] ?? null) ? $raw['items'][0] : [];
+        if (($first['c'] ?? null) === $c) {
+            if (is_int($first['r'] ?? null)) {
+                $out['r'] = $first['r'];
+            }
+            if (isset($first['t']) && $out['n'] === 1) {
+                $out['t'] = $first['t'];
+            }
+        }
+        return $out;
     }
 
     /** @param array<string,int> $by */
@@ -403,13 +454,20 @@ final readonly class ButlerGifts
         }
     }
 
-    /** @param array<string,int> $items */
+    /** Goods of stacks, each with its copy's r and t when it has them. @param list<array{c: string, n: int, r?: int, t?: mixed}> $items */
     private static function goodsJson(array $items): string
     {
         $out = [];
-        foreach ($items as $c => $n) {
-            $out[] = ['c' => (string) $c, 'n' => (int) $n];
+        foreach ($items as $it) {
+            $row = ['c' => (string) $it['c'], 'n' => (int) $it['n']];
+            if (isset($it['r'])) {
+                $row['r'] = (int) $it['r'];
+            }
+            if (isset($it['t'])) {
+                $row['t'] = $it['t'];
+            }
+            $out[] = $row;
         }
-        return (string) json_encode(['items' => $out, 'currants' => 0], JSON_UNESCAPED_SLASHES);
+        return (string) json_encode(['items' => $out, 'currants' => 0], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 }

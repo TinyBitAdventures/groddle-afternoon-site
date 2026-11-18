@@ -63,6 +63,14 @@ use Minn\RestError;
  * the box and the stacks and hands over one bag_gift_box_wrapped with them
  * inside ("item": {"c":"bag_gift_box_wrapped","n":1,"box":[…]}); a load that
  * missed either side applies it as LedgerGift::apply applies a box.
+ *
+ * A copy's own wear and words (G974, R18): the package's stack in "gave",
+ * and each stack in "box", may carry "r" (wear) and "t" (a Cubimal's name
+ * ...: CopyTags), as a trade's stack does; they are checked again here, kept
+ * with the parcel (columns r and tag, the box's JSON) and handed to the owner
+ * on the item, so a named Cubimal arrives named and a worn tool worn (the
+ * source's Butler moved the itemstack itself, bag_butler.js leave_package).
+ * A parcel without them goes as before.
  */
 final readonly class ButlerParcels
 {
@@ -114,6 +122,7 @@ final readonly class ButlerParcels
         $gave = is_array($body) && is_array($body['gave'] ?? null) ? LedgerMath::goods($body['gave']) : null;
         $text = is_array($body) ? self::cleanText($body['text'] ?? '') : null;
         $box = is_array($body) && array_key_exists('box', $body) ? self::boxOf($body['box'], $gave) : [];
+        $copy = $box === [] && is_array($body) ? self::copyOf($body['gave']['items'][0] ?? null) : ['r' => null, 'tag' => null];
         if (!self::opId($op) || !is_int($from) || $from <= 0 || !is_int($to) || $to <= 0 || $from === $to || $gave === null || $text === null || $box === null
             || $gave['currants'] !== 0 || ($box === [] && (count($gave['items']) > 1 || (int) (array_values($gave['items'])[0] ?? 1) > self::COUNT_MAX))) {
             throw new RestError('groddle_ledger_invalid', 'Not a parcel.', 400);
@@ -121,15 +130,16 @@ final readonly class ButlerParcels
         if ($gave['items'] === [] && $text === '') {
             throw new RestError('groddle_ledger_invalid', self::TEXT_EMPTY, 400);
         }
-        $out = Ledger::atomically($this->minn->db, fn () => $this->take($op, $from, $to, $gave, $text, time(), $box));
+        $out = Ledger::atomically($this->minn->db, fn () => $this->take($op, $from, $to, $gave, $text, time(), $box, $copy));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
     /**
      * @param array{items: array<string,int>, currants: int} $gave
+     * @param array{r: ?int, tag: ?string} $copy the package's own wear and words (copyOf)
      * @return array{status: string, why?: string, text?: string}
      */
-    private function take(string $op, int $from, int $to, array $gave, string $text, int $now, array $box = []): array
+    private function take(string $op, int $from, int $to, array $gave, string $text, int $now, array $box = [], array $copy = ['r' => null, 'tag' => null]): array
     {
         $db = $this->minn->db;
         $trades = $db->table(Ledger::TRADES);
@@ -185,7 +195,8 @@ final readonly class ButlerParcels
             $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, '{\"items\":[],\"currants\":0}', ?, ?)", [$op, $from, self::goodsJson($gave), $stamp, $stamp]);
             $ledger->log($from, 'butler', ['butler' => $op, 'to' => $to, 'gave' => ['items' => (object) $gave['items'], 'currants' => 0], 'box' => $box !== []], $now);
         }
-        $db->execute("INSERT INTO {$parcels} (id, owner_id, from_id, class_tsid, count, message, box, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [$op, $to, $from, $class, $count, $text, $box === [] ? '' : (string) json_encode($box, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $now * 1000, $stamp]);
+        $plain = $box === [] && $class !== '';
+        $db->execute("INSERT INTO {$parcels} (id, owner_id, from_id, class_tsid, count, r, tag, message, box, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [$op, $to, $from, $class, $count, $plain ? $copy['r'] : null, $plain ? $copy['tag'] : null, $text, $box === [] ? '' : (string) json_encode($box, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $now * 1000, $stamp]);
         return ['status' => 'settled'];
     }
 
@@ -267,7 +278,7 @@ final readonly class ButlerParcels
     {
         $db = $this->minn->db;
         $me = $this->minn->reader->userId;
-        $rows = $db->rows('SELECT id, from_id, class_tsid, count, message, box, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? AND taken_at IS NULL ORDER BY at_ms, id LIMIT 40', [$me]);
+        $rows = $db->rows('SELECT id, from_id, class_tsid, count, r, tag, message, box, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? AND taken_at IS NULL ORDER BY at_ms, id LIMIT 40', [$me]);
         $names = (new Characters($db))->namesOf(array_map(static fn (array $r): int => (int) $r['from_id'], $rows));
         $out = [];
         foreach ($rows as $r) {
@@ -276,7 +287,7 @@ final readonly class ButlerParcels
             $out[] = [
                 'id' => (string) $r['id'],
                 'from' => ['id' => $from, 'name' => $names[$from] ?? 'Someone'],
-                'item' => $class === '' ? null : self::itemOf($class, (int) $r['count'], (string) ($r['box'] ?? '')),
+                'item' => $class === '' ? null : self::rowItem($r),
                 'text' => (string) $r['message'],
                 'at' => (int) $r['at_ms'],
             ];
@@ -296,12 +307,12 @@ final readonly class ButlerParcels
         $out = Ledger::atomically($this->minn->db, function () use ($id, $me): ?array {
             $db = $this->minn->db;
             $parcels = $db->table(self::TABLE);
-            $row = $db->row("SELECT owner_id, class_tsid, count, box, taken_at FROM {$parcels} WHERE id = ? FOR UPDATE", [$id]);
+            $row = $db->row("SELECT owner_id, class_tsid, count, r, tag, box, taken_at FROM {$parcels} WHERE id = ? FOR UPDATE", [$id]);
             if ($row === null || (int) $row['owner_id'] !== $me) {
                 return null;
             }
             $class = (string) $row['class_tsid'];
-            $item = $class === '' ? null : self::itemOf($class, (int) $row['count'], (string) ($row['box'] ?? ''));
+            $item = $class === '' ? null : self::rowItem($row);
             $credit = $class === '' ? null : $id . '-in';
             if ($row['taken_at'] !== null) {
                 return ['status' => 'done', 'id' => $id, 'credit' => $credit, 'item' => $item];
@@ -337,7 +348,7 @@ final readonly class ButlerParcels
      * shape): [] when there is no box, null when it is not one.
      *
      * @param array{items: array<string,int>, currants: int}|null $gave
-     * @return list<array{c: string, n: int, r?: int}>|null
+     * @return list<array{c: string, n: int, r?: int, t?: mixed}>|null
      */
     public static function boxOf(mixed $box, ?array $gave): ?array
     {
@@ -356,8 +367,12 @@ final readonly class ButlerParcels
                 return null;
             }
             $row = ['c' => $c, 'n' => $n];
-            if (is_int($it['r'] ?? null) && $it['r'] >= 0 && $it['r'] <= 1000000) {
-                $row['r'] = $it['r'];
+            $copy = self::copyOf($it);
+            if ($copy['r'] !== null) {
+                $row['r'] = $copy['r'];
+            }
+            if ($copy['tag'] !== null) {
+                $row['t'] = CopyTags::decode($copy['tag']); // G974: the copy's own words, inside the box too
             }
             $want[$c] = $n;
             $out[] = $row;
@@ -366,14 +381,51 @@ final readonly class ButlerParcels
         return $want === $gave['items'] ? $out : null;
     }
 
-    /** A parcel's item as the owner's game reads it: a wrapped box carries what is inside. */
-    public static function itemOf(string $class, int $count, string $box): array
+    /**
+     * A parcel's item as the owner's game reads it: a wrapped box carries what
+     * is inside; a stack its copy's own wear (r) and words (t, one copy only).
+     */
+    public static function itemOf(string $class, int $count, string $box, ?int $r = null, ?string $tag = null): array
     {
         $inside = $box === '' ? [] : json_decode($box, true);
         if ($class === self::WRAPPED && is_array($inside) && $inside !== []) {
             return ['c' => $class, 'n' => 1, 'box' => array_values($inside)];
         }
-        return ['c' => $class, 'n' => $count];
+        $out = ['c' => $class, 'n' => $count];
+        if ($r !== null) {
+            $out['r'] = $r;
+        }
+        if ($count === 1 && $tag !== null && ($t = CopyTags::decode($tag)) !== null) {
+            $out['t'] = $t;
+        }
+        return $out;
+    }
+
+    /** A parcel row's item (itemOf); rows from before G974 have no r or tag. */
+    private static function rowItem(array $row): array
+    {
+        $r = $row['r'] ?? null;
+        $tag = $row['tag'] ?? null;
+        return self::itemOf((string) $row['class_tsid'], (int) $row['count'], (string) ($row['box'] ?? ''), $r === null ? null : (int) $r, is_string($tag) && $tag !== '' ? $tag : null);
+    }
+
+    /**
+     * G974: one stack's own wear and words as the realtime server sent them
+     * (homes_help.go copyOf, a trade's "r" and "t"), checked again (CopyTags)
+     * and as they are stored: r a whole number of points, tag JSON or null.
+     *
+     * @return array{r: ?int, tag: ?string}
+     */
+    public static function copyOf(mixed $it): array
+    {
+        if (!is_array($it)) {
+            return ['r' => null, 'tag' => null];
+        }
+        $c = $it['c'] ?? null;
+        $n = $it['n'] ?? null;
+        $r = is_int($it['r'] ?? null) && $it['r'] >= 0 && $it['r'] <= 1000000 ? $it['r'] : null;
+        $tag = is_string($c) && is_int($n) && isset($it['t']) ? CopyTags::json(Economy::shared(), $c, $n, $it['t']) : null;
+        return ['r' => $r, 'tag' => $tag];
     }
 
     /** What an item moves in a ledger: a wrapped box is the box and the stacks inside. @return array<string,int> */
