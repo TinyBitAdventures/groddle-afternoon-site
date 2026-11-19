@@ -11,7 +11,7 @@
 "dig":[{"skill":null,"b":2},{"skill":"soil_appreciation_1","b":2},{"skill":"soil_appreciation_2","b":3},{"skill":"soil_appreciation_3","b":3},{"skill":"soil_appreciation_4","b":4},{"skill":"soil_appreciation_5","b":4}],
 "soil":{"cleanRegrowMs":90000,"dugFillMs":600000},
 "fruit":{"trant_bean":"bean_plain","trant_bubble":"plain_bubble","trant_egg":"egg_plain","trant_fruit":"cherry","trant_gas":"general_vapour","trant_spice":"all_spice"},
-"rocks":{"rock_beryl_1":{"type":"beryl","chunk":"beryl","min":4,"max":8,"chunks":50},"rock_dullite_1":{"type":"dullite","chunk":"dullite","min":5,"max":9,"chunks":50},"rock_metal_1":{"type":"metal_rock","chunk":"metal_rock","min":3,"max":9,"chunks":50},"rock_sparkly_1":{"type":"sparkly","chunk":"sparkly","min":3,"max":7,"chunks":50}},"respawnMs":45000,
+"rocks":{"rock_beryl_1":{"type":"beryl","chunk":"beryl","min":4,"max":8,"chunks":50},"rock_dullite_1":{"type":"dullite","chunk":"dullite","min":5,"max":9,"chunks":50},"rock_metal_1":{"type":"metal_rock","chunk":"metal_rock","min":3,"max":9,"chunks":50},"rock_sparkly_1":{"type":"sparkly","chunk":"sparkly","min":3,"max":7,"chunks":50}},"respawnMs":144000,
 "nodes":{
 "dirt_pile":{"verb":"dig","min":1,"max":11,"initial":11,"ready":2,"after":null,"consume":1,"regrow":[300000,300000,1000],"yield":["earth",2],"daily":{"base":3,"upgrades":{"soil_appreciation_dirt_pile_1":4,"soil_appreciation_dirt_pile_2":5}}},
 "jellisac":{"verb":"scoop","min":1,"max":5,"initial":5,"ready":5,"after":1,"consume":1,"regrow":[300000,300000,1000],"yield":["jellisac_clump",1],"daily":null},

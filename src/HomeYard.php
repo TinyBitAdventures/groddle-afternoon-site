@@ -961,6 +961,9 @@ final readonly class HomeYard
      * A rock as it stands at now: the stored world slot (game.js
      * streetWorldState().rocks[i]), then each waiting swing on it, a mined-out
      * rock reforming respawnMs on with its full chunks (js/mining.js tickMineRock).
+     * respawnMs is the game's js/pace.js ROCK_RESPAWN_MS (data/yard-verbs.json);
+     * the fallback is the same 144 s (Glitch's 8 min at the remake's 0.3, #521),
+     * which the game's tests/pace-waits.test.js checks against pace.js.
      *
      * @return array{chunksRemaining: int, depleted: bool, respawnAt: int}
      */
@@ -993,7 +996,7 @@ final readonly class HomeYard
             }
             $rock['chunksRemaining'] -= (int) $w['took'];
             if ($rock['chunksRemaining'] <= 0) {
-                $rock = ['chunksRemaining' => 0, 'depleted' => true, 'respawnAt' => $at + (int) ($rules['respawnMs'] ?? 45000)];
+                $rock = ['chunksRemaining' => 0, 'depleted' => true, 'respawnAt' => $at + (int) ($rules['respawnMs'] ?? 144000)];
                 $minedOut++;
             }
         }
