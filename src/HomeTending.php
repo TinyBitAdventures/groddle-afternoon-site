@@ -275,6 +275,10 @@ final readonly class HomeTending
                     $plot->state = $state === 'seeds' ? 'shoots' : 'crop';
                     $plot->stageStartedAt = $doneAt;
                     $plot->growthMs = 0;
+                    if ($plot->state === 'crop') {
+                        // include/garden.js 1043-1054: crop_time, set once when it ripens (js/garden.js tickPlot, #550).
+                        $plot->ripeAt = $doneAt;
+                    }
                     continue;
                 }
             }
@@ -303,16 +307,21 @@ final readonly class HomeTending
 
     /**
      * Whether a public plot's ripe crop is still its planter's (include/garden.js 1042-1046,
-     * 1229-1231; GardenView.as 481-486): for a minute from when it ripened (the crop stage's
-     * start), anyone but the planter is refused. A plot with no planter is the owner's planting.
+     * 1229-1231; GardenView.as 481-486): for a minute from when it ripened (ripeAt, set once by
+     * tickPlot; a watering or its drying restarts the stage clock, never this, #550), anyone but
+     * the planter is refused. A crop with no ripeAt is not held. A plot with no planter is the
+     * owner's planting.
      */
     public static function held(object $plot, int $me, int $owner, int $now): bool
     {
         if (($plot->state ?? '') !== 'crop') {
             return false;
         }
+        $ripe = is_numeric($plot->ripeAt ?? null) ? (int) $plot->ripeAt : 0;
+        if ($ripe <= 0) {
+            return false;
+        }
         $planter = is_numeric($plot->planter ?? null) && (int) $plot->planter > 0 ? (int) $plot->planter : $owner;
-        $ripe = is_numeric($plot->stageStartedAt ?? null) ? (int) $plot->stageStartedAt : 0;
         return $planter !== $me && $now - $ripe < self::HOLD_MS;
     }
 
@@ -399,8 +408,8 @@ final readonly class HomeTending
         $plot->seed = $act === 'plant' ? $seed : null;
         $plot->stageStartedAt = $at;
         $plot->growthMs = 0;
-        // include/garden.js 384 and 551: a public plot's planter, kept until the pick.
-        unset($plot->planter);
+        // include/garden.js 384 and 551: a public plot's planter, kept until the pick; the ripe time goes with the crop.
+        unset($plot->planter, $plot->ripeAt);
         if ($act === 'plant' && $planter > 0) {
             $plot->planter = $planter;
         }
