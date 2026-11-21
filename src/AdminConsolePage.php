@@ -77,7 +77,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-9';
+    public const ASSET_KEY = 'skin-10';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its own content key: Extension::importMap). */
     public const SERVER_ASSET_KEY = 'server-3';

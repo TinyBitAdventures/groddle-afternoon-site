@@ -25,7 +25,7 @@ use Minn\RestError;
  * TicketMigration brings them in as tickets.
  *
  * Body: { message, context: { street, streetName, x, y, build, page, agent,
- * screen, errors: [..] } }. The message is required (at most MAX_MESSAGE
+ * screen, gpu, panels, adblock, marks, extensions, errors: [..] } }. The message is required (at most MAX_MESSAGE
  * characters); context keys outside the list are dropped and each value is cut
  * short. A player may send PER_WINDOW reports in WINDOW seconds and PER_DAY a day.
  */
@@ -37,8 +37,12 @@ final readonly class BugReports
     public const WINDOW = 600;
     public const PER_WINDOW = 3;
     public const PER_DAY = 50;
-    /** Context keys kept, with the most characters each may carry. `gpu` is the game's render probe line (renderer, size limits, resolution, off-screen read ok or failed; G844, report #393). */
-    public const CONTEXT = ['street' => 32, 'streetName' => 80, 'x' => 12, 'y' => 12, 'build' => 80, 'page' => 200, 'agent' => 300, 'screen' => 20, 'gpu' => 200, 'panels' => 300];
+    /**
+     * Context keys kept, with the most characters each may carry. `gpu` is the game's render probe line (renderer, size limits, resolution, off-screen read ok or failed; G844, report #393).
+     * #585, what the page can learn about extensions changing it (the game's js/extension-marks.js): `adblock` the bait check (yes or no),
+     * `marks` the traces extensions left in the page ("Dark Reader, 2 injected style tags"), `extensions` the player's own optional line.
+     */
+    public const CONTEXT = ['street' => 32, 'streetName' => 80, 'x' => 12, 'y' => 12, 'build' => 80, 'page' => 200, 'agent' => 300, 'screen' => 20, 'gpu' => 200, 'panels' => 300, 'adblock' => 8, 'marks' => 200, 'extensions' => 200];
     public const MAX_ERRORS = 10;
     /** A page error with its top stack frames (report #246: five frames, so the calling line shows); 10 x 600 stays well inside the context column. */
     public const MAX_ERROR = 600;
