@@ -84,8 +84,14 @@ final class HomeLayout
     /** Fixed words the game paints on the street, by id (the game's HOME_LAYOUT_TEXTS). */
     public const TEXTS = ['way_out' => 'Back to Ur'];
 
-    /** House styles (the game's homes-feature HOUSE_STYLE_KEYS) and their names. */
-    public const HOUSE_STYLES = ['meadow' => 'Meadow', 'firebog' => 'Firebog', 'uralia' => 'Uralia'];
+    /**
+     * House styles (the game's homes-feature HOUSE_STYLE_KEYS: the ten furniture_chassis houses,
+     * G796) and their names.
+     */
+    public const HOUSE_STYLES = ['cottage' => 'Groddle Cottage', 'frog' => 'Frog House', 'creepy' => 'Creepy House', 'hominid' => 'Tiny Hominid House', 'firebog' => 'Firebog House', 'whimsy' => 'House of Whimsy', 'orient' => 'House of Orient', 'shipwreck' => 'Shipwreck', 'tipi' => 'Tipi Tent', 'bone' => 'Prehistoric Bone Dwelling'];
+
+    /** G796: a layout kept from before the ten houses names one of the three first homes; it is named as the house it moved to. */
+    public const OLD_HOUSE_STYLES = ['meadow' => 'cottage', 'uralia' => 'hominid'];
 
     /** Where art may come from under the static root (the game's HOME_LAYOUT_ART_ROOTS). */
     public const ART_ROOTS = ['assets/decos/', 'assets/sprites/', 'assets/homes/', 'assets/ui/signpost/'];
@@ -325,10 +331,11 @@ final class HomeLayout
             $out['n'] = self::int($spot['n'], 0, 99, 'n');
         }
         if (isset($spot['s'])) {
-            if (!is_string($spot['s']) || !isset(self::HOUSE_STYLES[$spot['s']])) {
+            $style = is_string($spot['s']) ? (self::OLD_HOUSE_STYLES[$spot['s']] ?? $spot['s']) : null;
+            if ($style === null || !isset(self::HOUSE_STYLES[$style])) {
                 throw self::bad('That house style is not one this site knows.');
             }
-            $out['s'] = $spot['s'];
+            $out['s'] = $style;
         }
         if (isset($spot['p'])) {
             $out['p'] = self::int($spot['p'], 0, 100, 'p');
@@ -430,7 +437,7 @@ final class HomeLayout
         $n = (int) ($spot['n'] ?? 0);
         return match ($spot['k']) {
             'avatar' => $owner,
-            'house' => 'House' . (isset($spot['s']) ? ' · ' . self::HOUSE_STYLES[$spot['s']] : ''),
+            'house' => self::HOUSE_STYLES[self::OLD_HOUSE_STYLES[$spot['s'] ?? ''] ?? ($spot['s'] ?? '')] ?? 'House',
             'door' => 'Door',
             'mailbox' => 'Mailbox',
             'signpost' => 'Signpost' . ($n > 0 ? ' · ' . $n . ($n === 1 ? ' friend' : ' friends') : ''),
