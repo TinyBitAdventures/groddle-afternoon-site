@@ -276,7 +276,7 @@ final readonly class Neighbours
         $key = $owner === $me || $this->holdsKey($owner, $me);
         return [
             'owner' => ['id' => $owner, 'name' => $name],
-            'home' => ['owned' => true, 'style' => self::homeStyle($theirs)],
+            'home' => ['owned' => true, 'style' => self::homeStyle($theirs), 'house' => self::homeHouse($theirs)],
             // Slice 2: the gardens with the key-holders' waiting acts on them (HomeTending), and the Butler as it looks.
             'homes' => HomeTending::overlay($homes, HomeTending::rowsFor($db, $owner)),
             'butler' => self::butlerView($theirs),
@@ -451,6 +451,32 @@ final readonly class Neighbours
     {
         $style = $state?->systems?->home?->style ?? 'meadow';
         return in_array($style, ['meadow', 'firebog', 'uralia'], true) ? $style : 'meadow';
+    }
+
+    /**
+     * G796: systems.home.house, the furniture_chassis on the home street as the owner customized
+     * it ({ chassis, config: { part: choice }, facingRight }), checked for shape only: the game
+     * normalizes it against its own art (js/home-house.js normalizeHouse). Null when the save has
+     * none (a save from before the ten houses: the game shows the house its style moved to).
+     *
+     * @return array{chassis: string, config: object, facingRight: bool}|null
+     */
+    public static function homeHouse(?object $state): ?array
+    {
+        $house = $state?->systems?->home?->house ?? null;
+        if (!is_object($house) || !is_string($house->chassis ?? null) || preg_match('/^[a-z]{1,24}$/', $house->chassis) !== 1) {
+            return null;
+        }
+        $config = [];
+        foreach (is_object($house->config ?? null) ? get_object_vars($house->config) : [] as $part => $choice) {
+            if (count($config) >= 16) {
+                break;
+            }
+            if (is_string($part) && preg_match('/^[a-z]{1,24}$/', $part) === 1 && is_int($choice) && $choice >= 1 && $choice <= 64) {
+                $config[$part] = $choice;
+            }
+        }
+        return ['chassis' => $house->chassis, 'config' => (object) $config, 'facingRight' => ($house->facingRight ?? false) === true];
     }
 
     /** Still on Gentle Island (the newxp feature 'active': has_done_intro unset, leave_gentle_island todo). */
