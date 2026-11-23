@@ -18,14 +18,15 @@ use Minn\RestError;
  * (presence.go sends ids, names and street ids only):
  *
  *   GET groddle/v1/chat/people?ids=7,9&streets=GA5…,LA9…
- *       {"people":[{"id":7,"name":"Ada","profile":"/players/ada/"|null,"tile":"…png"|null,"buddy":true}],
+ *       {"people":[{"id":7,"name":"Ada","profile":"/players/ada/"|null,"tile":"…png"|null,"buddy":true,"formerly"?:"Old"}],
  *        "streets":{"GA5…":{"street":"Gregarious Grange","hub":"Groddle Meadow"}}}
  *
  * A profile and its tile picture only where the profile is public (level
  * Profiles::LISTED_LEVEL and up, as on the Community boards); nobody either
  * of you blocks (they are left out); street ids by the game's street index,
  * a private place answering nothing (as BuddiesOnline). Signed-in players
- * only, private, no-store; at most 100 ids and 50 streets a call.
+ * only, private, no-store; at most 100 ids and 50 streets a call. formerly: the old name for 30
+ * days after a player's own rename (CharacterName::formerly, G1213), so the panel can say who it was.
  */
 final readonly class ChatPeople
 {
@@ -56,10 +57,12 @@ final readonly class ChatPeople
         }
         $names = $ids === [] ? [] : (new Characters($db))->namesOf($ids);
         $authors = (new Community($this->minn))->authors(array_keys($names));
+        $formerly = CharacterName::formerly($db, array_keys($names), time());
         $people = [];
         foreach ($names as $id => $name) {
             $a = $authors[$id] ?? ['profile' => null, 'tile' => null];
-            $people[] = ['id' => (int) $id, 'name' => (string) $name, 'profile' => $a['profile'], 'tile' => $a['tile'], 'buddy' => isset($held[(int) $id])];
+            $people[] = ['id' => (int) $id, 'name' => (string) $name, 'profile' => $a['profile'], 'tile' => $a['tile'], 'buddy' => isset($held[(int) $id])]
+                + (isset($formerly[(int) $id]) ? ['formerly' => $formerly[(int) $id]] : []);
         }
         $streets = [];
         $tsids = array_slice(array_values(array_unique(array_filter(explode(',', (string) ($request->query('streets') ?? '')), static fn (string $s): bool => preg_match('/^[A-Za-z0-9]{1,32}$/', $s) === 1))), 0, self::STREETS_MAX);

@@ -132,7 +132,7 @@ function words(node, text) {
 const convs = new Map();
 /** key -> its rail row. */
 const rows = new Map();
-/** player id -> { id, name, profile, tile, buddy } (chat/people). */
+/** player id -> { id, name, profile, tile, buddy, formerly? } (chat/people). */
 const people = new Map();
 /** street id -> its name (chat/people streets). */
 const streets = new Map();
@@ -877,7 +877,7 @@ function drawBuddies() {
     const info = people.get(b.id);
     li.append(avatar(b.name, 'cx-av-lg', { tile: info?.tile || null, status: p ? p.status : '' }));
     const who = info?.profile ? el('a', { class: 'cx-who', href: info.profile }) : el('span', { class: 'cx-who' });
-    who.append(el('span', { class: 'cx-label' }, b.name), el('small', {}, statusWords(p, { buddy: true })));
+    who.append(el('span', { class: 'cx-label' }, b.name), el('small', {}, statusWords(p, { buddy: true })), ...formerlyNote(info));
     li.append(who);
     const im = el('button', { type: 'button', class: 'cx-chip', 'aria-label': `IM ${b.name}` }, 'IM');
     im.addEventListener('click', () => openConv(`im:${b.id}`, { focus: true }));
@@ -935,7 +935,7 @@ function drawAround() {
     const li = el('li', { 'data-cx-person': String(p.id), 'data-status': p.status, 'data-name': p.name, ...(p.me ? { 'data-me': '' } : {}) });
     li.append(avatar(p.name, 'cx-av-lg', { tile: info?.tile || null, status: p.me && off ? '' : p.status }));
     const who = !p.me && info?.profile ? el('a', { class: 'cx-who', href: info.profile }) : el('span', { class: 'cx-who' });
-    who.append(el('span', { class: 'cx-label' }, p.me ? `${p.name} (${WORDS.you})` : p.name), el('small', {}, p.me && off ? WORDS.hidden : statusWords(p)));
+    who.append(el('span', { class: 'cx-label' }, p.me ? `${p.name} (${WORDS.you})` : p.name), el('small', {}, p.me && off ? WORDS.hidden : statusWords(p)), ...formerlyNote(info));
     li.append(who);
     if (!p.me && p.buddy) {
       const im = el('button', { type: 'button', class: 'cx-chip', 'aria-label': `IM ${p.name}` }, 'IM');
@@ -965,6 +965,11 @@ function needPeople() {
     drawAround();
     drawBuddies();
   }, 150);
+}
+
+/** G1213: "formerly <old name>" for 30 days after a player's own rename (chat/people formerly), so friends still know them. */
+function formerlyNote(info) {
+  return info?.formerly ? [el('small', { class: 'cx-formerly' }, `formerly ${info.formerly}`)] : [];
 }
 
 function aroundToggle(on) {

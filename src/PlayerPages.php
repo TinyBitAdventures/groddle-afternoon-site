@@ -245,6 +245,8 @@ final readonly class PlayerPages
             'buddyCount' => $this->buddies($id, 0, 0)['total'],
             // ?home=picture shows the uploaded picture even when there is a layout (comparing the two).
             'homePicture' => $request->query('home') === 'picture',
+            // G1213: for 30 days after a player's own rename, the old name, so friends still find them.
+            'formerly' => CharacterName::formerly($db, [$id], time())[$id] ?? null,
         ];
         $who['buddy'] = $this->buddyButton($id, $name, $who['base'], $tab, (string) ($request->query('buddy') ?? ''));
         $private = $facts['level'] < Profiles::LISTED_LEVEL
@@ -375,6 +377,7 @@ final readonly class PlayerPages
     {
         ['id' => $id, 'name' => $name, 'base' => $base, 'facts' => $facts, 'profile' => $profile] = $who;
         $nameHtml = Html::esc($name);
+        $formerly = is_string($who['formerly'] ?? null) && $who['formerly'] !== '' ? '      <p class="profile-formerly">formerly ' . Html::esc($who['formerly']) . "</p>\n" : '';
         $avatarAt = is_string($profile['avatar_at'] ?? null) && $profile['avatar_at'] !== '' ? $profile['avatar_at'] : null;
         $counts = ['skills' => count($who['skills']), 'achievements' => count($who['badges']), 'buddies' => $who['buddyCount']];
         $tabs = '';
@@ -392,6 +395,7 @@ final readonly class PlayerPages
                 . "    <div class=\"profile-who\">\n"
                 . '      <p class="kicker"><a href="/players/">Players</a> <a href="' . Html::attr($base) . "\">{$nameHtml}</a></p>\n"
                 . "      <h1>{$nameHtml}: " . self::TABS[$tab] . "</h1>\n"
+                . $formerly
                 . $who['buddy']
                 . $tabs
                 . "    </div>\n  </div>\n</header>\n";
@@ -407,6 +411,7 @@ final readonly class PlayerPages
             . "    <div class=\"profile-who\">\n"
             . "      <p class=\"kicker\"><a href=\"/players/\">Players</a></p>\n"
             . "      <h1>{$nameHtml}</h1>\n"
+            . $formerly
             . '      <ul class="profile-stats">'
             . '<li><strong>' . $facts['level'] . '</strong><span>Level</span></li>'
             . '<li><strong>' . number_format($counts['skills']) . '</strong><span>' . ($counts['skills'] === 1 ? 'Skill' : 'Skills') . '</span></li>'

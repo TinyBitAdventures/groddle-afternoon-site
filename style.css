@@ -148,6 +148,8 @@ html:has(.report-menu) { scroll-padding-top: calc(var(--report-menu-h) + 14px); 
 svg.profile-avatar-art { width: 140px; height: 202px; }
 .profile-who { flex: 1 1 18rem; min-width: 0; }
 .profile-who h1 { overflow-wrap: anywhere; }
+/* G1213: the old name for 30 days after a player's own rename (PlayerPages masthead). */
+.profile-formerly { margin: -6px 0 14px; font-size: 15px; font-style: italic; color: var(--muted); overflow-wrap: anywhere; }
 .profile-who .kicker a { color: inherit; }
 .profile-stats { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
 .profile-stats li { display: flex; flex-direction: column; padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
