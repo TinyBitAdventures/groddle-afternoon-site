@@ -63,6 +63,24 @@ final class PlayerMail
     }
 
     /**
+     * An apology to a sign-up a fault refused (G1211, 2026-11-23: a spam filter on the site turned away new
+     * characters from November 21 to 23), with a fresh link to finish it.
+     *
+     * @return array{0: string, 1: string, 2: list<string>}
+     */
+    public static function signupApology(string $home, string $from, string $link, string $character): array
+    {
+        $content = self::heading('Sorry, our mistake')
+            . self::paragraph('Hi <strong>' . Html::esc($character) . '</strong>,')
+            . self::paragraph('You tried to make a Groddle Afternoon character recently and the link we sent didn\'t work. That was our fault: a spam filter on the site was wrongly turning away new characters between November 21 and 23. It\'s fixed now, and we\'re sorry.')
+            . self::paragraph('Your sign-up is still waiting. Open the link below to finish it. It works once, for a day.')
+            . self::button($link, 'Start playing')
+            . self::small('Or paste this into your browser:<br><a href="' . Html::attr($link) . '" style="color:' . self::INK . ';word-break:break-all;">' . Html::esc($link) . '</a>')
+            . self::paragraph('If you\'d rather not, ignore this email and no character is made.');
+        return ['Sorry: your Groddle Afternoon sign-up is ready to finish', self::layout($home, 'Your sign-up for ' . $character . ' is ready to finish.', $content), self::headers($home, $from)];
+    }
+
+    /**
      * The notice that a password changed, to the account's address.
      *
      * @return array{0: string, 1: string, 2: list<string>}
