@@ -86,6 +86,11 @@ use Minn\RestError;
  * is compared as if it had not happened; a load applies it to the stored
  * save (Ledger::catchUp, a plain stack in or out of the pack).
  *
+ * Streets: a public street's tsid; a player's home street, house (with its back
+ * yard) and Tower floors as the realtime server names them with "-" for "_"
+ * (HOME-<owner>, HOUSE-<owner>, TOWER-<owner>-<floor>; drops.go dropSiteStreet,
+ * G627 and G1190), all within the street rule below.
+ *
  * Ours: only a class the ledger carries (Economy) is shared; the game drops
  * anything else as its own, as in solo. Words: inc_trading.js:456 for a
  * dropper whose ledger lacks the stack.
