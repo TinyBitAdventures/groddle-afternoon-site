@@ -149,7 +149,8 @@ final readonly class GoogleSignIn
         }
         $accounts = $this->minn->accounts();
         // A password nobody knows: the account is Google's until Forgot your password sets one.
-        $made = $accounts->registerQuietly('player-' . bin2hex(random_bytes(5)), $email, bin2hex(random_bytes(24)), $name, PlayerAccount::ROLE);
+        // Google proved the email: a spam plugin's registration_errors veto doesn't judge it (G1211, OwnRegistration).
+        $made = OwnRegistration::run(static fn () => $accounts->registerQuietly('player-' . bin2hex(random_bytes(5)), $email, bin2hex(random_bytes(24)), $name, PlayerAccount::ROLE));
         if ($made instanceof Refusal) {
             return Response::json(['code' => $made->code, 'message' => $made->code === 'registration_closed' ? self::WORDS['registration_closed'] : self::WORDS['google_failed'], 'fields' => (object) []], 400);
         }

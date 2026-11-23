@@ -243,7 +243,8 @@ final readonly class PlayerAccount
         }
         $accounts = $this->minn->accounts();
         // Quietly: the site's admin isn't mailed for every player (Austin 2026-10-26); Minn Admin's users list shows them.
-        $made = $accounts->registerQuietlyWithHash('player-' . bin2hex(random_bytes(5)), (string) $row['email'], (string) $row['pass_hash'], $name, self::ROLE);
+        // The mailed link proved the email (and Turnstile passed at sign-up): a spam plugin's veto doesn't judge it (G1211, OwnRegistration).
+        $made = OwnRegistration::run(static fn () => $accounts->registerQuietlyWithHash('player-' . bin2hex(random_bytes(5)), (string) $row['email'], (string) $row['pass_hash'], $name, self::ROLE));
         if ($made instanceof Refusal) {
             $signups->unspend($row);
             return self::fromRefusal($made);
@@ -319,7 +320,7 @@ final readonly class PlayerAccount
     private function makeNow(string $email, string $password, string $name): Response
     {
         $accounts = $this->minn->accounts();
-        $made = $accounts->registerQuietly('player-' . bin2hex(random_bytes(5)), $email, $password, $name, self::ROLE);
+        $made = OwnRegistration::run(static fn () => $accounts->registerQuietly('player-' . bin2hex(random_bytes(5)), $email, $password, $name, self::ROLE));
         if ($made instanceof Refusal) {
             return self::fromRefusal($made);
         }

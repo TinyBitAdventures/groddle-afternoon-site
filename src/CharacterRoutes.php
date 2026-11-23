@@ -105,7 +105,9 @@ final readonly class CharacterRoutes
             if ($bad !== null) {
                 return $bad;
             }
-            $made = $this->minn->accounts()->registerQuietly('player-' . bin2hex(random_bytes(5)), Logins::email(), bin2hex(random_bytes(24)), $name, PlayerAccount::ROLE);
+            // The game's own registration: a spam plugin's registration_errors veto doesn't judge it (G1211, OwnRegistration).
+            $accounts = $this->minn->accounts();
+            $made = OwnRegistration::run(static fn () => $accounts->registerQuietly('player-' . bin2hex(random_bytes(5)), Logins::email(), bin2hex(random_bytes(24)), $name, PlayerAccount::ROLE));
             if ($made instanceof Refusal) {
                 return self::refused($made->code === 'registration_closed' ? 'registration_closed' : 'groddle_character_failed', 503);
             }
