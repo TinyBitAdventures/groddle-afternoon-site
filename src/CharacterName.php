@@ -38,6 +38,10 @@ use Minn\RestError;
  * if the game never did (Ledger::catchUp). The ledger row is locked first (FOR UPDATE), so two windows
  * can't both pass the wait or both spend. Refused, nothing is written or spent.
  *
+ * The old name is held for Logins::NAME_HOLD (30 days, as a retired character's name is held:
+ * Characters::taken, heldByRename), so nobody can take it and pass as them; only they may take it
+ * back, and only once their own wait allows a change.
+ *
  * Kept: the new name on the character's row and its account's display name and nickname
  * (Characters::rename), and a row in groddle_player_renames with admin_user_id 0 (the player did it):
  * the old name, its /players/ address (PlayerPages answers a 301 from it, as for an administrator's
@@ -189,7 +193,8 @@ final readonly class CharacterName
         $db = $this->minn->db;
         $login = (new Logins($db))->loginOf($me);
         $email = (string) ($db->value('SELECT user_email FROM ' . $db->table('users') . ' WHERE ID = ?', [$login]) ?? '');
-        if ((new Characters($db))->taken($name, $now) || (new Signups($db))->nameHeldByOther($name, $email, $now)) {
+        // Your own old name is still held for you (Logins::NAME_HOLD), so you may take it back once the wait allows.
+        if ((new Characters($db))->taken($name, $now, $me) || (new Signups($db))->nameHeldByOther($name, $email, $now)) {
             return self::refused('name_taken', 422, ['name' => self::WORDS['name_taken']]);
         }
         return null;

@@ -60,19 +60,35 @@ final readonly class Characters
 
     /**
      * Whether a character, or any account's display name, already has this name (letter case aside).
-     * A retired character's name is free again once Logins::NAME_HOLD has passed.
+     * A retired character's name is free again once Logins::NAME_HOLD has passed. So is the name a
+     * player changed away from (CharacterName, G1213): held as long, so nobody can take it and pass
+     * as them (heldByRename). $except: the character asking for it, whose own held old name is theirs.
      */
-    public function taken(string $name, ?int $now = null): bool
+    public function taken(string $name, ?int $now = null, int $except = 0): bool
     {
+        $now ??= time();
+        if ($this->heldByRename($name, $now, $except)) {
+            return true;
+        }
         $table = $this->db->table(self::TABLE);
         $users = $this->db->table('users');
         $holders = array_map('intval', array_column($this->db->rows("SELECT user_id FROM {$table} WHERE name_key = ?", [self::key($name)]), 'user_id'));
         $holders = [...$holders, ...array_map('intval', array_column($this->db->rows("SELECT ID AS user_id FROM {$users} WHERE LOWER(display_name) = ? LIMIT 20", [self::key($name)]), 'user_id'))];
-        $holders = array_values(array_unique($holders));
+        $holders = array_values(array_diff(array_unique($holders), [$except > 0 ? $except : -1]));
         if ($holders === []) {
             return false;
         }
-        return array_diff($holders, (new Logins($this->db))->released($holders, $now ?? time())) !== [];
+        return array_diff($holders, (new Logins($this->db))->released($holders, $now)) !== [];
+    }
+
+    /**
+     * Whether a name some other character changed away from by their own rename (groddle_player_renames,
+     * admin_user_id 0) is still held for them: Logins::NAME_HOLD after the rename, the retired names'
+     * hold. An administrator's rename holds nothing (the name had to go). $except: that character.
+     */
+    public function heldByRename(string $name, int $now, int $except = 0): bool
+    {
+        return $this->db->value('SELECT user_id FROM ' . $this->db->table(AdminConsole::RENAMES) . ' WHERE LOWER(old_name) = ? AND admin_user_id = 0 AND user_id <> ? AND renamed_at > ? LIMIT 1', [self::key($name), $except, gmdate('Y-m-d H:i:s', $now - Logins::NAME_HOLD)]) !== null;
     }
 
     /**
@@ -87,7 +103,7 @@ final readonly class Characters
             return;
         }
         $name = trim(preg_replace('/\s+/', ' ', $user->displayName) ?? '');
-        if (preg_match(PlayerAccount::NAME, $name) !== 1 || WordFilter::has($name)) {
+        if (preg_match(PlayerAccount::NAME, $name) !== 1 || WordFilter::has($name) || $this->heldByRename($name, time(), $user->id)) {
             return;
         }
         $users = $this->db->table('users');
