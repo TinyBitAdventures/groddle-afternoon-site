@@ -47,7 +47,7 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 
 | Route | What it does |
 |---|---|
-| `POST players` | A new player: email, password (8 or more characters) and a character name (3 to 19 letters, numbers, spaces, `-` or `_`, unique), then signed straight in. The account is a subscriber whose username is made up (`player-<hex>`) and never shown; the character name is its display name |
+| `POST players` | A new player: email, password (8 or more characters) and a character name (2 to 19 letters, numbers, spaces, `-` or `_`, unique), then signed straight in. The account is a subscriber whose username is made up (`player-<hex>`) and never shown; the character name is its display name |
 | `POST session`, `DELETE session` | Sign in by email (optionally remembered for two weeks), sign out |
 | `POST password-reset` | Mails a reset link back into the game (`/play/online/#reset=<key>&login=<login>`); the answer is the same whether or not the email has an account |
 | `POST password-reset/confirm` | The new password from that link (key, login), then signed straight in |

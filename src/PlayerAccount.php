@@ -27,10 +27,15 @@ use Minn\Runtime\Refusal;
  * never shown. What other players see is the character's name, chosen at
  * sign-up and kept in the extension's own table (Characters; also the
  * account's display name):
- * 3 to 19 letters, numbers, spaces, - or _, starting and ending with a
+ * 2 to 19 letters, numbers, spaces, - or _, starting and ending with a
  * letter or a number, and no two players share one. A name with a bad word
  * (WordFilter, the remake's own addition) is refused with "Please pick a
  * different name.", never filtered. Passwords are at least 8 characters.
+ * Two letters is Glitch's floor as far as its sources go: the name picker
+ * (GSJS players/inc_avatar.js 1039, locations/newxp_training1.js 582) set
+ * only input_max_chars 19, and the client then asked for at least one
+ * character (glitch-client InputRequest.as 45-48); players remember
+ * two-letter names there. The 3 came from Eleven (rpcApi.js createPlayer).
  *
  * No account exists until its email is proven (Austin 2026-10-27). A
  * sign-up is checked as before, then held (Signups: the email, the
@@ -66,7 +71,7 @@ use Minn\Runtime\Refusal;
  */
 final readonly class PlayerAccount
 {
-    public const NAME = '/^[A-Za-z0-9](?:[A-Za-z0-9 _-]{1,17})[A-Za-z0-9]$/';
+    public const NAME = '/^[A-Za-z0-9](?:[A-Za-z0-9 _-]{0,17})[A-Za-z0-9]$/';
 
     public const MIN_PASSWORD = 8;
 
@@ -145,7 +150,7 @@ final readonly class PlayerAccount
             $fields['password'] = 'Passwords need at least ' . self::MIN_PASSWORD . ' characters.';
         }
         if (preg_match(self::NAME, $name) !== 1) {
-            $fields['name'] = 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
+            $fields['name'] = 'Names are 2 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
         } elseif (WordFilter::has($name)) {
             $fields['name'] = WordFilter::NAME_REFUSED;
         } elseif ((new Characters($this->minn->db))->taken($name)) {
@@ -220,7 +225,7 @@ final readonly class PlayerAccount
         $name = $name !== '' ? $name : (string) $row['name'];
         $characters = new Characters($this->minn->db);
         if (preg_match(self::NAME, $name) !== 1) {
-            $words = 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
+            $words = 'Names are 2 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
             return self::refused('groddle_invalid', $words, ['name' => $words], 400);
         }
         if (WordFilter::has($name)) {

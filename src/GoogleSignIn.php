@@ -63,7 +63,7 @@ final readonly class GoogleSignIn
         'google_expired' => 'That took too long. Continue with Google again.',
         'google_used' => 'Your character is already made. Continue with Google to sign in.',
         'name_taken' => 'Someone already has that name. Try another.',
-        'name_invalid' => 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.',
+        'name_invalid' => 'Names are 2 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.',
         'name_refused' => WordFilter::NAME_REFUSED,
         'registration_closed' => 'New characters can\'t be made right now.',
     ];

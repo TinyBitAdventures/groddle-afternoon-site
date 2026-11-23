@@ -306,7 +306,7 @@ final readonly class AdminConsole
     public static function renameRefusal(Db $db, int $player, string $was, string $name): ?array
     {
         if (preg_match(PlayerAccount::NAME, $name) !== 1) {
-            return ['groddle_admin_name', 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.', 400];
+            return ['groddle_admin_name', 'Names are 2 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.', 400];
         }
         if (WordFilter::has($name)) {
             return ['groddle_admin_name', WordFilter::NAME_REFUSED, 400];

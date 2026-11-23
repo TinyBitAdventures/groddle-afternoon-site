@@ -41,7 +41,7 @@ use Minn\RestError;
  */
 final readonly class CharacterRoutes
 {
-    private const NAME_WORDS = 'Names are 3 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
+    private const NAME_WORDS = 'Names are 2 to 19 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
 
     private const WORDS = [
         'character_limit' => 'You have as many characters as a login can have. A retired character keeps its place for 30 days.',
