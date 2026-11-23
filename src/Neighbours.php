@@ -35,7 +35,9 @@ use Minn\RestError;
  *   owner, name, key}) the game hands the realtime server (homes.go home_pass),
  *   which only lets a holder of a pass onto HOME_<owner>, and into
  *   HOUSE_<owner> with a key (or once the owner lets them in). With it, to
- *   look at only, the owner's Garden Gnomes where they stand ("gnomes").
+ *   look at only, the owner's Garden Gnomes where they stand ("gnomes"), and
+ *   the stacks the owner keeps in their house, back yard and Tower ("stacks",
+ *   stackRows: G1190).
  * - groddle/v1/homes/random: a random home among the players who opted in
  *   (callbacks/player_random_go.php is not in the dump: here, a few
  *   opted-in players in random order, the first one houses_visit allows).
@@ -80,6 +82,9 @@ final readonly class Neighbours
 
     /** The most of a homes slice sent to a visitor. */
     public const HOME_BUDGET = 400000;
+
+    /** The most of the owner's own stacks one visit lists for one room (the house, a Tower floor). */
+    public const STACKS_MAX = 200;
 
     /** The most Garden Gnomes one visit lists. */
     public const GNOMES_MAX = 24;
@@ -281,6 +286,7 @@ final readonly class Neighbours
             'homes' => HomeTending::overlay($homes, HomeTending::rowsFor($db, $owner)),
             'butler' => self::butlerView($theirs),
             'gnomes' => self::gnomeRows($theirs, $key),
+            'stacks' => self::stackRows(self::savedEntry($db, $owner, 'droppedItems'), self::feature($theirs, 'homes')),
             'key' => $key,
             'pass' => $this->pass($me, $owner, $name, $key),
         ];
@@ -431,6 +437,76 @@ final readonly class Neighbours
         }
         $state = json_decode($raw, false, 128);
         return is_object($state) ? $state : null;
+    }
+
+    /** One entry of a character's stored multiplayer save (each is JSON text), as objects, or null. */
+    public static function savedEntry(Db $db, int $id, string $entry): ?object
+    {
+        $stored = $db->value('SELECT data FROM ' . $db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ?', [$id]);
+        if (!is_string($stored) || $stored === '') {
+            return null;
+        }
+        $save = json_decode($stored, false, 64);
+        $raw = is_object($save) && is_object($save->entries ?? null) ? ($save->entries->{$entry} ?? null) : null;
+        $value = is_string($raw) ? json_decode($raw, false, 64) : null;
+        return is_object($value) ? $value : null;
+    }
+
+    /**
+     * G1190: the stacks the owner keeps in their own save in the house (with its back yard) and on
+     * the Tower's floors, for a visitor to see where they lie. In Glitch the house and Tower were
+     * locations like the street (takeable.js 157-213): everything set down there lay in sight of
+     * anyone inside. Since G1190 a plain drop there is shared through the realtime server
+     * (drops.go); what stays in the save is what the owner set on furniture, which house_lock
+     * locked to the owner (takeable.js 33-36, 179-198), and what was dropped before (kept, never
+     * moved: the game shows it to visitors, locked to the owner). Only what is needed to draw one:
+     * no bag contents, names or copy words (a visitor cannot open or read them).
+     * place: "house" (x from the house's left end: the homes slice's houseX, which the game saves
+     * the indoor stacks against) or "tower:<floor>" (the floor's own x).
+     *
+     * @return list<array{id: string, place: string, c: string, n: int, x: int, y: int, on?: int}>
+     */
+    public static function stackRows(?object $dropped, ?object $homes): array
+    {
+        $streets = $dropped?->streets ?? null;
+        if (!is_object($streets)) {
+            return [];
+        }
+        $houseX = $homes !== null && is_numeric($homes->houseX ?? null) ? (int) round((float) $homes->houseX) : 0;
+        $places = ['RH_HOME_INT' => ['house', $houseX]];
+        for ($f = 0; $f <= 9; $f++) {
+            $places['RH_HOME_TOWER_' . $f] = ['tower:' . $f, 0];
+        }
+        $out = [];
+        foreach ($places as $key => [$place, $origin]) {
+            $rows = $streets->{$key} ?? null;
+            if (!is_array($rows)) {
+                continue;
+            }
+            $n = 0;
+            foreach ($rows as $row) {
+                if ($n >= self::STACKS_MAX) {
+                    break;
+                }
+                if (!is_object($row)) {
+                    continue;
+                }
+                $id = is_scalar($row->id ?? null) ? (string) $row->id : '';
+                $class = $row->classTsid ?? null;
+                $count = $row->count ?? null;
+                if (preg_match('/^[A-Za-z0-9_-]{1,40}$/', $id) !== 1 || !is_string($class) || preg_match('/^[a-z0-9_]{1,64}$/', $class) !== 1
+                    || !is_int($count) || $count < 1 || $count > 9999 || !is_numeric($row->x ?? null) || !is_numeric($row->y ?? null)) {
+                    continue;
+                }
+                $one = ['id' => $id, 'place' => $place, 'c' => $class, 'n' => $count, 'x' => (int) round((float) $row->x) - $origin, 'y' => (int) round((float) $row->y)];
+                if (is_int($row->on ?? null) && $row->on > 0) {
+                    $one['on'] = $row->on;
+                }
+                $out[] = $one;
+                $n++;
+            }
+        }
+        return $out;
     }
 
     private static function feature(?object $state, string $id): ?object
