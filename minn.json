@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.56",
+  "version": "0.5.57",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -491,6 +491,14 @@
       "user_id bigint(20) unsigned NOT NULL",
       "opted_at datetime NOT NULL",
       "PRIMARY KEY  (user_id)"
+    ],
+    "groddle_quarter_lots": [
+      "street varchar(20) NOT NULL",
+      "lot int(11) NOT NULL",
+      "user_id bigint(20) unsigned NOT NULL",
+      "claimed_at datetime NOT NULL",
+      "PRIMARY KEY  (street,lot)",
+      "UNIQUE KEY user_id (user_id)"
     ],
     "groddle_mp_saves": [
       "user_id bigint(20) unsigned NOT NULL",
