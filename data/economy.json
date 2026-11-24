@@ -883,6 +883,7 @@
 {"s":"recipe:furniture_armchair","i":{"board":4,"fiber":70,"general_fabric":1,"snail":12,"wood_post":1},"o":{"furniture_armchair":1}},
 {"s":"recipe:furniture_bed","i":{"board":8,"fiber":240,"general_fabric":1,"snail":8,"wood_post":3},"o":{"furniture_bed":1}},
 {"s":"recipe:furniture_bench","i":{"board":12,"snail":16,"wood_post":1},"o":{"furniture_bench":1}},
+{"s":"recipe:furniture_bookcase","i":{"board":20,"plank":20,"snail":40},"o":{"furniture_bookcase":1}},
 {"s":"recipe:furniture_ceilingdeco","i":{"board":6,"metal_rod":2,"string":1},"o":{"furniture_ceilingdeco":1}},
 {"s":"recipe:furniture_ceilinglamp","i":{"bulb":1,"general_fabric":1,"metal_rod":1,"snail":8},"o":{"furniture_ceilinglamp":1}},
 {"s":"recipe:furniture_chair","i":{"board":4,"snail":4,"wood_post":1},"o":{"furniture_chair":1}},
