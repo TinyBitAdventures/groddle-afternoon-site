@@ -26,9 +26,11 @@ use Minn\RestError;
  * The Contribute page's board (ContributeCredits) ranks players by their
  * total: more points first, then more reports that led to a change, then
  * whoever's first such report came earliest (the ticket's created_at), then
- * the lower id. Banned players, the accounts in EXCLUDED (Austin's own: 1
- * and 54) and players with no points are left off it. The rules are static
- * and pure so the game's tests run them without a database
+ * the lower id. Banned players, the team (Team: an administrator's
+ * characters, by capability, Austin 2026-11-24), the accounts in EXCLUDED
+ * and players with no points are left off it; the team's reports are still
+ * scored and kept, only never on a board or in its totals. The rules are
+ * static and pure so the game's tests run them without a database
  * (tests/fixtures/minn-accounts/credits.php).
  */
 final readonly class ReportCredits
@@ -66,8 +68,12 @@ final readonly class ReportCredits
     /** Players on the board. */
     public const BOARD = 10;
 
-    /** Accounts never on the board: Austin's (anchorhost, and the review account). */
-    public const EXCLUDED = [1, 54];
+    /**
+     * Accounts that are not the team but are never on the board nor waiting to be scored: Austin's
+     * review account, which plays with a player's role. The team itself (administrators) is decided
+     * by capability (Team), never listed here.
+     */
+    public const EXCLUDED = [54];
 
     /** The ticket statuses a report can be scored in: done with, or answered. */
     public const SCORABLE = [TicketStore::CLOSED, TicketStore::ANSWERED];
@@ -179,18 +185,20 @@ final readonly class ReportCredits
 
     /**
      * The board from each player's totals ({id, points, reports, first,
-     * banned}; first is when their first report that led to a change was
-     * sent): players with points, not banned and not EXCLUDED, most points
+     * banned, admin}; first is when their first report that led to a change
+     * was sent; admin: on the team, Team): players with points, not banned,
+     * not the team and not EXCLUDED, most points
      * first, then more reports, then the earliest first report, then the lower
      * id; at most $limit.
      *
-     * @param list<array{id: int, points: int, reports: int, first: ?string, banned?: bool}> $totals
-     * @return list<array{id: int, points: int, reports: int, first: ?string, banned?: bool}>
+     * @param list<array{id: int, points: int, reports: int, first: ?string, banned?: bool, admin?: bool}> $totals
+     * @return list<array{id: int, points: int, reports: int, first: ?string, banned?: bool, admin?: bool}>
      */
     public static function rank(array $totals, int $limit = self::BOARD): array
     {
         $rows = array_values(array_filter($totals, static fn (array $t): bool => (int) $t['points'] > 0
             && empty($t['banned'])
+            && empty($t['admin'])
             && !in_array((int) $t['id'], self::EXCLUDED, true)));
         usort($rows, static fn (array $a, array $b): int => [(int) $b['points'], (int) $b['reports'], (string) ($a['first'] ?? '9999'), (int) $a['id']]
             <=> [(int) $a['points'], (int) $a['reports'], (string) ($b['first'] ?? '9999'), (int) $b['id']]);
@@ -219,7 +227,10 @@ final readonly class ReportCredits
         return $this->db->rows('SELECT c.*, t.subject, t.status, t.created_at AS ticket_created_at FROM ' . $this->db->table(self::TABLE) . " c JOIN {$t} t ON t.id = c.ticket_id ORDER BY c.scored_at DESC, c.ticket_id DESC");
     }
 
-    /** Closed and answered tickets nobody has scored yet, oldest first (not Austin's own, EXCLUDED: they are never on the board). */
+    /**
+     * Closed and answered tickets nobody has scored yet, oldest first (not EXCLUDED's: never on the board).
+     * The team's are listed (the console marks them Admin: scoring them is fine, they stay off the boards).
+     */
     public function unscored(): array
     {
         $t = $this->db->table(TicketStore::TABLE);
@@ -228,10 +239,10 @@ final readonly class ReportCredits
 
     /**
      * Each player's totals for rank(): points, reports that led to a change,
-     * when the first of those was sent, and whether they are banned. Players
-     * whose account is gone are left out.
+     * when the first of those was sent, whether they are banned and whether
+     * they are on the team (Team). Players whose account is gone are left out.
      *
-     * @return list<array{id: int, points: int, reports: int, first: ?string, banned: bool}>
+     * @return list<array{id: int, points: int, reports: int, first: ?string, banned: bool, admin: bool}>
      */
     public function totals(): array
     {
@@ -243,12 +254,14 @@ final readonly class ReportCredits
             . ' JOIN ' . $db->table('users') . ' u ON u.ID = c.player_user_id'
             . ' LEFT JOIN ' . $db->table(AdminConsole::BANS) . ' b ON b.user_id = c.player_user_id'
             . ' GROUP BY c.player_user_id');
+        $team = array_flip(Team::of($db, array_map(static fn (array $r): int => (int) $r['id'], $rows)));
         return array_map(static fn (array $r): array => [
             'id' => (int) $r['id'],
             'points' => (int) $r['points'],
             'reports' => (int) $r['reports'],
             'first' => $r['first'] === null ? null : (string) $r['first'],
             'banned' => $r['banned'] !== null,
+            'admin' => isset($team[(int) $r['id']]),
         ], $rows);
     }
 }

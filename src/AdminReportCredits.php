@@ -25,7 +25,9 @@ use Minn\RestError;
  *   GET admin/credits               {"credits":[Credit + {subject,status,player}],"unscored":[{id,subject,status,createdAt,player}],
  *                                    "board":[{player,points,reports,first}],"kinds":{…},"cap":8}
  *                                   every scored report, newest first; closed and answered reports nobody has scored yet;
- *                                   the Contribute page's board as it stands (ReportCredits::rank)
+ *                                   the Contribute page's board as it stands (ReportCredits::rank: never the team)
+ *                                   player: {"id","name","admin"}: admin true for the team (Team, by capability), whose
+ *                                   reports are listed and can be scored but are never on the board (Austin 2026-11-24)
  *   Credit: ReportCredits::out: {"ticket","points","kind","reason","refs":[…],"by","at"}
  *
  * groddle-afternoon tools/reports/credits.mjs reads these (and the ticket
@@ -75,12 +77,14 @@ final readonly class AdminReportCredits
         $all = $store->all();
         $unscored = $store->unscored();
         $board = ReportCredits::rank($store->totals());
-        $names = (new Characters($db))->namesOf(array_merge(
+        $ids = array_merge(
             array_map(static fn (array $r): int => (int) $r['player_user_id'], $all),
             array_map(static fn (array $r): int => (int) $r['player_user_id'], $unscored),
             array_map(static fn (array $r): int => $r['id'], $board),
-        ));
-        $who = static fn (int $id): array => ['id' => $id, 'name' => (string) ($names[$id] ?? "#{$id}")];
+        );
+        $names = (new Characters($db))->namesOf($ids);
+        $team = array_flip(Team::of($db, $ids));
+        $who = static fn (int $id): array => ['id' => $id, 'name' => (string) ($names[$id] ?? "#{$id}"), 'admin' => isset($team[$id])];
         return Response::json([
             'credits' => array_map(static fn (array $r): array => ReportCredits::out($r) + [
                 'subject' => (string) $r['subject'], 'status' => (string) $r['status'], 'player' => $who((int) $r['player_user_id']),
