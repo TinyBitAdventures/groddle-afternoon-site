@@ -44,11 +44,14 @@ use Minn\RestError;
  *   with it (the remake's machines are pack tools).
  * - Where it may stand (machine_stand.js canDrop 770-788): not within 200 px
  *   of another machine nor within 70 px of an end of the street. Ours: at most
- *   8 in one place; only the owner's own home: the home street, the house
- *   (its ground floor, HOUSE_<id>) and the Tower's floors (lane HOMES2, Austin
- *   2026-11-01: "Machines may stand on the home street, in the house and in
- *   the Tower"; the source allowed any location but an instance). Each row
- *   keeps its place ("street", "house", "tower:<floor>"), named by the
+ *   8 in one place; only the owner's own home: the home street, every floor
+ *   of the house (the ground floor HOUSE_<id>, the upper ones HOUSE_<id>_<n>,
+ *   the owner's own rooms: G1249, #669, Glitch's house was one location) and
+ *   the Tower's floors (lane HOMES2, Austin 2026-11-01: "Machines may stand on
+ *   the home street, in the house and in the Tower"; the source allowed any
+ *   location but an instance). Each row keeps its place ("street", "house",
+ *   "house:1", "house:2", "tower:<floor>"; an upper floor only while the
+ *   stored save has it), named by the
  *   realtime server from the street the actor stands on; the 200 px counts
  *   only machines in the same place (findCloseStack looks through one
  *   location's items, players/player.js 1152-1186), and in a room the ends
@@ -92,7 +95,7 @@ use Minn\RestError;
  * taken).
  *
  *   POST groddle/v1/homes/machines   (the realtime server, signed; home_machines.go)
- *        {"op":"hm-<16 hex>","owner":7,"actor":9,"place":"street|house|tower:<0..8>","verb":"place|take|use|collect|refuel|music|check",
+ *        {"op":"hm-<16 hex>","owner":7,"actor":9,"place":"street|house|house:<1..2>|tower:<0..8>","verb":"place|take|use|collect|refuel|music|check",
  *         "id":"hm-…","class":"fuelmaker","rx":120,"fuel":50,"key":"fuel_cell","qty":2,"all":true,"force":true,"on":true}
  *        200 {"status":"settled","machine":{…}|null,"gone":"hm-…"?,"receipt":{"op","gave"|"got"}?,"taken":{"class","fuel"}?,"paid":[…],"now":ms}
  *        | 409 {"status":"refused","why":"…","text":"…","machine":{…}|null,"now":ms}
@@ -442,7 +445,7 @@ final readonly class HomeMachines
 
     public static function placeId(mixed $place): bool
     {
-        return is_string($place) && preg_match('/^(street|house|tower:[0-8]|mr:(meadow|besara|forest))$/', $place) === 1;
+        return is_string($place) && preg_match('/^(street|house|house:[12]|tower:[0-8]|mr:(meadow|besara|forest))$/', $place) === 1;
     }
 
     /** A Community Machine Room's place ("mr:meadow", "mr:besara", "mr:forest"). */
@@ -473,11 +476,18 @@ final readonly class HomeMachines
         return max((int) $room['minSegments'], min((int) $room['maxSegments'], $n));
     }
 
+    /** The house's upper floors in a stored save (homes-feature floors.upper, home-floors.js: 0 to 2). */
+    public static function upperFloors(?object $state): int
+    {
+        $upper = $state?->systems?->features?->homes?->floors?->upper ?? null;
+        return is_array($upper) ? min(2, count($upper)) : 0;
+    }
+
     /**
      * Where a machine may go in a place: null on the home street (the game
-     * checks its ends from the street's layout), [lo, hi] in room x for the
-     * house or a Tower floor (the inner walls), or false when there is no such
-     * room (no Tower, or a floor it does not have).
+     * checks its ends from the street's layout), [lo, hi] in room x for a
+     * floor of the house or a Tower floor (the inner walls), or false when there
+     * is no such room (no Tower, or a floor the house or Tower does not have).
      *
      * @return array{0: int, 1: int}|false|null
      */
@@ -487,7 +497,12 @@ final readonly class HomeMachines
         if ($place === self::PLACE_STREET) {
             return null;
         }
-        if ($place === self::PLACE_HOUSE) {
+        if ($place === self::PLACE_HOUSE || str_starts_with($place, self::PLACE_HOUSE . ':')) {
+            // G1249: an upper floor the house has (homes-feature floors.upper; every floor as wide as the ground floor).
+            $floor = $place === self::PLACE_HOUSE ? 0 : (int) substr($place, strlen(self::PLACE_HOUSE) + 1);
+            if ($floor > self::upperFloors($state)) {
+                return false;
+            }
             $w = self::houseSegments($rules, $state) * (int) $room['segmentW'];
             return [(int) $room['endCap'], $w - (int) $room['endCap']];
         }
