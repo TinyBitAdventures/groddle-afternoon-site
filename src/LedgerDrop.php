@@ -88,7 +88,9 @@ use Minn\RestError;
  *   475-503): as many as the stack takes join it in the drop's own transaction, the rest lies on its
  *   own ("n"). A stack takes only from its own dropper (joins; Austin 2026-11-24: each row keeps its
  *   dropper, so drops.go's return after dropKeep never sends anyone's goods to someone else). The
- *   drop keeps its row, 'merged' when all of it joined, so its op is found as any drop's.
+ *   drop keeps its row, 'merged' when all of it joined, so its op is found as any drop's. A class of
+ *   one per stack ("max":1, an emblem) piles up with no cap (pileCap; Austin 2026-11-24: "Let them pile
+ *   up on floors", a difference from Glitch); a tool or a class whose copies carry words never joins.
  *
  *   POST groddle/v1/ledger/drop/move  (signed) {"op":"move-<16 hex>","id":<owner>,"drop":"drop-…","street":"HOUSE-7","x":900,"y":620,"into"?:"drop-…","max"?:3}
  *        200 {"status":"settled","n":3,"x":900,"y":620,"into"?,"joined"?,"in"?} | 409 {"status":"refused","why":"place|gone"}
@@ -341,7 +343,7 @@ final readonly class LedgerDrop
      * or Tower floor; a stack still on the ground there, of the same class, with no wear or words on
      * either; dropped by the same player (Austin 2026-11-24: only one player's own stacks join, so each
      * row keeps its dropper's return after dropKeep and nobody's goods change hands); and no more than
-     * the class's stackmax (Eleven Location.addItem 475-503).
+     * the class's stackmax (Eleven Location.addItem 475-503), a one-per-stack class's pile excepted (pileCap).
      *
      * @param array{status: string, street: string, class_tsid: string, count: int|string, points: mixed, tag: mixed, dropper_id: int|string}|null $into
      */
@@ -357,7 +359,29 @@ final readonly class LedgerDrop
         if ((int) $into['dropper_id'] !== $by) {
             return 0;
         }
-        return max(0, min($n, $max - (int) $into['count']));
+        return max(0, min($n, self::pileCap($c, $max) - (int) $into['count']));
+    }
+
+    /** The most one pile of a one-per-stack class holds on a house or Tower floor (the most a drop or a take moves, call and part). */
+    public const PILE_MAX = 9999;
+
+    /**
+     * How many of class `c` (stackmax `max`, as drops.go tells it) one stack on a house or Tower floor
+     * holds: its stackmax (Eleven Location.addItem 475-503), except a class of one per stack, which piles up
+     * to PILE_MAX.
+     * ours: Austin 2026-11-24, one-per-stack things (emblems) pile up on floors, shelves and tables;
+     * Glitch's stackmax 1 kept them apart. Never things whose copies keep their own identity: a tool (its
+     * points) or a class whose copies carry words (its tag kind; the game's keepsOwnStack classes, a Still
+     * and a Teleportation Script, are tagged). The game (js/world-items.js pileMaxOf) and the realtime
+     * server (drops.go pileMax) apply the same rule.
+     */
+    public static function pileCap(string $c, int $max): int
+    {
+        $economy = Economy::shared();
+        if ($max !== 1 || $economy->points($c) > 0 || $economy->tagKind($c) !== '') {
+            return $max;
+        }
+        return self::PILE_MAX;
     }
 
     /**
