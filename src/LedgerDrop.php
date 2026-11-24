@@ -80,6 +80,26 @@ use Minn\RestError;
  *        one place's (G1224: drops.go asks when someone joins a house or Tower floor, for the old
  *        floor drops HouseFloors moved there on the owner's load).
  *
+ *   On a house or Tower floor (HOUSE-<owner>, TOWER-<owner>-<floor>) a drop may name a like stack:
+ *   POST groddle/v1/ledger/drop {…, "into":"drop-…", "max":3}
+ *        200 {"status":"settled","into":"drop-…","joined":2,"in":3,"n":1}   (no "into": it lies on its own)
+ *   takeable_drop put the stack in with apiPutItemIntoPosition, which merged it into a like stack
+ *   there below its stackmax (GameServerJS items/include/takeable.js 202-207; Eleven Location.addItem
+ *   475-503): as many as the stack takes join it in the drop's own transaction, the rest lies on its
+ *   own ("n"). A stack takes only from its own dropper or the home's owner (joins: each row keeps its
+ *   dropper, so drops.go's return after dropKeep never sends anyone's goods to someone else). The
+ *   drop keeps its row, 'merged' when all of it joined, so its op is found as any drop's.
+ *
+ *   POST groddle/v1/ledger/drop/move  (signed) {"op":"move-<16 hex>","id":<owner>,"drop":"drop-…","street":"HOUSE-7","x":900,"y":620,"into"?:"drop-…","max"?:3}
+ *        200 {"status":"settled","n":3,"x":900,"y":620,"into"?,"joined"?,"in"?} | 409 {"status":"refused","why":"place|gone"}
+ *   The owner's Decoration Mode move of a stack on their floor (main.js doModifyItem 4852-4890 moved any
+ *   stack in the house, merging onto a like one): it stays on the ground for everyone, recorded once per
+ *   move op on the row.
+ *
+ *   A merge raises a stack's count, which a part's id (<op>-t<from>) relied on never happening: each
+ *   rise moves the stack's generation on, and a part of a grown stack is <op>-t<from>-g<gen>, so an id
+ *   recorded before the rise is never answered "as recorded" for a new take (partId).
+ *
  *   GET  groddle/v1/drops             the signed-in player's drops and takes their save has not applied
  *        {"drops":[{"op","side":"dropped"|"took","id","item":{c,n,r?},"why"?}]}
  *
@@ -106,6 +126,7 @@ final readonly class LedgerDrop
     public const GROUND = '/groddle/v1/ledger/drops';
     public const EAT = '/groddle/v1/ledger/drop/eat';
     public const PLACE = '/groddle/v1/ledger/drop/place';
+    public const MOVE = '/groddle/v1/ledger/drop/move';
 
     /** Stacks one list carries (drops.go holds 60 a street; a house or Tower floor any number, G1224). */
     public const LIST_MAX = 50000;
@@ -146,6 +167,20 @@ final readonly class LedgerDrop
         }
         $db = $this->minn->db;
         $out = Ledger::atomically($db, fn () => self::put($db, Ledger::fromSeams($this->minn), $drop, time()));
+        return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
+    }
+
+    #[Route(Method::Post, self::MOVE, policy: new Policy(Access::Public))]
+    public function moveOnFloor(Request $request): Response
+    {
+        $this->signed($request, self::MOVE);
+        $body = json_decode($request->body, true);
+        $m = is_array($body) ? self::moveCall($body) : null;
+        if ($m === null) {
+            throw new RestError('groddle_ledger_invalid', 'Not a move.', 400);
+        }
+        $db = $this->minn->db;
+        $out = Ledger::atomically($db, fn () => self::moveStack($db, Ledger::fromSeams($this->minn), $m, time()));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
@@ -281,7 +316,49 @@ final readonly class LedgerDrop
         $r = is_int($item['r'] ?? null) && $item['r'] >= 0 && $item['r'] <= 1000000 ? $item['r'] : null;
         // The dropper's own copy's words, checked again (the realtime server checked them first).
         $t = isset($item['t']) ? CopyTags::json(Economy::shared(), $c, $n, $item['t']) : null;
-        return ['op' => $op, 'id' => $id, 'street' => $street, 'x' => $x, 'y' => $y, 'c' => $c, 'n' => $n, 'r' => $r] + ($t !== null ? ['t' => $t] : []);
+        $out = ['op' => $op, 'id' => $id, 'street' => $street, 'x' => $x, 'y' => $y, 'c' => $c, 'n' => $n, 'r' => $r] + ($t !== null ? ['t' => $t] : []);
+        // The like stack it lands on (a house or Tower floor, drops.go), with the class's stackmax.
+        $into = $body['into'] ?? null;
+        $max = $body['max'] ?? null;
+        if (self::opId($into) && $into !== $op && is_int($max) && $max >= 1 && $max <= 9999) {
+            $out += ['into' => $into, 'max' => $max];
+        }
+        return $out;
+    }
+
+    /** A house or a Tower floor as the site names it (drops.go dropSiteStreet), and whose it is; 0 for any other street. */
+    public static function floorOwner(string $street): int
+    {
+        if (preg_match('/^HOUSE-([1-9][0-9]{0,17})$/', $street, $m) === 1 || preg_match('/^TOWER-([1-9][0-9]{0,17})-[0-9]$/', $street, $m) === 1) {
+            return (int) $m[1];
+        }
+        return 0;
+    }
+
+    /**
+     * How many of a drop (or a moved stack) of `c`, `n`, wear `r`, words `t`, dropped by `by` on
+     * `street`, the like stack `$into` takes (its row locked): 0 when it takes none. Only on a house
+     * or Tower floor; a stack still on the ground there, of the same class, with no wear or words on
+     * either; dropped by the same player or by the home's owner (each row keeps its own dropper for
+     * drops.go's return after dropKeep: the owner's stacks there never go back, so nobody's goods go
+     * home to someone else); and no more than the class's stackmax (Eleven Location.addItem 475-503).
+     *
+     * @param array{status: string, street: string, class_tsid: string, count: int|string, points: mixed, tag: mixed, dropper_id: int|string}|null $into
+     */
+    public static function joins(?array $into, string $street, string $c, int $n, ?int $r, ?string $t, int $by, int $max): int
+    {
+        $owner = self::floorOwner($street);
+        if ($into === null || $owner === 0 || $into['status'] !== 'ground' || (string) $into['street'] !== $street || (string) $into['class_tsid'] !== $c) {
+            return 0;
+        }
+        if ($r !== null || $t !== null || $into['points'] !== null || ($into['tag'] ?? null) !== null) {
+            return 0;
+        }
+        $dropper = (int) $into['dropper_id'];
+        if ($dropper !== $by && $dropper !== $owner) {
+            return 0;
+        }
+        return max(0, min($n, $max - (int) $into['count']));
     }
 
     /**
@@ -304,9 +381,20 @@ final readonly class LedgerDrop
     public static function settle(Db $db, Ledger $ledger, array $drop, int $now): array
     {
         $t = $db->table(Ledger::TRADES);
+        $drops = $db->table(self::TABLE);
         $held = $db->row("SELECT status FROM {$t} WHERE trade_id = ? FOR UPDATE", [$drop['op']]);
         if ($held !== null) {
-            return $held['status'] === 'settled' ? ['status' => 'settled'] : ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
+            if ($held['status'] !== 'settled') {
+                return ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
+            }
+            // As recorded: the part that joined a like stack, and what lies on its own.
+            $mine = $db->row("SELECT count, status, merged_into FROM {$drops} WHERE id = ?", [$drop['op']]);
+            if ($mine !== null && $mine['merged_into'] !== null) {
+                $in = $db->value("SELECT count FROM {$drops} WHERE id = ?", [(string) $mine['merged_into']]);
+                $rest = $mine['status'] === 'ground' ? (int) $mine['count'] : 0;
+                return ['status' => 'settled', 'into' => (string) $mine['merged_into'], 'joined' => $drop['n'] - $rest, 'in' => (int) $in, 'n' => $rest];
+            }
+            return ['status' => 'settled'];
         }
         $stamp = gmdate('Y-m-d H:i:s', $now);
         $gave = self::goodsJson($drop['c'], $drop['n']);
@@ -323,11 +411,119 @@ final readonly class LedgerDrop
         }
         self::move($db, $drop['id'], $state, $drop['c'], -$drop['n'], $now);
         $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$drop['op'], $drop['id'], $gave, self::NONE, $stamp, $stamp]);
-        $db->execute('INSERT INTO ' . $db->table(self::TABLE) . " (id, dropper_id, street, x, y, class_tsid, count, points, tag, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ground', ?)", [
-            $drop['op'], $drop['id'], $drop['street'], $drop['x'], $drop['y'], $drop['c'], $drop['n'], $drop['r'], $drop['t'] ?? null, $stamp,
+        // Onto a like stack on a house or Tower floor (takeable_drop's apiPutItemIntoPosition merges): as many
+        // as it takes join it, in this same transaction; the rest lies on its own. The drop keeps a row of its
+        // own either way (the trade's stack: GET groddle/v1/drops and catchUp find it), 'merged' when all joined.
+        $joined = 0;
+        $into = null;
+        if (isset($drop['into'])) {
+            $into = $db->row("SELECT status, street, class_tsid, count, points, tag, dropper_id FROM {$drops} WHERE id = ? FOR UPDATE", [$drop['into']]);
+            $joined = self::joins($into, $drop['street'], $drop['c'], $drop['n'], $drop['r'], $drop['t'] ?? null, $drop['id'], $drop['max']);
+        }
+        $rest = $drop['n'] - $joined;
+        $db->execute("INSERT INTO {$drops} (id, dropper_id, street, x, y, class_tsid, count, points, tag, status, created_at, taken_at, why, merged_into) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+            $drop['op'], $drop['id'], $drop['street'], $drop['x'], $drop['y'], $drop['c'], $rest, $drop['r'], $drop['t'] ?? null,
+            $rest > 0 ? 'ground' : 'merged', $stamp, $rest > 0 ? null : $stamp, $rest > 0 ? '' : 'merged', $joined > 0 ? $drop['into'] : null,
         ]);
-        $ledger->log($drop['id'], 'drop', ['drop' => $drop['op'], 'street' => $drop['street'], 'gave' => [$drop['c'] => $drop['n']]], $now);
-        return ['status' => 'settled'];
+        $ledger->log($drop['id'], 'drop', ['drop' => $drop['op'], 'street' => $drop['street'], 'gave' => [$drop['c'] => $drop['n']]] + ($joined > 0 ? ['into' => $drop['into'], 'joined' => $joined] : []), $now);
+        if ($joined < 1) {
+            return ['status' => 'settled'];
+        }
+        $in = self::grow($db, (string) $drop['into'], (int) $into['count'], $joined);
+        return ['status' => 'settled', 'into' => (string) $drop['into'], 'joined' => $joined, 'in' => $in, 'n' => $rest];
+    }
+
+    /**
+     * A like stack takes `$joined` more (its row locked): its count rises, so its generation moves on and
+     * a part taken from it from now on has a new id (takePart: <op>-t<from>-g<gen>); an id recorded before
+     * the rise is never answered as recorded for a new take. Returns its count now.
+     */
+    private static function grow(Db $db, string $id, int $had, int $joined): int
+    {
+        $db->execute('UPDATE ' . $db->table(self::TABLE) . ' SET count = ?, gen = gen + 1 WHERE id = ?', [$had + $joined, $id]);
+        return $had + $joined;
+    }
+
+    /**
+     * A floor-to-floor move in a house or on a Tower floor (doModifyItem, main.js 4852-4890: the owner moves
+     * any stack in their house, merging into a like stack it is set on): the realtime server's op once per
+     * move ("move-<16 hex>", recorded on the moved row). The stack stays where everyone can take it, with its
+     * own dropper; onto `into` as many as it takes join it (joins, grow) and the rest is set down at (x, y).
+     * The transaction is the caller's (Ledger::atomically).
+     *
+     * @param array{op: string, id: int, drop: string, street: string, x: int, y: int, into?: string, max?: int} $m
+     * @return array{status: string, why?: string, n?: int, x?: int, y?: int, into?: string, joined?: int, in?: int}
+     */
+    public static function moveStack(Db $db, Ledger $ledger, array $m, int $now): array
+    {
+        $drops = $db->table(self::TABLE);
+        $owner = self::floorOwner($m['street']);
+        if ($owner === 0 || $owner !== $m['id']) {
+            return ['status' => 'refused', 'why' => 'place'];
+        }
+        // Both rows locked in one order, so two moves at once never wait on each other.
+        $ids = isset($m['into']) ? [$m['drop'], $m['into']] : [$m['drop']];
+        sort($ids);
+        $rows = [];
+        foreach ($ids as $id) {
+            $rows[$id] = $db->row("SELECT id, status, street, x, y, class_tsid, count, points, tag, dropper_id, merged_into, moved_op FROM {$drops} WHERE id = ? FOR UPDATE", [$id]);
+        }
+        $row = $rows[$m['drop']];
+        if ($row === null) {
+            return ['status' => 'refused', 'why' => 'gone'];
+        }
+        $into = isset($m['into']) ? $rows[$m['into']] : null;
+        if ($row['moved_op'] === $m['op']) {
+            // As recorded.
+            $left = $row['status'] === 'ground' ? (int) $row['count'] : 0;
+            $out = ['status' => 'settled', 'n' => $left, 'x' => (int) $row['x'], 'y' => (int) $row['y']];
+            if ($row['merged_into'] !== null && $into !== null && (string) $row['merged_into'] === $m['into']) {
+                $out += ['into' => $m['into'], 'in' => (int) $into['count']];
+            }
+            return $out;
+        }
+        if ($row['status'] !== 'ground' || (string) $row['street'] !== $m['street']) {
+            return ['status' => 'refused', 'why' => 'gone'];
+        }
+        $n = (int) $row['count'];
+        $tag = $row['tag'] ?? null;
+        $joined = $into === null ? 0 : self::joins($into, $m['street'], (string) $row['class_tsid'], $n, $row['points'] === null ? null : (int) $row['points'], $tag === null ? null : (string) $tag, (int) $row['dropper_id'], (int) ($m['max'] ?? 0));
+        $left = $n - $joined;
+        $stamp = gmdate('Y-m-d H:i:s', $now);
+        if ($left > 0) {
+            // A count that falls needs no new generation: an earlier part's id was taken from more.
+            $db->execute("UPDATE {$drops} SET x = ?, y = ?, count = ?, moved_op = ?" . ($joined > 0 ? ', merged_into = ?' : '') . ' WHERE id = ?', array_merge([$m['x'], $m['y'], $left, $m['op']], $joined > 0 ? [$m['into']] : [], [$m['drop']]));
+        } else {
+            $db->execute("UPDATE {$drops} SET count = 0, status = 'merged', why = 'merged', taken_at = ?, merged_into = ?, moved_op = ? WHERE id = ?", [$stamp, $m['into'], $m['op'], $m['drop']]);
+        }
+        $out = ['status' => 'settled', 'n' => $left, 'x' => $left > 0 ? $m['x'] : (int) $row['x'], 'y' => $left > 0 ? $m['y'] : (int) $row['y']];
+        if ($joined > 0) {
+            $out += ['into' => $m['into'], 'joined' => $joined, 'in' => self::grow($db, $m['into'], (int) $into['count'], $joined)];
+        }
+        $ledger->log($m['id'], 'move', ['drop' => $m['drop'], 'move' => $m['op'], 'street' => $m['street'], 'x' => $m['x'], 'y' => $m['y']] + ($joined > 0 ? ['into' => $m['into'], 'joined' => $joined] : []), $now);
+        return $out;
+    }
+
+    /** A move as the realtime server sends it, checked: null when it is not one. */
+    public static function moveCall(array $body): ?array
+    {
+        $op = $body['op'] ?? null;
+        $id = $body['id'] ?? null;
+        $drop = $body['drop'] ?? null;
+        $street = $body['street'] ?? null;
+        $x = $body['x'] ?? null;
+        $y = $body['y'] ?? null;
+        if (!is_string($op) || preg_match('/^move-[0-9a-f]{16}$/', $op) !== 1 || !is_int($id) || $id <= 0 || !self::opId($drop) || !is_string($street) || self::floorOwner($street) === 0
+            || !is_int($x) || !is_int($y) || abs($x) > 1000000 || abs($y) > 1000000) {
+            return null;
+        }
+        $out = ['op' => $op, 'id' => $id, 'drop' => $drop, 'street' => $street, 'x' => $x, 'y' => $y];
+        $into = $body['into'] ?? null;
+        $max = $body['max'] ?? null;
+        if (self::opId($into) && $into !== $drop && is_int($max) && $max >= 1 && $max <= 9999) {
+            $out += ['into' => $into, 'max' => $max];
+        }
+        return $out;
     }
 
     /**
@@ -420,7 +616,7 @@ final readonly class LedgerDrop
     public static function give(Db $db, Ledger $ledger, string $op, int $id, string $why, int $now, ?int $n = null, ?int $from = null): array
     {
         $drops = $db->table(self::TABLE);
-        $row = $db->row("SELECT dropper_id, class_tsid, count, points, tag, status, taker_id FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
+        $row = $db->row("SELECT dropper_id, class_tsid, count, points, tag, status, taker_id, gen FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
         if ($row === null) {
             return ['status' => 'refused', 'why' => 'gone'];
         }
@@ -461,7 +657,7 @@ final readonly class LedgerDrop
     private static function takePart(Db $db, Ledger $ledger, string $op, array $row, array $item, int $id, int $n, int $from, int $now): array
     {
         $t = $db->table(Ledger::TRADES);
-        $credit = $op . '-t' . $from;
+        $credit = self::partId($op, $from, (int) ($row['gen'] ?? 0));
         $left = $row['status'] === 'ground' ? (int) $row['count'] : 0;
         unset($item['t']); // a copy's own words ride only with a stack of one, never a part
         $held = $db->row("SELECT a_id, b_gave FROM {$t} WHERE trade_id = ? FOR UPDATE", [$credit]);
@@ -544,11 +740,18 @@ final readonly class LedgerDrop
 
     /**
      * A take of a stack on the ground, as Ledger::catchUp sees its trade id: drop-<16 hex>-t for
-     * the whole of it, -t<from> for a part (takePart).
+     * the whole of it, -t<from> for a part (takePart), -t<from>-g<gen> for a part of a stack that a
+     * merge has grown (its count rose, so the same count can come round again: grow).
      */
     public static function isTake(string $trade): bool
     {
-        return preg_match('/^drop-[0-9a-f]{16}-t(?:[1-9][0-9]{0,3})?$/', $trade) === 1;
+        return preg_match('/^drop-[0-9a-f]{16}-t(?:[1-9][0-9]{0,3}(?:-g[1-9][0-9]{0,8})?)?$/', $trade) === 1;
+    }
+
+    /** A part's credit id: <op>-t<from>, and -g<gen> once merges have grown the stack (gen > 0). */
+    public static function partId(string $op, int $from, int $gen): string
+    {
+        return $op . '-t' . $from . ($gen > 0 ? '-g' . $gen : '');
     }
 
     /**
