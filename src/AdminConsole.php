@@ -53,7 +53,11 @@ use Minn\RestError;
  *                                "records":{"peak","active","pageviews","signups"} ({"n","day"(,"at")}|null),
  *                                "server":"up"|"down"|"off"}   the Analytics tab: daily counts, UTC days (Analytics),
  *                               counts only; asks the realtime server's health for the days since the last peak kept
- *   GET  admin/catalog          {"items":[{"c","name","plural"}]}   what a give may carry (the ledger's tradeable classes)
+ *   GET  admin/catalog          {"items":[{"c","name","plural","cat","src","ok","price"?,"rare"?,"why"?}],"kinds":{kind:words}}
+ *                               what a give may carry (the ledger's tradeable classes), each with where it comes from in the
+ *                               game today (data/item-sources.json, groddle-afternoon tools/build-item-sources.mjs: its
+ *                               category, kinds of source, ok true when a player can get it, base price, Glitch's rare tag,
+ *                               why not); a class the file does not know has none of those
  *   GET  admin/streets          {"streets":[{"tsid","label","hub"}]}  the game's street index, for teleport
  *   GET  admin/rooks            {"server":"up"|"down","attacks":[Rook]}   every Rook over a street now (the server's rooks)
  *   POST admin/message {"player":id,"text":"…"}               delivery live | queued (offline: at their next connect) | down
@@ -528,14 +532,39 @@ final readonly class AdminConsole
     {
         $file = dirname(__DIR__) . '/data/economy.json';
         $table = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+        $sourcesFile = dirname(__DIR__) . '/data/item-sources.json';
+        $sources = is_file($sourcesFile) ? json_decode((string) file_get_contents($sourcesFile), true) : null;
         $out = [];
         foreach (is_array($table['items'] ?? null) ? $table['items'] : [] as $c => $row) {
             if (is_string($c) && is_array($row)) {
-                $out[] = ['c' => $c, 'name' => (string) ($row['n'] ?? $c), 'plural' => (string) ($row['p'] ?? $row['n'] ?? $c)];
+                $out[] = ['c' => $c, 'name' => (string) ($row['n'] ?? $c), 'plural' => (string) ($row['p'] ?? $row['n'] ?? $c)] + self::itemSource($sources['items'][$c] ?? null);
             }
         }
         usort($out, static fn (array $a, array $b): int => strcasecmp($a['name'], $b['name']));
-        return Response::json(['items' => $out])->withHeader('Cache-Control', 'private, max-age=300');
+        return Response::json(['items' => $out, 'kinds' => (object) (is_array($sources['kinds'] ?? null) ? $sources['kinds'] : [])])->withHeader('Cache-Control', 'private, max-age=300');
+    }
+
+    /** A give class's row from data/item-sources.json as the console reads it, or nothing. */
+    public static function itemSource(mixed $s): array
+    {
+        if (!is_array($s)) {
+            return [];
+        }
+        $out = [
+            'cat' => is_string($s['cat'] ?? null) ? $s['cat'] : 'Other',
+            'src' => array_values(array_filter(is_array($s['src'] ?? null) ? $s['src'] : [], 'is_string')),
+            'ok' => !empty($s['ok']),
+        ];
+        if (is_int($s['price'] ?? null) && $s['price'] > 0) {
+            $out['price'] = $s['price'];
+        }
+        if (!empty($s['rare'])) {
+            $out['rare'] = true;
+        }
+        if (is_string($s['why'] ?? null) && $s['why'] !== '') {
+            $out['why'] = $s['why'];
+        }
+        return $out;
     }
 
     #[Route(Method::Get, '/groddle/v1/admin/streets', policy: new Policy(Access::Cap, self::ADMIN))]
