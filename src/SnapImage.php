@@ -25,7 +25,9 @@ final class SnapImage
     /**
      * Sizes a Snap may be. The game's location view is 960 wide and 400-600
      * tall (game.js VIEW_W, LayoutModel.as 10-13); the original sent the
-     * viewport (CameraMan.as snap, gameRenderer.getSnapshot). Up to 2x.
+     * viewport (CameraMan.as snap, gameRenderer.getSnapshot). Up to 2x: the
+     * game sends the view at the screen's own pixels (G1240), 1920x1200 at
+     * most on a 2x screen.
      */
     public const MIN_W = 320;
     public const MIN_H = 160;
@@ -35,13 +37,26 @@ final class SnapImage
     /** The JPEG quality GD writes the kept picture at. */
     public const QUALITY = 85;
 
+    /**
+     * Lower qualities tried when the picture at QUALITY is over MAX_BYTES
+     * (G1240: a full-size Snap the game had to send at a lower quality to fit
+     * would otherwise grow past the cap when written again at 85).
+     */
+    private const FALLBACK_QUALITIES = [78, 70, 60];
+
+    /** The small copy's width (the album's and the profile's cards; G1240). */
+    public const SMALL_W = 640;
+
+    /** The small copy's JPEG quality. */
+    public const SMALL_QUALITY = 80;
+
     private const PNG_SIGNATURE = "\x89PNG\r\n\x1a\n";
 
     /**
      * The picture checked and written again as a JPEG: the bytes to keep,
      * with their width and height.
      *
-     * @return array{bytes: string, width: int, height: int}
+     * @return array{bytes: string, width: int, height: int, small: ?string}
      */
     public static function accept(mixed $value): array
     {
@@ -70,11 +85,28 @@ final class SnapImage
         if ($width < self::MIN_W || $height < self::MIN_H || $width > self::MAX_W || $height > self::MAX_H) {
             throw new RestError('groddle_snap_size', "That snap is {$width}x{$height}; a snap is " . self::MIN_W . 'x' . self::MIN_H . ' to ' . self::MAX_W . 'x' . self::MAX_H . '.', 400);
         }
-        $out = self::reencode($bytes, $width, $height);
+        $canvas = self::decode($bytes, $width, $height);
+        $out = '';
+        foreach ([self::QUALITY, ...self::FALLBACK_QUALITIES] as $quality) {
+            $out = self::jpeg($canvas, $quality);
+            if (strlen($out) <= self::MAX_BYTES) {
+                break;
+            }
+        }
         if (strlen($out) > self::MAX_BYTES) {
             throw new RestError('groddle_snap_too_large', 'That snap is larger than the site keeps.', 413, ['max' => self::MAX_BYTES]);
         }
-        return ['bytes' => $out, 'width' => $width, 'height' => $height];
+        // The cards' copy: SMALL_W wide, or none when the picture is no wider.
+        $small = null;
+        if ($width > self::SMALL_W) {
+            $h = max(1, (int) round($height * self::SMALL_W / $width));
+            // imagecopyresampled: imagescale's bicubic mode answers false on some GD builds.
+            $scaled = imagecreatetruecolor(self::SMALL_W, $h);
+            if ($scaled !== false && imagecopyresampled($scaled, $canvas, 0, 0, 0, 0, self::SMALL_W, $h, $width, $height)) {
+                $small = self::jpeg($scaled, self::SMALL_QUALITY);
+            }
+        }
+        return ['bytes' => $out, 'width' => $width, 'height' => $height, 'small' => $small];
     }
 
     /**
@@ -164,8 +196,8 @@ final class SnapImage
         throw $bad();
     }
 
-    /** The picture decoded by GD and written as a new JPEG (PNG transparency on white). */
-    private static function reencode(string $bytes, int $width, int $height): string
+    /** The picture decoded by GD onto a new canvas (PNG transparency on white). */
+    private static function decode(string $bytes, int $width, int $height): \GdImage
     {
         if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg') || !function_exists('imagecreatetruecolor')) {
             throw new RestError('groddle_snap_unavailable', 'Snaps cannot be saved on this site right now.', 503);
@@ -182,8 +214,14 @@ final class SnapImage
         imagealphablending($canvas, true);
         imagecopy($canvas, $image, 0, 0, 0, 0, $width, $height);
         imageinterlace($canvas, false);
+        return $canvas;
+    }
+
+    /** A canvas written as a new JPEG. */
+    private static function jpeg(\GdImage $canvas, int $quality): string
+    {
         ob_start();
-        $ok = imagejpeg($canvas, null, self::QUALITY);
+        $ok = imagejpeg($canvas, null, $quality);
         $out = (string) ob_get_clean();
         if (!$ok || $out === '' || !str_starts_with($out, "\xFF\xD8\xFF")) {
             throw new RestError('groddle_snap_image', 'That snap could not be read.', 400);

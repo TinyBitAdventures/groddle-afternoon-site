@@ -28,6 +28,11 @@ use Minn\RestError;
  * badge and count, skills count, the profile-bio, "View <name>'s Home
  * Street", and buddy grids of _100 avatars; and /skills/, /achievements/ and
  * /friends/ under it; Wayback captures in research/wayback/raw/profiles/).
+ * Snaps lived on the profile too (GlitchrSavedDialog.as 160-225 gave the
+ * photo's page): here the Snaps a player made public (G1240, Snaps), newest
+ * first, on the profile and at /players/<name>/snaps/, each with a page of
+ * its own at /players/<name>/snaps/<id>/; their pictures come through
+ * snapPicture, which asks Snaps::viewable.
  * The data is Profiles', the save's and Buddies'; the pictures are the ones
  * the game uploaded, served here.
  *
@@ -74,7 +79,16 @@ final readonly class PlayerPages
     private const HOME_SIZES = '(min-width: 1160px) 1096px, (min-width: 641px) calc(100vw - 64px), calc(100vw - 32px)';
 
     /** A profile's pages: path under /players/<name>/ => tab label (the path keeps the original site's word). */
-    private const TABS = ['' => 'Profile', 'skills' => 'Skills', 'achievements' => 'Badges', 'buddies' => 'Buddies'];
+    private const TABS = ['' => 'Profile', 'snaps' => 'Snaps', 'skills' => 'Skills', 'achievements' => 'Badges', 'buddies' => 'Buddies'];
+
+    /** Public Snaps the profile shows before "See all" (G1240). */
+    public const SNAPS_SHOWN = 6;
+
+    /** How wide a Snap card shows (srcset sizes): a third of the page column, the whole column on a phone. */
+    private const SNAP_SIZES = '(min-width: 1160px) 352px, (min-width: 641px) calc((100vw - 96px) / 3), calc(100vw - 32px)';
+
+    /** Seconds a public Snap's picture may be kept before asking again (0: every view asks, so private is private at once). */
+    public const SNAP_KEEP = 0;
 
     /** Badges and skills the profile shows before "See all". */
     public const LATEST = 8;
@@ -188,7 +202,7 @@ final readonly class PlayerPages
         return $this->tab($request, $slug, '');
     }
 
-    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{tab:skills|achievements|buddies}', policy: new Policy(Access::Public))]
+    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{tab:snaps|skills|achievements|buddies}', policy: new Policy(Access::Public))]
     public function bareTab(Request $request, string $slug, string $tab): Response
     {
         if ($this->find($slug) === null) {
@@ -197,8 +211,8 @@ final readonly class PlayerPages
         return Response::redirect("/players/{$slug}/{$tab}/" . self::query($request), 301);
     }
 
-    /** A profile's page of skills, badges or buddies. */
-    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{tab:skills|achievements|buddies}/', policy: new Policy(Access::Public))]
+    /** A profile's page of snaps, skills, badges or buddies. */
+    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{tab:snaps|skills|achievements|buddies}/', policy: new Policy(Access::Public))]
     public function subpage(Request $request, string $slug, string $tab): Response
     {
         return $this->tab($request, $slug, $tab);
@@ -219,6 +233,40 @@ final readonly class PlayerPages
         if ($canonical !== $slug) {
             return Response::redirect($here, 301);
         }
+        $who = $this->who($request, $id, $canonical, $tab);
+        ['name' => $name, 'facts' => $facts] = $who;
+        $private = $facts['level'] < Profiles::LISTED_LEVEL
+            ? '    <p class="profile-private">Only you can see this page for now. It goes on the Players page when you reach level ' . Profiles::LISTED_LEVEL . ".</p>\n"
+            : '';
+        $page = max(1, (int) ($request->query('page') ?? '1'));
+        [$title, $description, $main] = match ($tab) {
+            '' => [$name, "{$name}, a player in Groddle Afternoon.", $this->overview($who)],
+            'snaps' => ["{$name}: Snaps", "The snaps {$name} has shared from Groddle Afternoon.", self::snapsSection($who, null)],
+            'skills' => ["{$name}: Skills", "The skills {$name} has learned in Groddle Afternoon.", self::skillsSection($who, null)],
+            'achievements' => ["{$name}: Badges", "The badges {$name} has earned in Groddle Afternoon.", self::badgesSection($who, null)],
+            'buddies' => ["{$name}: Buddies", "{$name}'s buddies in Groddle Afternoon.", $this->buddiesSection($who, $page)],
+        };
+        $body = self::masthead($who, $tab)
+            . '<main class="band profile' . ($tab === '' ? '' : " profile-page-{$tab}") . "\">\n  <div class=\"wrap\">\n"
+            . $private . $main
+            . "  </div>\n</main>";
+        $scripts = $who['buddy'] === '' ? '' : '<script src="' . self::BUDDY_JS . '?v=' . self::BUDDY_JS_KEY . "\" defer></script>\n";
+        // A home street to pan along (HomeLayout version 2): its camera.
+        if (str_contains($main, 'hd-pan')) {
+            $scripts .= '<script type="module" src="' . self::HOME_PAN_JS . '?v=' . self::HOME_PAN_JS_KEY . "\"></script>\n";
+        }
+        return $this->page($title, $description, $body, $scripts);
+    }
+
+    /**
+     * Everything a profile page shows of a character, under the profile's
+     * rule: below the listed level the owner's alone, a suspended player's
+     * page gone for everyone (RouteMiss).
+     *
+     * @return array<string, mixed>
+     */
+    private function who(Request $request, int $id, string $canonical, string $tab): array
+    {
         $db = $this->minn->db;
         $character = $db->row('SELECT name, created_at FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]);
         $profile = $db->row('SELECT about, avatar_at, home_at, home_w, home_h, home_small IS NOT NULL AS home_has_small, home_layout FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
@@ -237,38 +285,33 @@ final readonly class PlayerPages
             'id' => $id,
             'name' => $name,
             'base' => "/players/{$canonical}/",
+            'own' => $own,
             'facts' => $facts,
             'profile' => $profile,
             'joined' => strtotime(((string) ($character['created_at'] ?? '')) . ' UTC'),
             'badges' => $this->badges($facts['badges']),
             'skills' => self::skillRows($facts['skills'], $this->skillCatalog(), $this->root->dir),
             'buddyCount' => $this->buddies($id, 0, 0)['total'],
+            // G1240: the Snaps they made public, newest first (none for a reader either of them blocks).
+            'snaps' => Snaps::publicOf($db, $id, $this->minn->reader->userId),
+            'streets' => [],
             // ?home=picture shows the uploaded picture even when there is a layout (comparing the two).
             'homePicture' => $request->query('home') === 'picture',
             // G1213: for 30 days after a player's own rename, the old name, so friends still find them.
             'formerly' => CharacterName::formerly($db, [$id], time())[$id] ?? null,
         ];
-        $who['buddy'] = $this->buddyButton($id, $name, $who['base'], $tab, (string) ($request->query('buddy') ?? ''));
-        $private = $facts['level'] < Profiles::LISTED_LEVEL
-            ? '    <p class="profile-private">Only you can see this page for now. It goes on the Players page when you reach level ' . Profiles::LISTED_LEVEL . ".</p>\n"
-            : '';
-        $page = max(1, (int) ($request->query('page') ?? '1'));
-        [$title, $description, $main] = match ($tab) {
-            '' => [$name, "{$name}, a player in Groddle Afternoon.", $this->overview($who)],
-            'skills' => ["{$name}: Skills", "The skills {$name} has learned in Groddle Afternoon.", self::skillsSection($who, null)],
-            'achievements' => ["{$name}: Badges", "The badges {$name} has earned in Groddle Afternoon.", self::badgesSection($who, null)],
-            'buddies' => ["{$name}: Buddies", "{$name}'s buddies in Groddle Afternoon.", $this->buddiesSection($who, $page)],
-        };
-        $body = self::masthead($who, $tab)
-            . '<main class="band profile' . ($tab === '' ? '' : " profile-page-{$tab}") . "\">\n  <div class=\"wrap\">\n"
-            . $private . $main
-            . "  </div>\n</main>";
-        $scripts = $who['buddy'] === '' ? '' : '<script src="' . self::BUDDY_JS . '?v=' . self::BUDDY_JS_KEY . "\" defer></script>\n";
-        // A home street to pan along (HomeLayout version 2): its camera.
-        if (str_contains($main, 'hd-pan')) {
-            $scripts .= '<script type="module" src="' . self::HOME_PAN_JS . '?v=' . self::HOME_PAN_JS_KEY . "\"></script>\n";
+        if ($who['snaps'] !== []) {
+            $who['streets'] = $this->streetIndex();
         }
-        return $this->page($title, $description, $body, $scripts);
+        $who['buddy'] = $this->buddyButton($id, $name, $who['base'], $tab, (string) ($request->query('buddy') ?? ''));
+        return $who;
+    }
+
+    /** The game's street index (tsid => row), or empty: a Snap's street name. */
+    private function streetIndex(): array
+    {
+        $all = Json::file($this->root->dir . '/assets/streets/index.json', or: []);
+        return is_array($all['streets'] ?? null) ? $all['streets'] : [];
     }
 
     /**
@@ -379,7 +422,7 @@ final readonly class PlayerPages
         $nameHtml = Html::esc($name);
         $formerly = is_string($who['formerly'] ?? null) && $who['formerly'] !== '' ? '      <p class="profile-formerly">formerly ' . Html::esc($who['formerly']) . "</p>\n" : '';
         $avatarAt = is_string($profile['avatar_at'] ?? null) && $profile['avatar_at'] !== '' ? $profile['avatar_at'] : null;
-        $counts = ['skills' => count($who['skills']), 'achievements' => count($who['badges']), 'buddies' => $who['buddyCount']];
+        $counts = ['snaps' => count($who['snaps']), 'skills' => count($who['skills']), 'achievements' => count($who['badges']), 'buddies' => $who['buddyCount']];
         $tabs = '';
         foreach (self::TABS as $path => $label) {
             $tabs .= '<a href="' . Html::attr($base . ($path === '' ? '' : "{$path}/")) . '"' . ($path === $tab ? ' aria-current="page"' : '') . '>' . $label
@@ -492,9 +535,167 @@ final readonly class PlayerPages
                 ? "      <p class=\"profile-empty\">No picture of {$nameHtml}'s home yet. It appears after they visit their home street in multiplayer.</p>\n"
                 : '      <figure class="profile-home">' . self::homeImg($id, $name, $homeAt, $profile) . "</figure>\n"))
             . "    </section>\n"
+            . self::snapsSection($who, self::SNAPS_SHOWN)
             . self::badgesSection($who, self::LATEST)
             . self::skillsSection($who, self::LATEST)
             . $this->buddiesSection($who, 0);
+    }
+
+    /**
+     * The Snaps they made public (G1240), newest first: all of them, or the
+     * newest $limit with a link to the rest. Each card keeps its picture's
+     * own shape and links its page. Its owner is told how one gets here.
+     */
+    private static function snapsSection(array $who, ?int $limit): string
+    {
+        $all = $who['snaps'];
+        $shown = $limit === null ? $all : array_slice($all, 0, $limit);
+        $out = "    <section class=\"profile-section\" aria-labelledby=\"profile-snaps\">\n"
+            . self::sectionHead('profile-snaps', 'Snaps', count($all), $limit, $who['base'] . 'snaps/', 'snap', 'snaps');
+        $note = $who['own'] ? '      <p class="profile-snaps-note">Only snaps you make public show here. Open Snaps in the game\'s Menu and choose Make public on one.</p>' . "\n" : '';
+        if ($all === []) {
+            if ($limit !== null && !$who['own']) {
+                return '';
+            }
+            return $out . $note . "      <p class=\"profile-empty\">No snaps shared yet.</p>\n    </section>\n";
+        }
+        $out .= $note . '      <ul class="profile-snaps">';
+        foreach ($shown as $row) {
+            $out .= "\n        <li>" . self::snapCard($who, $row) . '</li>';
+        }
+        return $out . "\n      </ul>\n    </section>\n";
+    }
+
+    /** One public Snap's card: the picture in its own shape, the caption, the street and the date, linking its page. */
+    private static function snapCard(array $who, array $row): string
+    {
+        $id = (int) $row['id'];
+        $w = (int) $row['width'];
+        $h = (int) $row['height'];
+        $caption = trim((string) $row['caption']);
+        $where = BuddiesOnline::where((string) $row['street'], $who['streets'])['street'];
+        $at = strtotime(((string) $row['created_at']) . ' UTC');
+        $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
+        $small = Snaps::url($who['id'], $id, 'small');
+        // The cards' copy (SnapImage::SMALL_W) on most screens, the picture itself where a card is wider than that.
+        $srcset = $w > SnapImage::SMALL_W ? ' srcset="' . Html::attr($small . ' ' . SnapImage::SMALL_W . 'w, ' . Snaps::url($who['id'], $id) . " {$w}w") . '" sizes="' . Html::attr(self::SNAP_SIZES) . '"' : '';
+        return '<a class="profile-snap" href="' . Html::attr($who['base'] . "snaps/{$id}/") . '">'
+            . '<img src="' . Html::attr($small) . '"' . $size . $srcset . ' alt="' . Html::attr($caption !== '' ? $caption : 'A snap') . '" loading="lazy" decoding="async" />'
+            . ($caption !== '' ? '<span class="profile-snap-caption">' . Html::esc($caption) . '</span>' : '')
+            . '<span class="profile-snap-meta">' . Html::esc(implode(' · ', array_filter([$where, $at ? gmdate('M j, Y', $at) : '']))) . '</span>'
+            . '</a>';
+    }
+
+    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/snaps/{snap:\d+}', policy: new Policy(Access::Public))]
+    public function bareSnapPage(Request $request, string $slug, string $snap): Response
+    {
+        [, $canonical] = $this->find($slug) ?? throw new RouteMiss();
+        return Response::redirect("/players/{$canonical}/snaps/{$snap}/", 301);
+    }
+
+    /**
+     * One Snap's page (G1240; Glitch's saved dialog linked the photo's own
+     * page): the picture full size, the caption, the street and the date, a
+     * download. Anyone may see a public one (Snaps::viewable); a private one
+     * is its owner's alone and answers everyone else as a page that is not
+     * there, the same as a Snap that never was.
+     */
+    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/snaps/{snap:\d+}/', policy: new Policy(Access::Public))]
+    public function snapPage(Request $request, string $slug, string $snap): Response
+    {
+        [$id, $canonical] = $this->find($slug) ?? throw new RouteMiss();
+        $db = $this->minn->db;
+        $row = Snaps::find($db, $id, (int) $snap);
+        if ($row === null || !Snaps::viewable($db, $this->minn->reader->userId, $row)) {
+            throw new RouteMiss();
+        }
+        if ($canonical !== $slug) {
+            return Response::redirect("/players/{$canonical}/snaps/{$snap}/", 301);
+        }
+        $who = $this->who($request, $id, $canonical, 'snaps');
+        $who['streets'] = $this->streetIndex();
+        $name = $who['name'];
+        $sid = (int) $row['id'];
+        $w = (int) $row['width'];
+        $h = (int) $row['height'];
+        $caption = trim((string) $row['caption']);
+        $place = BuddiesOnline::where((string) $row['street'], $who['streets']);
+        $where = implode(', ', array_filter([$place['street'], $place['hub']]));
+        $at = strtotime(((string) $row['created_at']) . ' UTC');
+        $public = (int) $row['public'] === 1;
+        $picture = Snaps::url($id, $sid);
+        $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
+        $alt = $caption !== '' ? $caption : "A snap by {$name}";
+        $main = ($public ? '' : "    <p class=\"profile-private\">Only you can see this snap. Make it public in the game's Snaps to share this page.</p>\n")
+            . "    <figure class=\"snap-page\">\n"
+            . '      <a class="snap-page-picture" href="' . Html::attr($picture) . '"><img src="' . Html::attr($picture) . '"' . $size . ' alt="' . Html::attr($alt) . "\" decoding=\"async\" /></a>\n"
+            . "      <figcaption>\n"
+            . ($caption !== '' ? '        <p class="snap-page-caption">' . Html::esc($caption) . "</p>\n" : '')
+            . '        <p class="snap-page-meta">' . Html::esc(implode(' · ', array_filter([$where, $at ? gmdate('F j, Y', $at) : '', "by {$name}"]))) . "</p>\n"
+            . '        <p class="snap-page-links"><a href="' . Html::attr(Snaps::url($id, $sid, 'download')) . '" download="">Download</a> <a href="' . Html::attr($who['base'] . 'snaps/') . '">All of ' . Html::esc($name) . "'s snaps</a></p>\n"
+            . "      </figcaption>\n    </figure>\n";
+        $body = self::masthead($who, 'snaps')
+            . "<main class=\"band profile profile-page-snap\">\n  <div class=\"wrap\">\n" . $main . "  </div>\n</main>";
+        $title = $caption !== '' ? "{$caption}: a snap by {$name}" : "A snap by {$name}";
+        $description = trim(($where !== '' ? "Taken on {$where}" : 'Taken') . ($at ? ' on ' . gmdate('F j, Y', $at) : '') . " by {$name} in Groddle Afternoon.");
+        // The link preview is the Snap itself (SocialTags leaves a page that has its own og:image alone).
+        $origin = rtrim((string) ($this->minn->site->option('home') ?? ''), '/');
+        $head = '';
+        if ($public) {
+            $tags = [
+                ['property', 'og:type', 'article'], ['property', 'og:site_name', 'Groddle Afternoon'], ['property', 'og:title', $title],
+                ['property', 'og:description', $description], ['property', 'og:url', $origin . $who['base'] . "snaps/{$sid}/"],
+                ['property', 'og:image', $origin . $picture], ['property', 'og:image:width', (string) $w], ['property', 'og:image:height', (string) $h],
+                ['property', 'og:image:alt', $alt], ['name', 'twitter:card', 'summary_large_image'], ['name', 'twitter:image', $origin . $picture],
+            ];
+            foreach ($tags as [$kind, $key, $value]) {
+                $head .= "<meta {$kind}=\"{$key}\" content=\"" . Html::attr($value) . "\" />\n";
+            }
+        } else {
+            $head = "<meta name=\"robots\" content=\"noindex\" />\n";
+        }
+        return $this->page($title, $description, $body, '', $head);
+    }
+
+    /**
+     * A Snap's picture (G1240): 'picture' the kept JPEG, 'small' the cards'
+     * copy, 'download' the kept JPEG as a file named for its street and date.
+     * Snaps::viewable decides: the owner always, anyone else only a public
+     * Snap of a public profile with no block between them; everything else
+     * is a 404, the same as no Snap. A public one is never kept without
+     * asking again (SNAP_KEEP 0, with an ETag), so making it private stops
+     * it at once; a private one is never stored at all. The file's own
+     * address is never sent anywhere (Snaps).
+     */
+    #[Route(Method::Get, '/players/{id:\d+}/snaps/{snap:\d+}/{kind:picture|small|download}', policy: new Policy(Access::Public))]
+    public function snapPicture(Request $request, string $id, string $snap, string $kind): Response
+    {
+        $db = $this->minn->db;
+        $row = Snaps::find($db, (int) $id, (int) $snap);
+        if ($row === null || !Snaps::viewable($db, $this->minn->reader->userId, $row)) {
+            return new Response(404, ['Content-Type' => 'text/plain; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Content-Type-Options' => 'nosniff'], 'Not found');
+        }
+        $bytes = Snaps::bytes($row, $kind);
+        if ($bytes === null) {
+            return new Response(404, ['Content-Type' => 'text/plain; charset=utf-8', 'Cache-Control' => 'no-store', 'X-Content-Type-Options' => 'nosniff'], 'Not found');
+        }
+        $public = (int) $row['public'] === 1;
+        $etag = '"snap-' . substr(hash('sha256', $kind . $row['file'] . ($public ? '1' : '0')), 0, 20) . '"';
+        $headers = [
+            'Content-Type' => 'image/jpeg',
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Security-Policy' => "default-src 'none'; sandbox",
+            'Cache-Control' => $public ? 'public, max-age=' . self::SNAP_KEEP . ', must-revalidate' : 'private, no-store',
+            'ETag' => $etag,
+        ];
+        if ($kind === 'download') {
+            $file = Snaps::fileName($row, $this->streetIndex());
+            $headers['Content-Disposition'] = 'attachment; filename="' . $file . '"; filename*=UTF-8\'\'' . rawurlencode($file);
+        }
+        if ($public && trim((string) $request->header('if-none-match')) === $etag) {
+            return new Response(304, $headers);
+        }
+        return new Response(200, $headers + ['Content-Length' => (string) strlen($bytes)], $bytes);
     }
 
     /**
@@ -790,7 +991,7 @@ final readonly class PlayerPages
     }
 
     /** A whole page in the site's look: the head the themed pages carry, the header menu, the footer. */
-    private function page(string $title, string $description, string $body, string $scripts = ''): Response
+    private function page(string $title, string $description, string $body, string $scripts = '', string $head = ''): Response
     {
         $path = $this->minn->request->path;
         $footer = (string) preg_replace('/<!--.*?-->\s*/s', '', (string) @file_get_contents(dirname(__DIR__) . '/parts/footer.html'));
@@ -799,6 +1000,7 @@ final readonly class PlayerPages
             . '<title>' . Html::esc($title) . " &#8211; Groddle Afternoon</title>\n"
             . '<meta name="description" content="' . Html::attr($description) . "\" />\n"
             . Extension::head()
+            . $head
             . "</head>\n<body class=\"notes players-page\">\n"
             . SiteNav::nav(SiteNav::links($this->minn, 0), $path, SiteNav::badges($this->minn)) . "\n"
             . $body . "\n"

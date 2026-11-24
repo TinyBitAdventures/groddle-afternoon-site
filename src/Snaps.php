@@ -26,15 +26,29 @@ use Minn\RestError;
  *
  * The same here: POST saves one of your Snaps, GET lists yours (the
  * original's snaps/manage), DELETE removes one, GET snaps/random gives the
- * Camera another player's Snap on a public street other than yours (none
- * from a player you block or who blocks you). The caller is always the
- * signed-in user, never read from the request.
+ * Camera another player's public Snap on a public street other than yours
+ * (none from a player you block or who blocks you). The caller is always
+ * the signed-in user, never read from the request.
+ *
+ * Public or private (G1240, Austin 2026-11-24): every Snap starts private,
+ * its owner's alone; POST snaps/<id>/public makes one public or private
+ * again. A public Snap shows on its owner's profile (PlayerPages: the Snaps
+ * section and tab, and a page of its own at /players/<slug>/snaps/<id>/,
+ * the link the game copies, as Glitch's saved dialog gave the photo's page
+ * and a short URL: GlitchrSavedDialog.as 160-225) and may come up on
+ * another player's Camera. Private means private: the Camera never shows it.
  *
  * The picture is untrusted: SnapImage reads its type from the bytes, walks
- * its structure, keeps it within size limits and has GD write a new JPEG;
- * only that is kept, as a file under wp-content/uploads/groddle-snaps/ with
- * a random name, served by the web server like any upload. The row keeps
- * the file's name, never a path the client sent.
+ * its structure, keeps it within size limits and has GD write a new JPEG
+ * (and a SMALL_W copy for the cards); only those are kept, as files under
+ * wp-content/uploads/groddle-snaps/ with random names. The row keeps the
+ * file's name, never a path the client sent. The name never leaves the
+ * site: every picture is served by PlayerPages through
+ * /players/<owner id>/snaps/<id>/picture (small, download), which checks
+ * who may see it (viewable). Snaps saved before G1240 were linked by their
+ * file's address, so sealOld gives each of those files a new random name
+ * once: an old address that was ever seen stops loading. The folder has an
+ * empty index.html so the web server lists nothing.
  *
  * Who may snap is the source's: the Snapshottery card (players/player.js
  * 2148-2173 getCameraAbilities), which needs level 5
@@ -69,8 +83,24 @@ final readonly class Snaps
     /** A street a Snap can lead to: an ordinary street's tsid (assets/streets/index.json), never a private place (an "_" in it). */
     private const STREET = '/^[GL][A-Z0-9]{8,20}$/';
 
-    /** A kept file's name: random hex, .jpg (nothing else is ever written or deleted). */
-    private const FILE = '/^[0-9a-f]{24}\.jpg$/';
+    /**
+     * A kept file's name: random hex, .jpg (nothing else is ever written or
+     * deleted). 32 hex digits since G1240 (never sent to a client); 24 for a
+     * file saved before, whose address the game was given (sealOld renames it).
+     */
+    private const FILE = '/^[0-9a-f]{24}(?:[0-9a-f]{8})?\.jpg$/';
+
+    /** A file saved before G1240, whose address went to the game. */
+    private const OLD_FILE = '/^[0-9a-f]{24}\.jpg$/';
+
+    /** A kept file's small copy (G1240). */
+    private const SMALL = '/^[0-9a-f]{24}(?:[0-9a-f]{8})?-s\.jpg$/';
+
+    /** The option set once sealOld finds no old file left. */
+    public const SEALED_OPTION = 'groddle_snaps_sealed';
+
+    /** Old files sealOld renames in one request. */
+    private const SEAL_BATCH = 100;
 
     public function __construct(private Seams $minn)
     {
@@ -80,7 +110,9 @@ final readonly class Snaps
     #[Route(Method::Get, '/groddle/v1/snaps', policy: new Policy(Access::SignedIn))]
     public function mine(Request $request): Response
     {
-        return Response::json($this->album($this->character()['id']));
+        $me = $this->character()['id'];
+        self::sealOld($this->minn->db, $this->minn->site);
+        return Response::json($this->album($me));
     }
 
     /** Saves a Snap: {image, caption, street, x, y}. */
@@ -105,20 +137,50 @@ final readonly class Snaps
         if (!is_file("{$dir}/index.html")) {
             @file_put_contents("{$dir}/index.html", '');
         }
-        $file = bin2hex(random_bytes(12)) . '.jpg';
-        $tmp = "{$dir}/.{$file}.part";
-        if (@file_put_contents($tmp, $image['bytes'], LOCK_EX) !== strlen($image['bytes']) || !@rename($tmp, "{$dir}/{$file}")) {
-            @unlink($tmp);
+        $file = self::newName();
+        if (!self::write($dir, $file, $image['bytes'])) {
             throw new RestError('groddle_snap_unavailable', 'Snaps cannot be saved on this site right now.', 503);
         }
-        @chmod("{$dir}/{$file}", 0644);
+        // The cards' copy; without it the cards show the picture itself.
+        if (is_string($image['small'] ?? null) && $image['small'] !== '') {
+            self::write($dir, self::smallName($file), $image['small']);
+        }
 
         $db = $this->minn->db;
+        // Private: `public` is left to its default, 0 (Austin 2026-11-24).
         $db->execute(
             'INSERT INTO ' . $db->table(self::TABLE) . ' (user_id, file, street, x, y, caption, width, height, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [$me, $file, $street, $x, $y, $caption, $image['width'], $image['height'], strlen($image['bytes']), gmdate('Y-m-d H:i:s')]
         );
         $id = $db->insertId();
+        return Response::json($this->withSnap($me, $id), 201);
+    }
+
+    /**
+     * Makes one of your Snaps public ({"public": true}: on your profile, a
+     * page of its own, other players' Cameras) or private again (false: off
+     * all of them at once; its pictures answer only you).
+     */
+    #[Route(Method::Post, '/groddle/v1/snaps/{id:\d+}/public', policy: new Policy(Access::SignedIn))]
+    public function share(Request $request, string $id): Response
+    {
+        $me = $this->character()['id'];
+        $on = $request->json()['public'] ?? null;
+        if (!is_bool($on)) {
+            throw new RestError('groddle_snap_public', 'Say whether the snap is public (true or false).', 400);
+        }
+        $db = $this->minn->db;
+        $table = $db->table(self::TABLE);
+        if ($db->value("SELECT 1 FROM {$table} WHERE id = ? AND user_id = ?", [(int) $id, $me]) === null) {
+            throw new RestError('groddle_snap_missing', 'That is not one of your snaps.', 404);
+        }
+        $db->execute("UPDATE {$table} SET public = ? WHERE id = ? AND user_id = ?", [$on ? 1 : 0, (int) $id, $me]);
+        return Response::json($this->withSnap($me, (int) $id));
+    }
+
+    /** The album with one Snap of it picked out as `snap` (null when it is gone). */
+    private function withSnap(int $me, int $id): array
+    {
         $album = $this->album($me);
         $snap = null;
         foreach ($album['snaps'] as $row) {
@@ -126,7 +188,7 @@ final readonly class Snaps
                 $snap = $row;
             }
         }
-        return Response::json(['snap' => $snap] + $album, 201);
+        return ['snap' => $snap] + $album;
     }
 
     /** Deletes one of your Snaps, its file too. */
@@ -142,25 +204,28 @@ final readonly class Snaps
         }
         $db->execute("DELETE FROM {$table} WHERE id = ? AND user_id = ?", [(int) $id, $me]);
         self::unlinkFile($file);
+        self::unlinkFile(self::smallName($file));
         return Response::json(['deleted' => (int) $id] + $this->album($me));
     }
 
     /**
-     * The Camera's random Snap (snaps.randomForCamera): another character's,
-     * on a street that is not `exclude`, from nobody you block or who blocks
-     * you; {snap: null} when there is none.
+     * The Camera's random Snap (snaps.randomForCamera): another character's
+     * public one (private means private, G1240), on a street that is not
+     * `exclude`, from nobody you block or who blocks you; {snap: null} when
+     * there is none.
      */
     #[Route(Method::Get, '/groddle/v1/snaps/random', policy: new Policy(Access::SignedIn))]
     public function random(Request $request): Response
     {
         $me = $this->character()['id'];
+        self::sealOld($this->minn->db, $this->minn->site);
         $exclude = (string) $request->query('exclude', '');
         $exclude = preg_match(self::STREET, $exclude) === 1 ? $exclude : '';
         $db = $this->minn->db;
         $snaps = $db->table(self::TABLE);
         $players = $db->table(Characters::TABLE);
         $ignores = $db->table(Buddies::IGNORES);
-        $where = "s.user_id <> ? AND s.street <> '' AND s.street <> ?"
+        $where = "s.public = 1 AND s.user_id <> ? AND s.street <> '' AND s.street <> ?"
             . " AND NOT EXISTS (SELECT 1 FROM {$ignores} i WHERE (i.user_id = ? AND i.ignored_id = s.user_id) OR (i.user_id = s.user_id AND i.ignored_id = ?))"
             // Never a suspended player's Snap (a ban on any character of the login).
             . ' AND NOT ' . AdminConsole::bannedSql($db, 's.user_id');
@@ -171,35 +236,46 @@ final readonly class Snaps
         }
         $offset = random_int(0, $count - 1);
         $row = $db->row(
-            "SELECT s.id, s.user_id, s.file, s.street, s.x, s.y, s.caption, s.width, s.height, s.created_at, p.name FROM {$snaps} s JOIN {$players} p ON p.user_id = s.user_id WHERE {$where} ORDER BY s.id LIMIT 1 OFFSET {$offset}",
+            "SELECT s.id, s.user_id, s.file, s.street, s.x, s.y, s.caption, s.width, s.height, s.created_at, s.public, p.name FROM {$snaps} s JOIN {$players} p ON p.user_id = s.user_id WHERE {$where} ORDER BY s.id LIMIT 1 OFFSET {$offset}",
             $params
         );
         if (!is_array($row)) {
             return Response::json(['snap' => null]);
         }
-        $snap = self::shape($row);
+        $snap = self::shape($row, Profiles::slugs($db)[(int) $row['user_id']] ?? null);
         $snap['owner'] = ['id' => (int) $row['user_id'], 'name' => (string) $row['name']];
         return Response::json(['snap' => $snap]);
     }
 
-    /** Your album: the Snaps, newest first, and the limits. */
+    /** Your album: the Snaps, newest first, the limits, and your profile's address (null without one). */
     private function album(int $me): array
     {
         $db = $this->minn->db;
-        $rows = $db->rows('SELECT id, file, street, x, y, caption, width, height, created_at FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? ORDER BY id DESC', [$me]);
+        $rows = $db->rows('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? ORDER BY id DESC', [$me]);
+        $slug = Profiles::slugs($db)[$me] ?? null;
         return [
-            'snaps' => array_map(self::shape(...), $rows),
+            'snaps' => array_map(static fn (array $row): array => self::shape($row, $slug), $rows),
             'max' => self::KEEP_MAX,
             'captionMax' => self::CAPTION_MAX,
+            'profile' => $slug === null ? null : "/players/{$slug}/",
         ];
     }
 
-    /** One Snap as the game reads it. */
-    private static function shape(array $row): array
+    /**
+     * One Snap as the game reads it: its pictures' addresses (never the
+     * file's), whether it is public, and its page when it is (the link the
+     * game copies). `slug` is the owner's profile path.
+     */
+    private static function shape(array $row, ?string $slug = null): array
     {
+        $owner = (int) $row['user_id'];
+        $id = (int) $row['id'];
+        $public = (int) ($row['public'] ?? 0) === 1;
         return [
-            'id' => (int) $row['id'],
-            'url' => self::url((string) $row['file']),
+            'id' => $id,
+            'url' => self::url($owner, $id),
+            'small' => is_file(self::dir() . '/' . self::smallName((string) $row['file'])) ? self::url($owner, $id, 'small') : self::url($owner, $id),
+            'download' => self::url($owner, $id, 'download'),
             'street' => (string) $row['street'],
             'x' => (int) $row['x'],
             'y' => (int) $row['y'],
@@ -207,13 +283,21 @@ final readonly class Snaps
             'width' => (int) $row['width'],
             'height' => (int) $row['height'],
             'at' => SaveShape::time((string) $row['created_at']),
+            'public' => $public,
+            'page' => $public && $slug !== null ? self::page($slug, $id) : null,
         ];
     }
 
-    /** Where a kept file is served. */
-    public static function url(string $file): string
+    /** Where a Snap's picture is served (PlayerPages::snapPicture): 'picture', 'small' or 'download'. */
+    public static function url(int $owner, int $id, string $kind = 'picture'): string
     {
-        return '/wp-content/uploads/' . self::FOLDER . '/' . $file;
+        return "/players/{$owner}/snaps/{$id}/{$kind}";
+    }
+
+    /** A public Snap's page on its owner's profile. */
+    public static function page(string $slug, int $id): string
+    {
+        return "/players/{$slug}/snaps/{$id}/";
     }
 
     /** The folder on disk. */
@@ -226,9 +310,165 @@ final readonly class Snaps
     /** Removes a kept file by its name (only names Snaps writes). */
     public static function unlinkFile(string $file): void
     {
-        if (preg_match(self::FILE, $file) === 1) {
+        if (preg_match(self::FILE, $file) === 1 || preg_match(self::SMALL, $file) === 1) {
             @unlink(self::dir() . '/' . $file);
         }
+    }
+
+    /** The small copy's name beside a kept file ('' for a name Snaps did not write). */
+    public static function smallName(string $file): string
+    {
+        return preg_match(self::FILE, $file) === 1 ? substr($file, 0, -4) . '-s.jpg' : '';
+    }
+
+    /** A new kept file's name: 32 random hex digits. */
+    private static function newName(): string
+    {
+        return bin2hex(random_bytes(16)) . '.jpg';
+    }
+
+    /** Writes a kept file whole (a .part first, then renamed in). */
+    private static function write(string $dir, string $file, string $bytes): bool
+    {
+        $tmp = "{$dir}/.{$file}.part";
+        if (@file_put_contents($tmp, $bytes, LOCK_EX) !== strlen($bytes) || !@rename($tmp, "{$dir}/{$file}")) {
+            @unlink($tmp);
+            return false;
+        }
+        @chmod("{$dir}/{$file}", 0644);
+        return true;
+    }
+
+    /**
+     * Gives every file saved before G1240 (a 24-digit name, whose address the
+     * game was sent: the owner's album, and any player's Camera) a new random
+     * name, SEAL_BATCH at a time, so an address once seen stops loading; the
+     * row follows. Once none is left the option says so and this costs one
+     * option read. Two requests at once: only one rename of a file succeeds,
+     * and the row moves only with it.
+     */
+    public static function sealOld(\Minn\Db $db, \Minn\Content\Site $site): int
+    {
+        if ($site->option(self::SEALED_OPTION) === '1') {
+            return 0;
+        }
+        $table = $db->table(self::TABLE);
+        $rows = $db->rows("SELECT id, file FROM {$table} WHERE CHAR_LENGTH(file) = 28 ORDER BY id LIMIT " . self::SEAL_BATCH);
+        $sealed = 0;
+        foreach ($rows as $row) {
+            $old = (string) $row['file'];
+            if (preg_match(self::OLD_FILE, $old) !== 1) {
+                continue;
+            }
+            $new = self::newName();
+            $from = self::dir() . "/{$old}";
+            // A missing file has nothing to hide: the row moves on so the pass ends.
+            if (is_file($from) && !@rename($from, self::dir() . "/{$new}")) {
+                continue;
+            }
+            $sealed += $db->execute("UPDATE {$table} SET file = ? WHERE id = ? AND file = ?", [$new, (int) $row['id'], $old]);
+        }
+        if (count($rows) < self::SEAL_BATCH) {
+            $left = (int) $db->value("SELECT COUNT(*) FROM {$table} WHERE CHAR_LENGTH(file) = 28");
+            if ($left === 0) {
+                $site->setOption(self::SEALED_OPTION, '1', 'yes');
+            }
+        }
+        return $sealed;
+    }
+
+    /**
+     * A Snap's row with its owner, or null.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function find(\Minn\Db $db, int $owner, int $id): ?array
+    {
+        return $db->row('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public FROM ' . $db->table(self::TABLE) . ' WHERE id = ? AND user_id = ?', [$id, $owner]);
+    }
+
+    /**
+     * Whether `reader` may see a Snap: its owner always; anyone else only a
+     * public one whose owner has a public profile (a character at
+     * Profiles::LISTED_LEVEL, not retired, not suspended), with no block
+     * between them either way (the Camera's rule). Everything else answers
+     * as if there were no such Snap.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function viewable(\Minn\Db $db, int $reader, array $row): bool
+    {
+        $owner = (int) $row['user_id'];
+        if ($reader > 0 && $reader === $owner) {
+            return true;
+        }
+        return (int) ($row['public'] ?? 0) === 1 && self::shown($db, $owner) && !self::blocked($db, $reader, $owner);
+    }
+
+    /** Whether a character's public Snaps may show: a listed profile, not retired, not suspended. */
+    public static function shown(\Minn\Db $db, int $owner): bool
+    {
+        return isset(Profiles::slugs($db)[$owner])
+            && Profiles::fromSave($db, $owner)['level'] >= Profiles::LISTED_LEVEL
+            && AdminConsole::banned($db, $owner) === null;
+    }
+
+    /** Whether either of two players blocks the other (Buddies' ignores); never for a signed-out reader. */
+    public static function blocked(\Minn\Db $db, int $reader, int $owner): bool
+    {
+        if ($reader <= 0 || $reader === $owner) {
+            return false;
+        }
+        return $db->value('SELECT 1 FROM ' . $db->table(Buddies::IGNORES) . ' WHERE (user_id = ? AND ignored_id = ?) OR (user_id = ? AND ignored_id = ?) LIMIT 1', [$reader, $owner, $owner, $reader]) !== null;
+    }
+
+    /**
+     * A character's public Snaps, newest first, as rows (PlayerPages: the
+     * profile's Snaps section and tab); none for a reader blocked either way.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function publicOf(\Minn\Db $db, int $owner, int $reader): array
+    {
+        if (self::blocked($db, $reader, $owner)) {
+            return [];
+        }
+        return $db->rows('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? AND public = 1 ORDER BY id DESC', [$owner]);
+    }
+
+    /**
+     * The kept bytes of a Snap's picture ('small': the cards' copy, else the
+     * picture itself), or null when the file is gone.
+     *
+     * @param array<string, mixed> $row
+     */
+    public static function bytes(array $row, string $kind): ?string
+    {
+        $file = (string) $row['file'];
+        if (preg_match(self::FILE, $file) !== 1) {
+            return null;
+        }
+        $dir = self::dir();
+        $small = self::smallName($file);
+        $path = $kind === 'small' && is_file("{$dir}/{$small}") ? "{$dir}/{$small}" : "{$dir}/{$file}";
+        $bytes = is_file($path) ? @file_get_contents($path) : false;
+        return is_string($bytes) && $bytes !== '' ? $bytes : null;
+    }
+
+    /**
+     * A downloaded Snap's file name: the street and the date it was taken
+     * ("Snap of Hechey Track 2026-11-24.jpg"), plain letters only.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $index the game's street index (tsid => row)
+     */
+    public static function fileName(array $row, array $index): string
+    {
+        $where = BuddiesOnline::where((string) $row['street'], $index)['street'];
+        $where = trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('/[^A-Za-z0-9 \'().,-]+/', ' ', $where)));
+        $at = strtotime(((string) $row['created_at']) . ' UTC');
+        $date = $at ? gmdate('Y-m-d', $at) : '';
+        return trim('Snap' . ($where === '' ? '' : " of {$where}") . ($date === '' ? '' : " {$date}")) . '.jpg';
     }
 
     /**
