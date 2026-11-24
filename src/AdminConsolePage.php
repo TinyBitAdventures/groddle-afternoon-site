@@ -19,8 +19,9 @@ use Minn\Http\Route;
  * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
- * reply or add a note without an email, mark working on it, close, reopen; AdminTickets). #reports
- * opens the Reports tab, #report=<id> one report. Chat log: what players said on streets, in
+ * reply or add a note without an email, mark working on it, close, reopen; AdminTickets), searched by
+ * words, player or number, and a menu on each report and on the open one. #reports
+ * opens the Reports tab, #reports?q=<words> a search, #report=<id> one report. Chat log: what players said on streets, in
  * channels and in parties, from the realtime server's log (AdminConsole::chatlog), searched by
  * player, words, kind and days; a player's menu has Chat history, which opens it filtered to them.
  * #chat opens it, #chat=<id> filtered to one player. Credits: the points each report earned for
@@ -77,7 +78,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-10';
+    public const ASSET_KEY = 'skin-11';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its own content key: Extension::importMap). */
     public const SERVER_ASSET_KEY = 'server-3';
@@ -281,6 +282,12 @@ HTML
           <button type="button" aria-pressed="false" data-status="closed">Closed <span class="console-sub" data-console-status-count="closed"></span></button>
         </div>
       </div>
+      <form class="console-search console-ticket-search" data-console-ticket-search role="search">
+        <label for="console-ticket-q" class="console-sr">Search reports</label>
+        <input id="console-ticket-q" name="q" type="search" autocomplete="off" spellcheck="false" placeholder="Words, player or #number" maxlength="100" />
+      </form>
+      <p class="console-sub console-ticket-search-status" data-console-ticket-search-status aria-live="polite" hidden></p>
+      <p class="console-hint">Right-click a report, or use its menu button, Shift+F10 or the Menu key.</p>
       <p class="console-legacy" data-console-legacy hidden><span data-console-legacy-text></span> <button type="button" class="console-small" data-console-migrate>Bring in old reports</button></p>
       <ul class="console-list console-ticketlist" data-console-tickets aria-label="Reports"></ul>
       <button type="button" class="console-more" data-console-tickets-more hidden>Show older</button>
@@ -300,6 +307,7 @@ HTML
             <button type="button" class="console-small" data-console-thread-unworking hidden>Not working on it</button>
             <button type="button" class="console-small" data-console-thread-close>Close</button>
             <button type="button" class="console-small" data-console-thread-reopen hidden>Reopen</button>
+            <button type="button" class="console-menu-btn" aria-haspopup="menu" aria-label="More for this report" data-console-thread-menu>⋯</button>
           </div>
         </div>
         <details class="console-context" data-console-context>

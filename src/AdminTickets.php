@@ -25,6 +25,12 @@ use Minn\RestError;
  *                                  TicketStore::LIST_MAX from offset (0 when left out; digits only, else 400); more: a
  *                                  later page holds some (Show older); total: every ticket for that status (or all);
  *                                  legacy: old report posts not brought in yet
+ *   GET  admin/tickets?…&q=words   the same, narrowed to a search (Austin 2026-11-24; TicketStore::listAll): the
+ *                                  subject, any message's words, the player's name, or the report number (#123 or
+ *                                  123), letter case aside; status still applies; paged and counted the same (total:
+ *                                  every match). + "q": the search as taken (TicketStore::searchQuery: one line, at
+ *                                  most 100 characters); each row + "match": the first message holding it, cut short
+ *                                  around it, when one does. counts stay every ticket's
  *   GET  admin/tickets/{id}        {"ticket":Row,"messages":[Message],"context":{..},"picture":{"url","width","height"}|null}   and marks it read
  *   POST admin/tickets/{id}/reply  {"message","email"?}  the thread + {"delivery","text"}; emails the player (below)
  *                                  unless "email" is false: a note (delivery note), for closing many related reports
@@ -37,7 +43,7 @@ use Minn\RestError;
  *                                  reactions on (or off) any message, as the administrator (TicketReactions, Austin
  *                                  2026-11-18): no email, no activity line, status, read marks and lastMessageAt untouched
  *   POST admin/tickets/migrate     {"made","already","posts","text"}   TicketMigration, once (safe again)
- *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name"},"closedBy":"player"|"admin"|null,"closedAt":time|null}
+ *   Row: Tickets' Summary (unread for the administrators) + {"player":{"id","name","admin"},"closedBy":"player"|"admin"|null,"closedAt":time|null}
  *                                  + "playerReport":{"reported":{"id","name"}} on a player's report of another player (G872)
  *                                  closedBy: who closed it, the player (withdrew it) or an administrator; null while it is
  *                                  not closed, and for reports closed before 2026-11-11 (unknown)
@@ -76,15 +82,21 @@ final readonly class AdminTickets
         if (!ctype_digit($offset) || strlen($offset) > 9) {
             throw new RestError('groddle_ticket_offset', 'The offset is a whole number, 0 or more.', 400);
         }
+        $q = TicketStore::searchQuery($request->query('q') ?? '');
         $store = $this->store();
-        $list = $store->listAll(in_array($status, TicketStore::STATUSES, true) ? $status : null, (int) $offset);
-        $names = (new Characters($this->minn->db))->namesOf(array_map(static fn (array $r): int => (int) $r['player_user_id'], $list['rows']));
-        $reported = PlayerReports::reportedOf($this->minn->db, array_map(static fn (array $r): int => (int) $r['id'], $list['rows']));
+        $list = $store->listAll(in_array($status, TicketStore::STATUSES, true) ? $status : null, (int) $offset, $q);
+        $ids = array_map(static fn (array $r): int => (int) $r['id'], $list['rows']);
+        $players = array_map(static fn (array $r): int => (int) $r['player_user_id'], $list['rows']);
+        $names = (new Characters($this->minn->db))->namesOf($players);
+        $reported = PlayerReports::reportedOf($this->minn->db, $ids);
+        $team = Team::of($this->minn->db, $players);
+        $matches = $q === '' ? [] : $store->matchesIn($ids, $q);
         $out = [];
         foreach ($list['rows'] as $r) {
-            $out[] = $this->row($r, $names, $reported);
+            $out[] = $this->row($r, $names, $reported, $team) + (isset($matches[(int) $r['id']]) ? ['match' => $matches[(int) $r['id']]] : []);
         }
         return Response::json([
+            'q' => $q,
             'tickets' => $out,
             'counts' => $store->counts(),
             'more' => $list['more'],
@@ -238,7 +250,7 @@ final readonly class AdminTickets
         $names = (new Characters($this->minn->db))->namesOf([(int) $row['player_user_id']]);
         $report = PlayerReports::forTicket($this->minn->db, $id, $this->streetIndex());
         return Response::json($extra + [
-            'ticket' => $this->row($row, $names, $report === null ? [] : [$id => $report['reported']]),
+            'ticket' => $this->row($row, $names, $report === null ? [] : [$id => $report['reported']], Team::of($this->minn->db, [(int) $row['player_user_id']])),
             'messages' => (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), $store->revisions($id), $store->messagePictures($id)), (int) ($this->minn->user()?->id ?? 0)),
             'context' => (object) TicketStore::contextOf($row),
             'picture' => $store->pictureOut($id),
@@ -246,14 +258,17 @@ final readonly class AdminTickets
         ])->withHeader('Cache-Control', 'no-store');
     }
 
-    /** @param array<int, array{id: int, name: string}> $reported ticket id => the player it reports (PlayerReports::reportedOf) */
-    private function row(array $r, array $names, array $reported = []): array
+    /**
+     * @param array<int, array{id: int, name: string}> $reported ticket id => the player it reports (PlayerReports::reportedOf)
+     * @param list<int> $team the team's ids among the players (Team::of)
+     */
+    private function row(array $r, array $names, array $reported = [], array $team = []): array
     {
         $player = (int) $r['player_user_id'];
         $closedBy = TicketStore::closedBy($r);
         $about = $reported[(int) $r['id']] ?? null;
         return TicketStore::summary($r, TicketStore::ADMIN) + [
-            'player' => ['id' => $player, 'name' => (string) ($names[$player] ?? "#{$player}")],
+            'player' => ['id' => $player, 'name' => (string) ($names[$player] ?? "#{$player}"), 'admin' => in_array($player, $team, true)],
             'closedBy' => $closedBy,
             'closedAt' => $closedBy !== null && ($r['closed_at'] ?? null) ? SaveShape::time((string) $r['closed_at']) : null,
         ] + ($about === null ? [] : ['playerReport' => ['reported' => $about]]);

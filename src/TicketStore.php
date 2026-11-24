@@ -461,14 +461,30 @@ final readonly class TicketStore
      * A page of LIST_MAX from $offset (the console's Show older asks with the
      * rows it has); more: a later page holds some; total: all for $status.
      *
+     * $q (the console's search, Austin 2026-11-24; searchQuery) narrows it to
+     * tickets whose subject, any message's words or the player's name (their
+     * character's, else the account's display name) hold it, letter case aside,
+     * or whose number it is (#123 or 123). Always parameterised LIKE, its
+     * wildcards escaped (likeOf), so % and _ are only themselves.
+     *
      * @return array{rows: list<array<string, mixed>>, more: bool, total: int}
      */
-    public function listAll(?string $status, int $offset = 0): array
+    public function listAll(?string $status, int $offset = 0, string $q = ''): array
     {
         $offset = max(0, $offset);
-        $where = $status !== null && in_array($status, self::STATUSES, true) ? 'WHERE status = ?' : '';
-        $args = $where === '' ? [] : [$status];
         $t = $this->db->table(self::TABLE);
+        $where = [];
+        $args = [];
+        if ($status !== null && in_array($status, self::STATUSES, true)) {
+            $where[] = 'status = ?';
+            $args[] = $status;
+        }
+        if ($q !== '') {
+            [$search, $searchArgs] = $this->searchSql($q);
+            $where[] = $search;
+            array_push($args, ...$searchArgs);
+        }
+        $where = $where === [] ? '' : 'WHERE ' . implode(' AND ', $where);
         $unread = "(last_author_role = 'player' AND (admin_read_at IS NULL OR admin_read_at < last_message_at))";
         $rows = $this->db->rows('SELECT *, ' . $unread . " AS admin_unread FROM {$t} {$where} ORDER BY admin_unread DESC, FIELD(status, 'open', 'working', 'answered', 'closed'), last_message_at DESC, id DESC LIMIT " . (self::LIST_MAX + 1) . ' OFFSET ' . $offset, $args);
         return [
@@ -477,6 +493,110 @@ final readonly class TicketStore
             'total' => (int) $this->db->value("SELECT COUNT(*) FROM {$t} {$where}", $args),
         ];
     }
+
+    /**
+     * The search's condition on the tickets table and its arguments: the subject, any message's
+     * words, the player's character name (else, with no character, the account's display name, as
+     * Characters::namesOf names them), or the number. Subqueries, not joins, so the list's own
+     * columns stay unambiguous.
+     *
+     * @return array{0: string, 1: list<string|int>}
+     */
+    private function searchSql(string $q): array
+    {
+        $like = self::likeOf($q);
+        $players = $this->db->table(Characters::TABLE);
+        $users = $this->db->table('users');
+        $or = [
+            'subject LIKE ?',
+            'EXISTS (SELECT 1 FROM ' . $this->db->table(self::MESSAGES) . ' m WHERE m.ticket_id = ' . $this->db->table(self::TABLE) . '.id AND m.body LIKE ?)',
+            "player_user_id IN (SELECT p.user_id FROM {$players} p WHERE p.name LIKE ?)",
+            "player_user_id IN (SELECT u.ID FROM {$users} u LEFT JOIN {$players} p ON p.user_id = u.ID WHERE (p.name IS NULL OR p.name = '') AND u.display_name LIKE ?)",
+        ];
+        $args = [$like, $like, $like, $like];
+        $id = self::searchId($q);
+        if ($id !== null) {
+            $or[] = 'id = ?';
+            $args[] = $id;
+        }
+        return ['(' . implode(' OR ', $or) . ')', $args];
+    }
+
+    /** The longest search the console sends (and the route takes). */
+    public const SEARCH_MAX = 100;
+
+    /**
+     * A search as typed, made plain: one line, spaces run together, trimmed,
+     * at most SEARCH_MAX characters; '' for anything that is not text.
+     */
+    public static function searchQuery(mixed $q): string
+    {
+        if (!is_string($q)) {
+            return '';
+        }
+        $q = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/\p{C}+/u', ' ', mb_scrub($q, 'UTF-8'))));
+        return mb_substr($q, 0, self::SEARCH_MAX);
+    }
+
+    /** The ticket number a search names (#123 or 123), or null. */
+    public static function searchId(string $q): ?int
+    {
+        return preg_match('/^#?(\d{1,18})$/', $q, $m) === 1 && (int) $m[1] > 0 ? (int) $m[1] : null;
+    }
+
+    /** A LIKE pattern holding $q anywhere, its wildcards (and the escape) taken as themselves. */
+    public static function likeOf(string $q): string
+    {
+        return '%' . addcslashes($q, '\\%_') . '%';
+    }
+
+    /**
+     * For a search: each ticket's first message whose words hold $q, cut to
+     * a short excerpt around it (excerpt), ticket id => excerpt.
+     *
+     * @param list<int> $tickets
+     * @return array<int, string>
+     */
+    public function matchesIn(array $tickets, string $q): array
+    {
+        $tickets = array_values(array_filter(array_map('intval', $tickets), static fn (int $id): bool => $id > 0));
+        if ($tickets === [] || $q === '') {
+            return [];
+        }
+        $out = [];
+        foreach ($this->db->rows('SELECT ticket_id, body FROM ' . $this->db->table(self::MESSAGES) . ' WHERE ticket_id IN (?) AND body LIKE ? ORDER BY id ASC', [$tickets, self::likeOf($q)]) as $r) {
+            $id = (int) $r['ticket_id'];
+            if (!isset($out[$id])) {
+                $out[$id] = self::excerpt((string) $r['body'], $q);
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The words around the first place $q is in $body (letter case aside), on
+     * one line: about EXCERPT_BEFORE characters before it and the rest up to
+     * EXCERPT_MAX, with an ellipsis where it was cut. The start when $q is not
+     * in it.
+     */
+    public static function excerpt(string $body, string $q, int $max = self::EXCERPT_MAX): string
+    {
+        $text = trim((string) preg_replace('/\s+/u', ' ', $body));
+        $at = $q === '' ? false : mb_stripos($text, $q);
+        $start = $at === false ? 0 : max(0, $at - self::EXCERPT_BEFORE);
+        // Start on a word where it can.
+        if ($start > 0) {
+            $space = mb_strpos($text, ' ', $start);
+            if ($space !== false && $at !== false && $space < $at) {
+                $start = $space + 1;
+            }
+        }
+        $cut = mb_substr($text, $start, $max);
+        return ($start > 0 ? '…' : '') . $cut . ($start + $max < mb_strlen($text) ? '…' : '');
+    }
+
+    public const EXCERPT_MAX = 120;
+    public const EXCERPT_BEFORE = 40;
 
     /** Tickets by status, and how many hold a player's message no administrator has read. @return array<string, int> */
     public function counts(): array

@@ -11,7 +11,13 @@
  *   focused row. A click on a link or control in the row, a double click, or
  *   the click that ends selecting text leaves it shut (rowClickOpens). Arrow
  *   keys move in the menu, Enter or Space picks, Escape closes and gives focus
- *   back.
+ *   back. Every menu here is showMenu's (a report's too).
+ * - Give (the player menu): search the give catalog (findItems), or Browse by category (Austin
+ *   2026-11-24; itemGroups): each category with its count, each item with where the game gives it
+ *   (admin/catalog from data/item-sources.json, groddle-afternoon tools/build-item-sources.mjs: sold,
+ *   made, harvested, found or given, between players) or Admin only (not in the game yet) with why,
+ *   Show all or only those (by category), and a price band. Price is GSJS base_cost, never called
+ *   rarity: Glitch had no rarity scale, only a rare tag on a few limited editions (shown as Rare).
  * - An administrator's menu (online) also has Go to the Interrogation room (admin/interrogation):
  *   their game goes to the moderators' room no door leads into (game js/interrogation-room.js),
  *   and the room's door takes them back where they were.
@@ -34,6 +40,17 @@
  *   own chip; no email) and Close or Reopen. A first message the player
  *   changed before anyone read it says edited. Polled every TICKETS_POLL_MS
  *   while the tab is visible. #reports opens the tab, #report=<id> a report.
+ *   Search (Austin 2026-11-24): the box searches the subject, every message's words, the player's
+ *   name and the report number (#123 or 123) on the site (admin/tickets q, paged like the list; the
+ *   status filter still applies), REPORT_SEARCH_MS after the last key; the line under it counts the
+ *   matches (searchStatus), the rows mark what matched (highlightParts) and show the message that
+ *   holds it; #reports?q=<words> opens a search (reportsHash). Each report has a menu (reportMenuFor)
+ *   in the list (its menu button, right-click at the pointer, Shift+F10 or the Menu key on the row)
+ *   and on the open report (its ⋯ button, or right-click or Shift+F10 on its head): Open, Reply (the
+ *   reply box: the email goes only from Send reply, with Don't email as it stands), Working on it,
+ *   Close or Reopen (the same routes as the buttons; no email), Score credit (the Credit box), the
+ *   player's own menu, Copy link (#report=<id>) and Mark read while unread (opening it is what marks
+ *   it read; the site has no route to mark one unread).
  *   Each message has the chat's reactions (Austin 2026-11-18): its chips (who reacted in the tip,
  *   yours pressed; a click puts yours on or takes it off) and React, the set in a row (reactionSet,
  *   from main[data-reactions]: the site's data/reactions.json, the game's js/chat-reactions.js
@@ -51,7 +68,9 @@
  *   testers board, the board as it stands and the closed and answered reports not scored yet (a click
  *   opens the report). A report's thread has a Credit box: its score (kind, points, reason, refs, who
  *   scored it and when) and a form to set or change it (PUT admin/tickets/<id>/credit; picking a kind
- *   puts in its points). #credits opens the tab.
+ *   puts in its points). #credits opens the tab. An administrator's own reports (player.admin: the
+ *   team by capability, src/Team.php) are listed and can be scored, marked Admin; they never count
+ *   on either board (Austin 2026-11-24).
  * - Boards (src/AdminBoards.php, Austin 2026-11-04): the notes players pinned on the shared Notice
  *   Boards (src/LedgerBoard.php), reported ones first: where, the words, who wrote and who pinned it,
  *   how many reported it (a player's Report makes a ticket in Reports too). Show On the boards,
@@ -259,6 +278,7 @@ export const COPY = Object.freeze({
   communityRemoveNote: (first) => (first ? 'Its first post is removed and the whole thread leaves its board for everyone. Restore brings it back.' : 'Its words are hidden for everyone; the thread says a moderator removed it. Restore brings it back.'),
   communityStopTitle: (name) => `Stop ${name} posting on the boards`,
   communityStopNote: 'They can still read the boards and play. A suspended account can\'t post either.',
+  adminReport: 'An administrator\'s report: it can be scored, and never counts on the testers boards.',
   boardNone: { pinned: 'No notes are pinned on the boards.', reported: 'No note on a board has been reported.', all: 'No player has pinned a note yet.' },
 });
 
@@ -279,6 +299,152 @@ export function boardWho(n) {
 export function reportsCount({ total = null, list = [] } = {}) {
   const n = Number.isFinite(total) ? total : list.length;
   return n > 0 ? String(n) : '';
+}
+
+/** The longest search the Reports box sends (src/TicketStore.php SEARCH_MAX). */
+export const REPORT_Q_MAX = 100;
+/** How long the Reports box waits after the last key before it searches. */
+export const REPORT_SEARCH_MS = 300;
+
+/** A search as admin/tickets takes it (TicketStore::searchQuery): one line, spaces run together, trimmed, at most REPORT_Q_MAX. */
+export function reportQuery(q) {
+  return String(q ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, REPORT_Q_MAX);
+}
+
+/** admin/tickets's query: the status, the search when there is one, the offset past the first page. */
+export function ticketsParams({ status = 'all', q = '', offset = 0 } = {}) {
+  const parts = [`status=${encodeURIComponent(status || 'all')}`];
+  const query = reportQuery(q);
+  if (query) parts.push(`q=${encodeURIComponent(query)}`);
+  if (offset > 0) parts.push(`offset=${Math.floor(offset)}`);
+  return parts.join('&');
+}
+
+/** The Reports tab's address with its search: #reports, or #reports?q=<words>. */
+export function reportsHash(q) {
+  const query = reportQuery(q);
+  return query ? `#reports?q=${encodeURIComponent(query)}` : '#reports';
+}
+
+/** The search in a Reports address: '' for #reports, the words for #reports?q=<words>, null for any other address. */
+export function reportsHashQuery(hash) {
+  const m = /^#reports(?:\?q=(.*))?$/.exec(String(hash || ''));
+  if (!m) return null;
+  try { return reportQuery(decodeURIComponent((m[1] || '').replace(/\+/g, ' '))); } catch { return ''; }
+}
+
+/** Text cut where the search is in it, letter case aside: [[text, hit]], for <mark>; [[text, false]] with no search. */
+export function highlightParts(text, q) {
+  const s = String(text ?? '');
+  const query = reportQuery(q);
+  if (!query || !s) return [[s, false]];
+  const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'giu');
+  return s.split(re).map((part, i) => [part, i % 2 === 1]).filter(([part]) => part !== '');
+}
+
+/** The message words a search row shows under it: the site's match, unless the subject already shows the hit. */
+export function matchLine(t, q) {
+  if (!t?.match || !reportQuery(q)) return '';
+  return highlightParts(t.subject || '', q).some(([, hit]) => hit) ? '' : String(t.match);
+}
+
+/** The line under the Reports search: how many reports match, and the status filter on top. '' with no search. */
+export function searchStatus({ q = '', total = null, shown = 0, status = 'all' } = {}) {
+  const query = reportQuery(q);
+  if (!query) return '';
+  const n = Number.isFinite(total) ? total : shown;
+  const words = n === 0 ? `No report matches “${query}”.` : n === 1 ? `1 report matches “${query}”.` : `${n} reports match “${query}”.`;
+  return TICKET_STATUS[status] ? `${words} ${TICKET_STATUS[status]} only.` : words;
+}
+
+/**
+ * What a report's menu offers, in the list and on the open report (Austin 2026-11-24):
+ * [{ id, label, enabled, reason }]. open: it is the report shown (no Open). Working on it and Close
+ * as the open report's own buttons offer them; Mark read only while it is unread (the site has no way
+ * to mark one unread). Nothing here emails: Reply opens the reply box, with its Don't email.
+ */
+export function reportMenuFor(t, { open = false } = {}) {
+  const status = t?.status;
+  const items = [];
+  if (!open) items.push({ id: 'open', label: 'Open' });
+  items.push({ id: 'reply', label: 'Reply…' });
+  if (status === 'working') items.push({ id: 'unworking', label: 'Not working on it' });
+  else items.push({ id: 'working', label: 'Mark working on it', enabled: status !== 'closed', reason: status === 'closed' ? 'Reopen it first.' : '' });
+  items.push(status === 'closed' ? { id: 'reopen', label: 'Reopen' } : { id: 'close', label: 'Close' });
+  items.push({ id: 'credit', label: 'Score credit…' });
+  items.push({ id: 'player', label: `${t?.player?.name || 'The player'}: player menu…` });
+  items.push({ id: 'copy', label: 'Copy link' });
+  if (t?.unread) items.push({ id: 'read', label: 'Mark read' });
+  return items.map((i) => ({ enabled: true, reason: '', ...i }));
+}
+
+/** A report's link in the console (#report=<id>). */
+export function reportLink(id, origin = '') {
+  return `${origin}/console/#report=${Number(id) || 0}`;
+}
+
+/** The Give pop-up's words for a class no player can get in the game (data/item-sources.json ok 0). */
+export const ADMIN_ONLY = 'Admin only (not in the game yet)';
+
+/** The kinds of source in words (tools/build-item-sources.mjs KINDS), when the catalog sends none. */
+export const ITEM_SOURCES = Object.freeze({ sold: 'Sold by a vendor', made: 'Made', harvest: 'Harvested', other: 'Found or given', multiplayer: 'Between players' });
+
+/** Price bands for the Browse view: base price (GSJS base_cost), never rarity (Glitch had no rarity scale). */
+export const PRICE_BANDS = Object.freeze([['', 'Any price'], ['0-9', 'Price under 10'], ['10-99', 'Price 10 to 99'], ['100-999', 'Price 100 to 999'], ['1000-', 'Price 1,000 or more'], ['none', 'No price']]);
+
+/** A base price's band (PRICE_BANDS). */
+export function priceBand(price) {
+  const n = Number(price) || 0;
+  if (n <= 0) return 'none';
+  if (n < 10) return '0-9';
+  if (n < 100) return '10-99';
+  if (n < 1000) return '100-999';
+  return '1000-';
+}
+
+/** Whether a give class has no source in the game today (only an administrator can hand it out). */
+export function adminOnly(it) {
+  return it?.ok === false;
+}
+
+/** Where a class comes from, in words: its kinds of source, or ADMIN_ONLY and why; '' when the site does not know. */
+export function itemWhere(it, kinds = ITEM_SOURCES) {
+  if (typeof it?.ok !== 'boolean') return '';
+  if (!it.ok) return it.why ? `${ADMIN_ONLY}. ${it.why}.` : ADMIN_ONLY;
+  return (Array.isArray(it.src) ? it.src : []).map((k) => kinds[k] || ITEM_SOURCES[k] || k).join(', ');
+}
+
+/**
+ * The give catalog by category for the Browse view: [{ cat, items, total, adminOnly }], categories by
+ * name (Other last), items by name. show 'admin': only the classes no player can get; band: one PRICE_BANDS band.
+ */
+export function itemGroups(items, { show = 'all', band = '' } = {}) {
+  const groups = new Map();
+  for (const it of Array.isArray(items) ? items : []) {
+    if (show === 'admin' && !adminOnly(it)) continue;
+    if (band && priceBand(it.price) !== band) continue;
+    const cat = it.cat || 'Other';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(it);
+  }
+  return [...groups.entries()]
+    .map(([cat, list]) => ({ cat, items: list.sort((a, b) => a.name.localeCompare(b.name) || a.c.localeCompare(b.c)), total: list.length, adminOnly: list.filter(adminOnly).length }))
+    .sort((a, b) => Number(a.cat === 'Other') - Number(b.cat === 'Other') || a.cat.localeCompare(b.cat));
+}
+
+/** A category's line: "202 items, 2 admin only". */
+export function groupWords(g) {
+  const n = g?.total ?? 0;
+  const items = n === 1 ? '1 item' : `${n} items`;
+  return g?.adminOnly ? `${items}, ${g.adminOnly} admin only` : items;
+}
+
+/** The line over the Browse view: how many classes it shows. */
+export function browseWords(groups, show = 'all') {
+  const n = groups.reduce((sum, g) => sum + g.total, 0);
+  const cats = groups.length === 1 ? '1 category' : `${groups.length} categories`;
+  if (show === 'admin') return n === 0 ? 'Every item here can be got in the game.' : `${n === 1 ? '1 item' : `${n} items`} no player can get in the game yet, in ${cats}. Only an administrator can give ${n === 1 ? 'it' : 'them'}.`;
+  return n === 0 ? 'No items at that price.' : `${n === 1 ? '1 item' : `${n} items`} in ${cats}.`;
 }
 
 /** "Reported by 2", or ''. */
@@ -603,7 +769,7 @@ function boot() {
   const root = document.querySelector('[data-console]');
   if (!root) return;
   const api = createApi();
-  const state = { online: [], onlineIds: new Set(), found: [], bans: [], rooks: [], streets: null, items: null, me: 0, logBefore: 0 };
+  const state = { online: [], onlineIds: new Set(), found: [], bans: [], rooks: [], streets: null, items: null, itemKinds: ITEM_SOURCES, me: 0, logBefore: 0 };
   const $ = (sel) => root.querySelector(sel);
   const note = $('[data-console-note]');
   const server = $('[data-console-server]');
@@ -792,15 +958,17 @@ function boot() {
     node.remove();
     if (focusBack) opener?.focus?.();
   }
-  function openMenu(p, opener, at) {
+  /**
+   * One menu for every row that has one (a player, a report): entries from menuFor or reportMenuFor,
+   * at the pointer (at) or under the opener; arrow keys, Home and End move, Escape, Tab or Shift+F10
+   * close it and give focus back.
+   */
+  function showMenu({ label, head, entries, opener, at, onPick }) {
     closeMenu(false);
-    const online = state.onlineIds.has(p.id);
-    const fresh = state.online.find((o) => o.id === p.id) || state.found.find((o) => o.id === p.id) || p;
-    const entries = [...menuFor({ ...p, ...fresh }, { me: state.me, online }), ...accountMenuFor()];
-    const node = el('div', { class: 'console-menu', role: 'menu', 'aria-label': `Actions for ${p.name}` },
-      el('p', { class: 'console-menu-head', text: p.name, 'aria-hidden': 'true' }));
+    const node = el('div', { class: 'console-menu', role: 'menu', 'aria-label': label },
+      el('p', { class: 'console-menu-head', text: head, 'aria-hidden': 'true' }));
     const buttons = entries.map((m) => el('button', { type: 'button', role: 'menuitem', 'aria-disabled': m.enabled ? null : 'true', title: m.reason || null, 'data-menu-item': m.id,
-      onclick: () => { if (!m.enabled) return; closeMenu(false); pick(m.id, { ...p, ...fresh }, opener); } },
+      onclick: () => { if (!m.enabled) return; closeMenu(false); onPick(m.id); } },
     el('span', { text: m.label }), m.enabled ? null : el('span', { class: 'console-sub', text: m.reason })));
     node.append(...buttons);
     document.body.append(node);
@@ -821,6 +989,12 @@ function boot() {
       if (e.key === 'Home') { e.preventDefault(); i = 0; buttons[0].focus(); }
       if (e.key === 'End') { e.preventDefault(); i = buttons.length - 1; buttons[i].focus(); }
     });
+  }
+  function openMenu(p, opener, at) {
+    const online = state.onlineIds.has(p.id);
+    const fresh = state.online.find((o) => o.id === p.id) || state.found.find((o) => o.id === p.id) || p;
+    const who = { ...p, ...fresh };
+    showMenu({ label: `Actions for ${p.name}`, head: p.name, entries: [...menuFor(who, { me: state.me, online }), ...accountMenuFor()], opener, at, onPick: (id) => pick(id, who, opener) });
   }
   document.addEventListener('pointerdown', (e) => { if (menu && !menu.node.contains(e.target)) closeMenu(false); });
   addEventListener('scroll', () => closeMenu(false), { passive: true });
@@ -883,7 +1057,11 @@ function boot() {
     return state.streets;
   }
   async function items() {
-    state.items ??= (await api.call('admin/catalog')).items || [];
+    if (!state.items) {
+      const r = await api.call('admin/catalog');
+      state.items = r.items || [];
+      state.itemKinds = { ...ITEM_SOURCES, ...(r.kinds || {}) };
+    }
     return state.items;
   }
 
@@ -927,6 +1105,48 @@ function boot() {
     ], 'Close', async () => {});
   }
 
+  /**
+   * The Give pop-up's Browse view (Austin 2026-11-24): the give catalog by category with counts, each
+   * item with where the game gives it (data/item-sources.json through admin/catalog) or Admin only (not
+   * in the game yet), Show (all, or only those no player can get) and a price band. A category's items
+   * are drawn when it opens. onAdd puts an item in the give.
+   */
+  function giveBrowser(onAdd) {
+    const show = el('select', { 'aria-label': 'Show', 'data-give-show': '' }, el('option', { value: 'all', text: 'All items' }), el('option', { value: 'admin', text: 'Admin only, by category', title: `${ADMIN_ONLY}, by category` }));
+    const band = el('select', { 'aria-label': 'Price', 'data-give-band': '' }, ...PRICE_BANDS.map(([v, label]) => el('option', { value: v, text: label })));
+    const words = el('p', { class: 'console-sub', 'aria-live': 'polite' });
+    const box = el('div', { class: 'console-browse-groups' });
+    const node = el('div', { class: 'console-browse', hidden: true, 'data-give-browse': '' }, el('div', { class: 'console-browse-filters' }, show, band), words, box);
+    const toggle = el('button', { type: 'button', class: 'console-small console-browse-toggle', 'aria-expanded': 'false', text: 'Browse by category' });
+    const row = (it) => el('li', { 'data-item': it.c, 'data-admin-only': adminOnly(it) ? '' : null },
+      el('div', { class: 'console-browse-item' },
+        el('b', { text: it.name }), el('span', { class: 'console-sub', text: ` ${it.c}` }),
+        it.rare ? el('span', { class: 'console-tag', text: 'Rare', title: 'Glitch tagged it rare (a numbered limited edition)' }) : null,
+        adminOnly(it) ? el('span', { class: 'console-tag console-tag-bad', text: 'Admin only' }) : null,
+        // The tag says Admin only: the line says why (itemWhere's words otherwise).
+        el('span', { class: 'console-sub console-browse-where', text: [adminOnly(it) ? it.why || '' : itemWhere(it, state.itemKinds), it.price ? `Price ${Number(it.price).toLocaleString()}` : ''].filter(Boolean).join(' · ') })),
+      el('button', { type: 'button', class: 'console-small', text: 'Add', 'aria-label': `Add ${it.name}`, onclick: () => onAdd(it) }));
+    const fill = async () => {
+      const groups = itemGroups(await items(), { show: show.value, band: band.value });
+      words.textContent = browseWords(groups, show.value);
+      box.replaceChildren(...groups.map((g) => {
+        const d = el('details', { class: 'console-browse-cat', 'data-category': g.cat }, el('summary', {}, el('b', { text: g.cat }), el('span', { class: 'console-sub', text: ` ${groupWords(g)}` })));
+        const open = () => { if (d.dataset.filled) return; d.dataset.filled = '1'; d.append(el('ul', { class: 'console-browse-items', 'aria-label': g.cat }, ...g.items.map(row))); };
+        d.addEventListener('toggle', () => { if (d.open) open(); });
+        if (show.value === 'admin') { d.open = true; open(); }
+        return d;
+      }));
+    };
+    show.addEventListener('change', () => fill().catch(failed));
+    band.addEventListener('change', () => fill().catch(failed));
+    toggle.addEventListener('click', () => {
+      node.hidden = !node.hidden;
+      toggle.setAttribute('aria-expanded', String(!node.hidden));
+      if (!node.hidden && !box.children.length) fill().catch(failed);
+    });
+    return { node, toggle };
+  }
+
   function pick(kind, p, opener) {
     if (kind === 'message') {
       const text = el('textarea', { name: 'text', rows: '5', maxlength: String(TEXT_MAX), required: true, placeholder: 'Plain text. It shows in their game as "Message from an administrator".' });
@@ -950,9 +1170,11 @@ function boot() {
         n.addEventListener('input', () => { s.n = Math.max(1, Math.min(GIVE_EACH, Math.floor(Number(n.value) || 1))); });
         return el('li', {}, n, el('span', { text: ` ${s.item.name}` }), el('button', { type: 'button', class: 'console-small', text: 'Remove', 'aria-label': `Remove ${s.item.name}`, onclick: () => { stacks.delete(s.item.c); draw(); } }));
       }));
-      const pk = picker({ label: 'Add an item', placeholder: 'Item name', search: async (q) => findItems(await items(), q), describe: (it) => [el('b', { text: it.name }), el('span', { class: 'console-sub', text: ` ${it.c}` })], onPick: (it) => { if (!stacks.has(it.c) && stacks.size < GIVE_STACKS) stacks.set(it.c, { item: it, n: 1 }); pk.input.value = ''; draw(); } });
+      const add = (it) => { if (!stacks.has(it.c) && stacks.size < GIVE_STACKS) stacks.set(it.c, { item: it, n: 1 }); draw(); };
+      const pk = picker({ label: 'Add an item', placeholder: 'Item name', search: async (q) => findItems(await items(), q), describe: (it) => [el('b', { text: it.name }), el('span', { class: 'console-sub', text: ` ${it.c}` }), adminOnly(it) ? el('span', { class: 'console-tag console-tag-bad', text: 'Admin only', title: itemWhere(it, state.itemKinds) }) : null], onPick: (it) => { add(it); pk.input.value = ''; } });
+      const browse = giveBrowser(add);
       const cur = el('input', { type: 'number', min: '0', max: String(GIVE_CURRANTS), step: '1', value: '0', name: 'currants' });
-      dialog(`Give ${p.name}`, [pk.node, list, el('label', { text: 'Currants' }, cur), el('p', { class: 'console-sub', text: `Up to ${GIVE_STACKS} kinds, ${GIVE_EACH} of each. Only things the ledger carries. It goes through the ledger, so their save keeps it.` })], 'Give', async () => {
+      dialog(`Give ${p.name}`, [pk.node, browse.toggle, browse.node, list, el('label', { text: 'Currants' }, cur), el('p', { class: 'console-sub', text: `Up to ${GIVE_STACKS} kinds, ${GIVE_EACH} of each. Only things the ledger carries. It goes through the ledger, so their save keeps it.` })], 'Give', async () => {
         const currants = Math.max(0, Math.floor(Number(cur.value) || 0));
         await act('give', p, { items: [...stacks.values()].map((s) => ({ c: s.item.c, n: s.n })), currants });
       });
@@ -1252,26 +1474,39 @@ function boot() {
 
   // == Reports ==
   // total: every ticket for the filter (the header's number); more: an older page waits (Show older).
-  const tickets = { list: [], counts: {}, status: 'all', open: 0, thread: null, total: null, more: false };
+  // q: the search (admin/tickets q, Austin 2026-11-24), '' for none; it stays in the hash (#reports?q=...).
+  const tickets = { list: [], counts: {}, status: 'all', q: '', open: 0, thread: null, total: null, more: false };
   function chip(status) {
     return el('span', { class: `console-chip console-chip-${status}`, text: TICKET_STATUS[status] || status });
   }
   function when(iso) {
     return iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
   }
+  /** Text with the search marked (highlightParts): strings and <mark>s for el(). */
+  function marked(text, q = tickets.q) {
+    return highlightParts(text, q).map(([part, hit]) => (hit ? el('mark', { text: part }) : part));
+  }
   function renderTickets() {
     const list = $('[data-console-tickets]');
     list.replaceChildren(...tickets.list.map((t) => {
-      const btn = el('button', { type: 'button', class: 'console-ticket', 'data-ticket': t.id, 'aria-current': t.id === tickets.open ? 'true' : null, onclick: () => openTicket(t.id) },
+      const btn = el('button', { type: 'button', class: 'console-ticket', 'data-ticket': t.id, 'aria-current': t.id === tickets.open ? 'true' : null, onclick: () => openTicket(t.id),
+        oncontextmenu: (e) => { e.preventDefault(); openReportMenu(t, btn, { x: e.clientX, y: e.clientY }); },
+        onkeydown: (e) => { if ((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu') { e.preventDefault(); openReportMenu(t, btn, null); } } },
         el('span', { class: 'console-ticket-top' },
           t.unread ? el('span', { class: 'console-dot', title: 'Unread', 'aria-label': 'Unread' }) : null,
-          el('b', { text: t.subject || '(no words)' }),
+          el('b', {}, ...marked(t.subject || '(no words)')),
           t.playerReport ? el('span', { class: 'console-chip console-chip-player', text: 'Player report' }) : null,
           chip(t.status)),
-        el('span', { class: 'console-sub', text: `${t.player.name} · ${t.lastAuthor === 'admin' ? 'you replied' : 'they wrote'} ${when(t.lastMessageAt)}` }));
-      return el('li', { 'data-unread': t.unread ? '1' : null }, btn);
+        el('span', { class: 'console-sub' }, `#${t.id} · `, ...marked(t.player.name), t.player.admin ? el('span', { class: 'console-tag', text: 'Admin' }) : null, ` · ${t.lastAuthor === 'admin' ? 'you replied' : 'they wrote'} ${when(t.lastMessageAt)}`),
+        matchLine(t, tickets.q) ? el('span', { class: 'console-sub console-ticket-match' }, ...marked(matchLine(t, tickets.q))) : null);
+      const more = el('button', { type: 'button', class: 'console-menu-btn console-ticket-menu', 'aria-haspopup': 'menu', 'aria-label': `Actions for report #${t.id}`, onclick: (e) => openReportMenu(t, e.currentTarget, null) }, '⋯');
+      return el('li', { 'data-unread': t.unread ? '1' : null }, btn, more);
     }));
     $('[data-console-tickets-empty]').hidden = tickets.list.length > 0;
+    $('[data-console-tickets-empty]').textContent = tickets.q ? 'No report matches that search.' : 'No reports here.';
+    const found = $('[data-console-ticket-search-status]');
+    found.textContent = searchStatus({ q: tickets.q, total: tickets.total, shown: tickets.list.length, status: tickets.status });
+    found.hidden = !found.textContent;
     const c = tickets.counts;
     $('[data-console-tickets-count]').textContent = reportsCount(tickets);
     $('[data-console-tickets-more]').hidden = !tickets.more;
@@ -1285,14 +1520,15 @@ function boot() {
   async function loadTickets(older = false) {
     const ask = ++ticketsAsked;
     const status = tickets.status;
+    const q = tickets.q;
     const keep = older ? 0 : tickets.list.length;
     const rows = older ? tickets.list.slice() : [];
     let r;
     try {
       do {
-        r = await api.call(`admin/tickets?status=${status}${rows.length ? `&offset=${rows.length}` : ''}`);
-        // A filter switch or a newer load since this one asked: its rows belong to another list.
-        if (ask !== ticketsAsked || status !== tickets.status) return;
+        r = await api.call(`admin/tickets?${ticketsParams({ status, q, offset: rows.length })}`);
+        // A filter switch, a new search or a newer load since this one asked: its rows belong to another list.
+        if (ask !== ticketsAsked || status !== tickets.status || q !== tickets.q) return;
         const seen = new Set(rows.map((t) => t.id));
         const page = (r.tickets || []).filter((t) => !seen.has(t.id));
         rows.push(...page);
@@ -1316,6 +1552,25 @@ function boot() {
     Object.assign(tickets, { list: [], more: false, total: null });
     loadTickets();
   });
+  // The search (Austin 2026-11-24): as you type, REPORT_SEARCH_MS after the last key; Enter at once.
+  const ticketSearch = $('[data-console-ticket-search]');
+  let searchTimer = 0;
+  function setSearch(q, { hash = true, fill = false, load = true } = {}) {
+    clearTimeout(searchTimer);
+    const query = reportQuery(q);
+    if (fill) ticketSearch.q.value = query;
+    if (query === tickets.q) return;
+    tickets.q = query;
+    Object.assign(tickets, { list: [], more: false, total: null });
+    if (hash) history.replaceState(null, '', reportsHash(query));
+    if (load) loadTickets();
+  }
+  ticketSearch.q.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => setSearch(ticketSearch.q.value), REPORT_SEARCH_MS);
+  });
+  ticketSearch.addEventListener('submit', (e) => { e.preventDefault(); setSearch(ticketSearch.q.value); });
+
   $('[data-console-tickets-more]').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const had = tickets.list.length;
@@ -1506,6 +1761,69 @@ function boot() {
     loadCredit(id);
   }
 
+  // == A report's menu (Austin 2026-11-24): the list's rows and the open report, through showMenu ==
+  function openReportMenu(t, opener, at) {
+    showMenu({ label: `Actions for report #${t.id}`, head: `#${t.id} ${t.subject || '(no words)'}`, entries: reportMenuFor(t, { open: tickets.open === t.id }), opener, at, onPick: (id) => reportPick(id, t, opener, at) });
+  }
+  /** Working on it, Close, Reopen from a menu: the open report's own routes, no email. */
+  async function reportStatus(t, path, body) {
+    const r = await api.call(`admin/tickets/${t.id}/${path}`, { method: 'POST', ...(body ? { body } : {}) });
+    if (tickets.open === t.id) renderThread(r);
+    say(`#${t.id}: ${r.text || 'Done.'}`);
+    loadTickets();
+    loadLog();
+  }
+  /** Opens a report when it is not the one shown, then runs then(). */
+  async function withOpen(t, then) {
+    if (tickets.open !== t.id) await openTicket(t.id, false);
+    if (tickets.open === t.id) then();
+  }
+  function reportPick(kind, t, opener, at) {
+    const go = (p) => p.catch(failed);
+    if (kind === 'open') go(openTicket(t.id));
+    // Reply opens the reply box, with Don't email as it stands: the email goes only from Send reply.
+    else if (kind === 'reply') go(withOpen(t, () => { reply.scrollIntoView({ block: 'nearest' }); reply.message.focus(); }));
+    else if (kind === 'working' || kind === 'unworking') go(reportStatus(t, 'working', { working: kind === 'working' }));
+    else if (kind === 'close' || kind === 'reopen') go(reportStatus(t, kind));
+    else if (kind === 'credit') {
+      go(withOpen(t, () => {
+        const box = $('[data-console-credit]');
+        box.open = true;
+        box.scrollIntoView({ block: 'nearest' });
+        creditForm.kind.focus();
+      }));
+    } else if (kind === 'player') openMenu({ id: t.player.id, name: t.player.name, admin: Boolean(t.player.admin) }, opener?.isConnected ? opener : $('[data-console-tickets]'), at);
+    else if (kind === 'copy') {
+      const link = reportLink(t.id, location.origin);
+      const copied = globalThis.navigator?.clipboard?.writeText?.(link);
+      if (copied) copied.then(() => say(`Copied the link to #${t.id}.`), () => say(link));
+      else say(link);
+    } else if (kind === 'read') {
+      // Opening a report is what marks it read (GET admin/tickets/<id>); the one shown stays.
+      go(api.call(`admin/tickets/${t.id}`).then(() => {
+        const row = tickets.list.find((x) => x.id === t.id);
+        if (row?.unread) { row.unread = false; tickets.counts.unread = Math.max(0, (tickets.counts.unread || 1) - 1); }
+        renderTickets();
+      }));
+    }
+  }
+  {
+    const head = $('[data-console-thread-body] .console-thread-head');
+    const more = $('[data-console-thread-menu]');
+    const shown = () => tickets.thread?.ticket || null;
+    more.addEventListener('click', () => { if (shown()) openReportMenu(shown(), more, null); });
+    head.addEventListener('contextmenu', (e) => {
+      if (!shown() || e.target.closest('a, input, textarea')) return;
+      e.preventDefault();
+      openReportMenu(shown(), more, { x: e.clientX, y: e.clientY });
+    });
+    head.addEventListener('keydown', (e) => {
+      if (!shown() || !((e.shiftKey && e.key === 'F10') || e.key === 'ContextMenu')) return;
+      e.preventDefault();
+      openReportMenu(shown(), more, null);
+    });
+  }
+
   // == A report's credit (src/AdminReportCredits.php) ==
   const creditForm = $('[data-console-credit-form]');
   let creditFor = 0;
@@ -1571,7 +1889,7 @@ function boot() {
     table.tBodies[0].replaceChildren(...list.map((c) => {
       const tr = el('tr', { tabindex: '0', 'data-ticket': c.ticket, onclick: () => openReport(c.ticket), onkeydown: (e) => { if (e.key === 'Enter') openReport(c.ticket); } },
         el('td', {}, el('b', { text: `#${c.ticket} ` }), document.createTextNode(c.subject || '(no words)')),
-        el('td', { text: c.player?.name || '' }),
+        el('td', {}, c.player?.name || '', c.player?.admin ? el('span', { class: 'console-tag', text: 'Admin', title: COPY.adminReport }) : null),
         el('td', { class: 'console-num', text: String(c.points) }),
         el('td', {}, el('span', { class: 'console-chip', text: CREDIT_WORDS[c.kind] || c.kind }), document.createTextNode(` ${c.reason}`), c.by === 'agent' ? el('span', { class: 'console-sub', text: ' (agent)' }) : null));
       return tr;
@@ -1583,10 +1901,11 @@ function boot() {
       el('span', { class: 'console-sub', text: `${b.points} ${b.points === 1 ? 'point' : 'points'}, ${b.reports} ${b.reports === 1 ? 'report' : 'reports'}` }))));
     $('[data-console-board-empty]').hidden = board.length > 0;
     const unscored = r.unscored || [];
-    $('[data-console-unscored]').replaceChildren(...unscored.map((t) => el('li', {},
+    // The team's own reports (player.admin) are listed and can be scored, marked Admin: they never reach a board.
+    $('[data-console-unscored]').replaceChildren(...unscored.map((t) => el('li', { 'data-admin': t.player?.admin ? '' : null },
       el('button', { type: 'button', class: 'console-ticket', onclick: () => openReport(t.id) },
         el('span', { class: 'console-ticket-top' }, el('b', { text: `#${t.id} ${t.subject || '(no words)'}` }), el('span', { class: `console-chip console-chip-${t.status}`, text: TICKET_STATUS[t.status] || t.status })),
-        el('span', { class: 'console-sub', text: `${t.player?.name || ''} · ${when(t.createdAt)}` })))));
+        el('span', { class: 'console-sub' }, `${t.player?.name || ''}`, t.player?.admin ? el('span', { class: 'console-tag', text: 'Admin', title: COPY.adminReport }) : null, ` · ${when(t.createdAt)}`)))));
     $('[data-console-unscored-empty]').hidden = unscored.length > 0;
     $('[data-console-unscored-count]').textContent = unscored.length ? String(unscored.length) : '';
     creditsUnscored(unscored.length);
@@ -1649,7 +1968,8 @@ function boot() {
   }
   function fromHash() {
     const m = /^#report=(\d+)$/.exec(location.hash);
-    if (m) { showTab('reports'); openTicket(Number(m[1]), false); } else if (location.hash === '#reports') showTab('reports');
+    const search = reportsHashQuery(location.hash);
+    if (m) { showTab('reports'); openTicket(Number(m[1]), false); } else if (search !== null) { setSearch(search, { hash: false, fill: true, load: false }); showTab('reports'); }
     else if (location.hash === '#builder' && $('[data-console-tab="builder"]')) showTab('builder');
     else if (/^#chat=\d+$/.test(location.hash)) openChat({ id: Number(location.hash.slice(6)) });
     else if (location.hash === '#chat') showTab('chat');

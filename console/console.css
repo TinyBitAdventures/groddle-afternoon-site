@@ -166,6 +166,21 @@ a.console-hint { color: var(--fg); }
 .console-stacks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .console-stacks li { display: flex; align-items: center; gap: 6px; }
 .console-qty { width: 6em; }
+/* Give: Browse by category (itemGroups); a category's items drawn when it opens. */
+.console-browse { display: grid; gap: 6px; }
+.console-form .console-browse-toggle { justify-self: start; }
+.console-browse[hidden] { display: none; }
+.console-browse-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.console-browse-filters select { flex: 1 1 12em; min-width: 0; }
+.console-browse-groups { max-height: 320px; overflow: auto; border: 1px solid var(--cx-strong, var(--border)); border-radius: 12px; padding: 4px 8px; }
+.console-browse-cat { border-bottom: 1px solid var(--row-line); }
+.console-browse-cat:last-child { border-bottom: 0; }
+.console-browse-cat summary { padding: 5px 0; cursor: pointer; }
+.console-browse-items { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; }
+.console-browse-items li { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; }
+.console-browse-items li:hover { background: var(--cx-soft, var(--track)); }
+.console-browse-item { flex: 1 1 auto; min-width: 0; }
+.console-browse-where { display: block; }
 
 .console-count-unread { background: var(--play-bg); color: var(--play-fg); }
 /* A tab's panel that is not shown (its grid display would beat [hidden]). */
@@ -180,7 +195,13 @@ a.console-hint { color: var(--fg); }
 .console .console-filter button[aria-pressed="true"] { background: var(--cx-soft); border-color: var(--accent); }
 .console-legacy { margin: 0 0 8px; padding: 8px 12px; border: 1px dashed var(--cx-strong); border-radius: 12px; color: var(--lead); }
 .console-ticketlist { max-height: 640px; overflow: auto; }
-.console-ticketlist li { border-bottom: 1px solid var(--row-line); }
+.console-ticketlist li { display: flex; align-items: flex-start; gap: 2px; border-bottom: 1px solid var(--row-line); }
+.console-ticketlist li .console-ticket { flex: 1 1 auto; min-width: 0; }
+.console .console-ticket-menu { flex: none; margin-top: 6px; }
+.console-ticket-match { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+.console-ticketlist mark { background: var(--cx-soft, var(--track)); color: inherit; border-radius: 3px; box-shadow: inset 0 -2px 0 var(--accent); }
+.console-ticket-search { margin: 0 0 4px; }
+.console-ticket-search-status { margin: 0 0 6px; }
 .console .console-ticket { display: grid; gap: 2px; width: 100%; padding: 8px 6px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-weight: 400; }
 .console .console-ticket { border-radius: 10px; }
 .console .console-ticket:hover { background: var(--cx-soft); }
