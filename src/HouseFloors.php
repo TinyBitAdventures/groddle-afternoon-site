@@ -23,7 +23,8 @@ use Minn\Db;
  * groddle_drops as stacks the owner dropped (LedgerDrop::fromFloor): each leaves the owner's ledger
  * as a settled drop already applied, in the same transaction that takes it out of the stored save,
  * so it is counted once, never twice. A class the ledger does not carry (a bag with things in it, a
- * named bag, a note, an untradeable class) or a tool stack whose copies wear differently stays.
+ * named bag, an untradeable class), a class the game keeps the player's own on shared ground (a note,
+ * a Still: Economy::own, report #670) or a tool stack whose copies wear differently stays.
  *
  * Once: the save's row in groddle_house_floors says it was done (with nothing to move, too), and
  * keeps the save's droppedItems entry as it was and the ops it made, so it can be put back
@@ -125,11 +126,23 @@ final readonly class HouseFloors
         if (!empty($row['contents']) || !empty($row['name']) || !empty($row['sort'])) {
             return 'bag';
         }
-        if (!$economy->tradeable($c) || $c === 'note') {
+        if (!$economy->tradeable($c)) {
             return 'type';
         }
-        // groddle_drops keeps one wear for a stack: a tool stack whose copies differ stays as it is.
-        $points = is_array($row['points'] ?? null) ? array_values(array_unique(array_map(static fn ($p) => $p === null ? 'full' : (int) $p, $row['points']))) : [];
+        // A note, and a Still that works on the floor (#670): the player's own, as the game drops them
+        // (js/drops-mp.js shareReason, the same list through the economy table's "own").
+        $own = $economy->own($c);
+        if ($own !== '') {
+            return $own;
+        }
+        // groddle_drops keeps one wear for a stack: a tool stack whose copies differ stays as it is. The
+        // points line up with the stack's first tools, any without one are full (js/world-items.js
+        // pointsFor), so [40] on three picks is one worn and two full: they differ.
+        $points = is_array($row['points'] ?? null) ? array_values($row['points']) : [];
+        if ($points !== [] && count($points) < $n) {
+            $points = array_pad($points, $n, null);
+        }
+        $points = array_values(array_unique(array_map(static fn ($p) => is_numeric($p) ? (int) $p : 'full', array_slice($points, 0, $n))));
         if (count($points) > 1) {
             return 'wear';
         }
@@ -240,15 +253,7 @@ final readonly class HouseFloors
                 return ['back' => 0, 'gone' => 0, 'done' => false];
             }
             $moved = json_decode((string) $row['moved'], true);
-            $backup = json_decode((string) $row['backup'], true);
-            $rows = [];
-            foreach (is_array($backup['streets'] ?? null) ? $backup['streets'] : [] as $key => $list) {
-                foreach (is_array($list) ? $list : [] as $r) {
-                    if (is_array($r)) {
-                        $rows[$key . "\n" . ($r['id'] ?? '')] = $r;
-                    }
-                }
-            }
+            $rows = self::backupRows((string) $row['backup']);
             $data = SaveShape::decode((string) $save['data']);
             $entries = $data === null ? [] : array_filter((array) $data->entries, 'is_string');
             $dropped = is_string($entries['droppedItems'] ?? null) ? json_decode($entries['droppedItems'], true) : null;
@@ -272,6 +277,124 @@ final readonly class HouseFloors
             $ledger->log($user, 'floor', ['reverted' => $back, 'gone' => $gone], $now);
             return ['back' => $back, 'gone' => $gone, 'done' => true];
         });
+    }
+
+    /** How near (px, either way) a stack of the same class in the save stands "at that spot" (returnKept). */
+    public const SPOT = 24;
+
+    /**
+     * #670: the moved stacks the move should have left in the save (a Still, which works on the floor:
+     * stays() keeps it now), each put back where the owner left it (bin/house-floors.php return-kept).
+     * Like revert, but for just those rows, and the rest of the save as it is now: each still lying
+     * there, the owner's, unchanged, goes back to the owner's ledger (LedgerDrop::backToFloor, why
+     * 'kept', <op>-r) and its row, as the backup kept it (a Still's hopper and Hooch with it), joins
+     * the stored save's droppedItems, in one transaction per player. Skipped: one picked up since
+     * ('taken'), eaten or gone ('gone'), changed ('changed'), its row already in the save ('there'),
+     * or the owner's own stack of that class at that spot now ('spot'). One returned before is 'done',
+     * so a second run changes nothing. $apply false only counts (no lock, no write). The save row is
+     * left unclaimed (writer ''), as revert leaves it. The realtime server keeps drawing a returned
+     * stack until it restarts or someone tries to pick it up (the site answers it is gone).
+     *
+     * @return array{user: int, back: int, outcomes: array<string, array<string, int>>}
+     */
+    public static function returnKept(Db $db, Ledger $ledger, int $user, int $now, bool $apply): array
+    {
+        $run = static function () use ($db, $ledger, $user, $now, $apply): array {
+            $lock = $apply ? ' FOR UPDATE' : '';
+            $out = ['user' => $user, 'back' => 0, 'outcomes' => []];
+            $saves = $db->table(MultiplayerSave::TABLE);
+            $save = $db->row("SELECT data FROM {$saves} WHERE user_id = ?{$lock}", [$user]);
+            $t = $db->table(self::TABLE);
+            $row = $db->row("SELECT backup, moved, reverted_at FROM {$t} WHERE user_id = ?{$lock}", [$user]);
+            $data = $save === null ? null : SaveShape::decode((string) $save['data']);
+            if ($data === null || $row === null || $row['reverted_at'] !== null) {
+                return $out;
+            }
+            $economy = Economy::shared();
+            $moved = json_decode((string) $row['moved'], true);
+            $rows = self::backupRows((string) $row['backup']);
+            $entries = array_filter((array) $data->entries, 'is_string');
+            $dropped = is_string($entries['droppedItems'] ?? null) ? json_decode($entries['droppedItems'], true) : null;
+            $dropped = is_array($dropped) ? $dropped : ['version' => 1, 'nextId' => 1, 'streets' => []];
+            if (!is_array($dropped['streets'] ?? null)) {
+                $dropped['streets'] = [];
+            }
+            // What the save holds now: a stack returned in this run never makes another one's spot taken.
+            $had = $dropped;
+            $drops = $db->table(LedgerDrop::TABLE);
+            $note = static function (string $what, string $c) use (&$out): void {
+                $out['outcomes'][$what][$c] = ($out['outcomes'][$what][$c] ?? 0) + 1;
+            };
+            foreach (is_array($moved['moves'] ?? null) ? $moved['moves'] : [] as $m) {
+                $r = is_array($m) ? ($rows[($m['place'] ?? '') . "\n" . ($m['row'] ?? '')] ?? null) : null;
+                if ($r === null || self::stays($r, $economy) === '') {
+                    continue;
+                }
+                $c = (string) $m['c'];
+                $d = $db->row("SELECT dropper_id, class_tsid, count, status, why, merged_into FROM {$drops} WHERE id = ?{$lock}", [(string) $m['op']]);
+                $what = match (true) {
+                    $d === null => 'gone',
+                    $d['status'] === 'reverted' && $d['why'] === 'kept' => 'done',
+                    $d['status'] === 'taken' => 'taken',
+                    $d['status'] !== 'ground' => 'gone',
+                    (int) $d['dropper_id'] !== $user || $d['class_tsid'] !== $c || (int) $d['count'] !== (int) $m['n'] || $d['merged_into'] !== null => 'changed',
+                    default => self::inSave($had, (string) $m['place'], $r),
+                };
+                if ($what === '' && $apply) {
+                    $what = LedgerDrop::backToFloor($db, $ledger, (string) $m['op'], $user, $now, 'kept') ? 'back' : 'gone';
+                } elseif ($what === '') {
+                    $what = 'back';
+                }
+                if ($what === 'back') {
+                    $dropped['streets'][(string) $m['place']][] = $r;
+                    $out['back']++;
+                }
+                $note($what, $c);
+            }
+            if ($apply && $out['back'] > 0) {
+                $entries['droppedItems'] = (string) json_encode($dropped, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                $db->execute("UPDATE {$saves} SET data = ?, version = version + 1, updated_at = ?, writer = '', seq = 0 WHERE user_id = ?", [SaveShape::encode(SaveShape::with($data, $entries)), gmdate('Y-m-d H:i:s', $now), $user]);
+                $ledger->log($user, 'floor', ['kept' => $out['outcomes']], $now);
+            }
+            return $out;
+        };
+        return $apply ? Ledger::atomically($db, $run) : $run();
+    }
+
+    /**
+     * Whether a backed-up row's place in the save is taken now (returnKept): 'there' when the row
+     * itself is back, 'spot' when a stack of its class lies within SPOT of it, '' when it is free.
+     */
+    public static function inSave(array $dropped, string $place, array $row): string
+    {
+        foreach (is_array($dropped['streets'][$place] ?? null) ? $dropped['streets'][$place] : [] as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            if (($r['id'] ?? null) === ($row['id'] ?? '')) {
+                return 'there';
+            }
+            if (($r['classTsid'] ?? null) === ($row['classTsid'] ?? '') && is_numeric($r['x'] ?? null) && is_numeric($r['y'] ?? null)
+                && abs((float) $r['x'] - (float) $row['x']) <= self::SPOT && abs((float) $r['y'] - (float) $row['y']) <= self::SPOT) {
+                return 'spot';
+            }
+        }
+        return '';
+    }
+
+    /** A backup's rows by place and row id ("<place>\n<id>"). */
+    private static function backupRows(string $backup): array
+    {
+        $b = json_decode($backup, true);
+        $rows = [];
+        foreach (is_array($b['streets'] ?? null) ? $b['streets'] : [] as $key => $list) {
+            foreach (is_array($list) ? $list : [] as $r) {
+                if (is_array($r)) {
+                    $rows[$key . "\n" . ($r['id'] ?? '')] = $r;
+                }
+            }
+        }
+        return $rows;
     }
 
     /**
@@ -313,6 +436,38 @@ final readonly class HouseFloors
             }
         }
         return null;
+    }
+
+    /**
+     * A moved stack put back (<op>-r: revert, or returnKept for a Still): [the move, its backed-up row]
+     * for this owner, or null. A copy of the save kept over the one it went back into (Ledger::reapply)
+     * gets the row back on its floor, as it was (catchUpBack), never a bare count in its pack.
+     */
+    public static function backOf(Db $db, int $user, string $trade): ?array
+    {
+        if (!str_ends_with($trade, '-r') || ($move = self::moveOf($db, $user, substr($trade, 0, -2))) === null) {
+            return null;
+        }
+        $backup = $db->value('SELECT backup FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ?', [$user]);
+        $row = self::backupRows(is_string($backup) ? $backup : '')[$move['place'] . "\n" . $move['row']] ?? null;
+        return $row === null ? null : [$move, $row];
+    }
+
+    /** Ledger::applyOne for a stack put back (backOf): its row on that copy's floor, once. */
+    public static function catchUpBack(array $entries, array $back): array
+    {
+        [$move, $row] = $back;
+        $dropped = is_string($entries['droppedItems'] ?? null) ? json_decode($entries['droppedItems'], true) : null;
+        $dropped = is_array($dropped) ? $dropped : ['version' => 1, 'nextId' => 1, 'streets' => []];
+        if (!is_array($dropped['streets'] ?? null)) {
+            $dropped['streets'] = [];
+        }
+        if (self::inSave($dropped, (string) $move['place'], $row) === 'there') {
+            return $entries;
+        }
+        $dropped['streets'][(string) $move['place']][] = $row;
+        $entries['droppedItems'] = (string) json_encode($dropped, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return $entries;
     }
 
     /**

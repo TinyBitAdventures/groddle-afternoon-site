@@ -192,6 +192,17 @@ final class Economy
         return is_string($k) ? $k : '';
     }
 
+    /**
+     * Why a player keeps this class their own on shared ground, '' when it is shared like any other: a
+     * note ('note'), a Still that works there ('works'). The game's list (js/drops-mp.js KEPT_OWN, its
+     * shareReason), carried here as each class's "own" by tools/build-economy.mjs (report #670).
+     */
+    public function own(string $class): string
+    {
+        $k = $this->items[$class]['own'] ?? '';
+        return is_string($k) ? $k : '';
+    }
+
     /** The rules for a copy's words, by kind (CopyTags::clean). */
     public function tagRules(): array
     {

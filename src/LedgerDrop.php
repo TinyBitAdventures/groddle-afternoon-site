@@ -585,11 +585,12 @@ final readonly class LedgerDrop
     }
 
     /**
-     * G1224 (HouseFloors::revert): a moved floor stack still on the ground goes back to its owner's
-     * ledger (the caller puts the row back in the stored save, in this same transaction), recorded once
-     * as <op>-r, applied as it is made. False when it is no longer on the ground (picked up, eaten).
+     * G1224 (HouseFloors::revert, and #670 HouseFloors::returnKept, why 'kept'): a moved floor stack
+     * still on the ground goes back to its owner's ledger (the caller puts the row back in the stored
+     * save, in this same transaction), recorded once as <op>-r, applied as it is made. False when it is
+     * no longer on the ground (picked up, eaten).
      */
-    public static function backToFloor(Db $db, Ledger $ledger, string $op, int $user, int $now): bool
+    public static function backToFloor(Db $db, Ledger $ledger, string $op, int $user, int $now, string $why = 'revert'): bool
     {
         $drops = $db->table(self::TABLE);
         $row = $db->row("SELECT class_tsid, count, status, dropper_id FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
@@ -601,9 +602,9 @@ final readonly class LedgerDrop
         $state = $ledger->lock($user, $now);
         self::move($db, $user, $state, $c, $n, $now);
         $stamp = gmdate('Y-m-d H:i:s', $now);
-        $db->execute("UPDATE {$drops} SET status = 'reverted', taker_id = ?, why = 'revert', taken_at = ? WHERE id = ?", [$user, $stamp, $op]);
+        $db->execute("UPDATE {$drops} SET status = 'reverted', taker_id = ?, why = ?, taken_at = ? WHERE id = ?", [$user, $why, $stamp, $op]);
         $db->execute('INSERT IGNORE INTO ' . $db->table(Ledger::TRADES) . " (trade_id, status, a_id, b_id, a_gave, b_gave, a_applied_at, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?, ?)", [$op . '-r', $user, self::NONE, self::goodsJson($c, $n), $stamp, $stamp, $stamp]);
-        $ledger->log($user, 'credit', ['trade' => $op . '-r', 'got' => [$c => $n], 'from' => 'floor revert'], $now);
+        $ledger->log($user, 'credit', ['trade' => $op . '-r', 'got' => [$c => $n], 'from' => 'floor ' . $why], $now);
         return true;
     }
 

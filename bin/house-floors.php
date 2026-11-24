@@ -10,9 +10,17 @@
  *   wp eval-file wp-content/themes/groddle/bin/house-floors.php apply users=500    (move them now)
  *   wp eval-file wp-content/themes/groddle/bin/house-floors.php revert users=500   (put them back)
  *   wp eval-file wp-content/themes/groddle/bin/house-floors.php done               (the saves moved, with counts)
+ *   wp eval-file wp-content/themes/groddle/bin/house-floors.php return-kept        (what return-kept apply would do)
+ *   wp eval-file wp-content/themes/groddle/bin/house-floors.php return-kept apply  (do it; users=500 for some)
+ *
+ * return-kept (#670): the move took stacks it should have left in the save (a Still, which works on the
+ * floor, as js/drops-mp.js shareReason keeps it); each still lying there goes back into its owner's save
+ * as the backup kept it (HouseFloors::returnKept): one picked up since, or with the owner's own Still at
+ * that spot now, is skipped, and a second run does nothing. Counts per user id and class, no names.
  *
  * The realtime server shows moved stacks when someone next joins the house (drops.go refresh); after a
- * revert it still draws the reverted ones until it restarts (a pickup of one is refused).
+ * revert or a return-kept it still draws the ones put back until it restarts (a pickup of one is
+ * refused, and the street then forgets it).
  */
 
 // No declare(strict_types): wp eval-file runs this through eval().
@@ -25,7 +33,7 @@ spl_autoload_register(static function (string $class): void {
 });
 
 $argv2 = $args ?? [];
-$mode = in_array('apply', $argv2, true) ? 'apply' : (in_array('revert', $argv2, true) ? 'revert' : (in_array('done', $argv2, true) ? 'done' : 'list'));
+$mode = in_array('return-kept', $argv2, true) ? 'return-kept' : (in_array('apply', $argv2, true) ? 'apply' : (in_array('revert', $argv2, true) ? 'revert' : (in_array('done', $argv2, true) ? 'done' : 'list')));
 $users = null;
 foreach ($argv2 as $a) {
     if (str_starts_with($a, 'users=')) {
@@ -54,6 +62,29 @@ $opt = static function (string $name, float $default) use ($rt): float {
     return is_numeric($v) && (float) $v >= 0 ? (float) $v : $default;
 };
 $ledger = new Groddle\Minn\Ledger($db, Groddle\Minn\Economy::shared(), $opt('groddle_ledger_rate', Groddle\Minn\Ledger::RATE), $opt('groddle_ledger_capacity', Groddle\Minn\Ledger::CAPACITY), Groddle\Minn\Ledger::startEmptyIds($rt->site->option(Groddle\Minn\Ledger::START_EMPTY_OPTION)));
+if ($mode === 'return-kept') {
+    $apply = in_array('apply', $argv2, true);
+    $out['apply'] = $apply;
+    $totals = ['players' => 0, 'back' => 0, 'outcomes' => []];
+    $in = $users ? ' AND user_id IN (' . implode(',', $users) . ')' : '';
+    foreach ($db->rows("SELECT user_id FROM {$floors} WHERE reverted_at IS NULL{$in} ORDER BY user_id") as $r) {
+        $row = Groddle\Minn\HouseFloors::returnKept($db, $ledger, (int) $r['user_id'], time(), $apply);
+        if ($row['outcomes'] === []) {
+            continue;
+        }
+        $out['saves'][] = $row;
+        $totals['players']++;
+        $totals['back'] += $row['back'];
+        foreach ($row['outcomes'] as $what => $byClass) {
+            foreach ($byClass as $c => $n) {
+                $totals['outcomes'][$what][$c] = ($totals['outcomes'][$what][$c] ?? 0) + $n;
+            }
+        }
+    }
+    $out['totals'] = $totals;
+    echo json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    return;
+}
 $where = $users ? ' WHERE s.user_id IN (' . implode(',', $users) . ')' : '';
 $totals = ['saves' => 0, 'moves' => 0, 'kept' => []];
 foreach ($db->rows("SELECT s.user_id, s.data, f.user_id AS done FROM {$saves} s LEFT JOIN {$floors} f ON f.user_id = s.user_id{$where} ORDER BY s.user_id") as $r) {

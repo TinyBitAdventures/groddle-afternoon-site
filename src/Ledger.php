@@ -595,6 +595,8 @@ final readonly class Ledger
             LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
             // G1224: an old floor stack moved to the shared floor comes off a kept copy's floor, never its pack.
             ($move = HouseFloors::moveOf($this->db, $user, $p['trade'])) !== null => HouseFloors::catchUp($entries, $move),
+            // #670: a moved stack put back (a revert, or a Still returned) goes back on a kept copy's floor with its words.
+            ($back = HouseFloors::backOf($this->db, $user, $p['trade'])) !== null => HouseFloors::catchUpBack($entries, $back),
             // A note pinned on a board or taken off one keeps its words (LedgerBoard).
             LedgerBoard::isBoard($p['trade']) => LedgerBoard::catchUp($this->db, $entries, $user, $p),
             // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.
