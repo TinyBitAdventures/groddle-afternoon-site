@@ -86,7 +86,7 @@ use Minn\RestError;
  *   takeable_drop put the stack in with apiPutItemIntoPosition, which merged it into a like stack
  *   there below its stackmax (GameServerJS items/include/takeable.js 202-207; Eleven Location.addItem
  *   475-503): as many as the stack takes join it in the drop's own transaction, the rest lies on its
- *   own ("n"). A stack takes only from its own dropper or the home's owner (joins: each row keeps its
+ *   own ("n"). A stack takes only from its own dropper (joins; Austin 2026-11-24: each row keeps its
  *   dropper, so drops.go's return after dropKeep never sends anyone's goods to someone else). The
  *   drop keeps its row, 'merged' when all of it joined, so its op is found as any drop's.
  *
@@ -339,9 +339,9 @@ final readonly class LedgerDrop
      * How many of a drop (or a moved stack) of `c`, `n`, wear `r`, words `t`, dropped by `by` on
      * `street`, the like stack `$into` takes (its row locked): 0 when it takes none. Only on a house
      * or Tower floor; a stack still on the ground there, of the same class, with no wear or words on
-     * either; dropped by the same player or by the home's owner (each row keeps its own dropper for
-     * drops.go's return after dropKeep: the owner's stacks there never go back, so nobody's goods go
-     * home to someone else); and no more than the class's stackmax (Eleven Location.addItem 475-503).
+     * either; dropped by the same player (Austin 2026-11-24: only one player's own stacks join, so each
+     * row keeps its dropper's return after dropKeep and nobody's goods change hands); and no more than
+     * the class's stackmax (Eleven Location.addItem 475-503).
      *
      * @param array{status: string, street: string, class_tsid: string, count: int|string, points: mixed, tag: mixed, dropper_id: int|string}|null $into
      */
@@ -354,8 +354,7 @@ final readonly class LedgerDrop
         if ($r !== null || $t !== null || $into['points'] !== null || ($into['tag'] ?? null) !== null) {
             return 0;
         }
-        $dropper = (int) $into['dropper_id'];
-        if ($dropper !== $by && $dropper !== $owner) {
+        if ((int) $into['dropper_id'] !== $by) {
             return 0;
         }
         return max(0, min($n, $max - (int) $into['count']));
