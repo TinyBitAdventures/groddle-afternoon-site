@@ -81,18 +81,20 @@ use Minn\RestError;
  *        floor drops HouseFloors moved there on the owner's load).
  *
  *   On a house or Tower floor (HOUSE-<owner>, TOWER-<owner>-<floor>) a drop may name a like stack:
- *   POST groddle/v1/ledger/drop {…, "into":"drop-…", "max":3}
+ *   POST groddle/v1/ledger/drop {…, "into":"drop-…", "max"?:9999}
  *        200 {"status":"settled","into":"drop-…","joined":2,"in":3,"n":1}   (no "into": it lies on its own)
  *   takeable_drop put the stack in with apiPutItemIntoPosition, which merged it into a like stack
  *   there below its stackmax (GameServerJS items/include/takeable.js 202-207; Eleven Location.addItem
  *   475-503): as many as the stack takes join it in the drop's own transaction, the rest lies on its
  *   own ("n"). A stack takes only from its own dropper (joins; Austin 2026-11-24: each row keeps its
  *   dropper, so drops.go's return after dropKeep never sends anyone's goods to someone else). The
- *   drop keeps its row, 'merged' when all of it joined, so its op is found as any drop's. A class of
- *   one per stack ("max":1, an emblem) piles up with no cap (pileCap; Austin 2026-11-24: "Let them pile
- *   up on floors", a difference from Glitch); a tool or a class whose copies carry words never joins.
+ *   drop keeps its row, 'merged' when all of it joined, so its op is found as any drop's. A pile there
+ *   has no stack limit for any class, only the most a stack holds anywhere (pileCap, 9999; Austin
+ *   2026-11-24: "Let's remove the pile limits", a difference from Glitch, whose stackmax capped every
+ *   pile); a tool or a class whose copies carry words never joins. The site reads the pile from its own
+ *   table: the "max" drops.go sends is not needed (a realtime server from before sent the stackmax).
  *
- *   POST groddle/v1/ledger/drop/move  (signed) {"op":"move-<16 hex>","id":<owner>,"drop":"drop-…","street":"HOUSE-7","x":900,"y":620,"into"?:"drop-…","max"?:3}
+ *   POST groddle/v1/ledger/drop/move  (signed) {"op":"move-<16 hex>","id":<owner>,"drop":"drop-…","street":"HOUSE-7","x":900,"y":620,"into"?:"drop-…","max"?:9999}
  *        200 {"status":"settled","n":3,"x":900,"y":620,"into"?,"joined"?,"in"?} | 409 {"status":"refused","why":"place|gone"}
  *   The owner's Decoration Mode move of a stack on their floor (main.js doModifyItem 4852-4890 moved any
  *   stack in the house, merging onto a like one): it stays on the ground for everyone, recorded once per
@@ -319,11 +321,10 @@ final readonly class LedgerDrop
         // The dropper's own copy's words, checked again (the realtime server checked them first).
         $t = isset($item['t']) ? CopyTags::json(Economy::shared(), $c, $n, $item['t']) : null;
         $out = ['op' => $op, 'id' => $id, 'street' => $street, 'x' => $x, 'y' => $y, 'c' => $c, 'n' => $n, 'r' => $r] + ($t !== null ? ['t' => $t] : []);
-        // The like stack it lands on (a house or Tower floor, drops.go), with the class's stackmax.
+        // The like stack it lands on (a house or Tower floor, drops.go); its pile is the site's own (pileCap).
         $into = $body['into'] ?? null;
-        $max = $body['max'] ?? null;
-        if (self::opId($into) && $into !== $op && is_int($max) && $max >= 1 && $max <= 9999) {
-            $out += ['into' => $into, 'max' => $max];
+        if (self::opId($into) && $into !== $op) {
+            $out += ['into' => $into];
         }
         return $out;
     }
@@ -343,11 +344,11 @@ final readonly class LedgerDrop
      * or Tower floor; a stack still on the ground there, of the same class, with no wear or words on
      * either; dropped by the same player (Austin 2026-11-24: only one player's own stacks join, so each
      * row keeps its dropper's return after dropKeep and nobody's goods change hands); and no more than
-     * the class's stackmax (Eleven Location.addItem 475-503), a one-per-stack class's pile excepted (pileCap).
+     * the class's pile (pileCap: 9999, the rest lying beside it).
      *
      * @param array{status: string, street: string, class_tsid: string, count: int|string, points: mixed, tag: mixed, dropper_id: int|string}|null $into
      */
-    public static function joins(?array $into, string $street, string $c, int $n, ?int $r, ?string $t, int $by, int $max): int
+    public static function joins(?array $into, string $street, string $c, int $n, ?int $r, ?string $t, int $by): int
     {
         $owner = self::floorOwner($street);
         if ($into === null || $owner === 0 || $into['status'] !== 'ground' || (string) $into['street'] !== $street || (string) $into['class_tsid'] !== $c) {
@@ -359,27 +360,27 @@ final readonly class LedgerDrop
         if ((int) $into['dropper_id'] !== $by) {
             return 0;
         }
-        return max(0, min($n, self::pileCap($c, $max) - (int) $into['count']));
+        return max(0, min($n, self::pileCap($c) - (int) $into['count']));
     }
 
-    /** The most one pile of a one-per-stack class holds on a house or Tower floor (the most a drop or a take moves, call and part). */
+    /** The most one pile holds on a house or Tower floor (the most a drop or a take moves, call and part). */
     public const PILE_MAX = 9999;
 
     /**
-     * How many of class `c` (stackmax `max`, as drops.go tells it) one stack on a house or Tower floor
-     * holds: its stackmax (Eleven Location.addItem 475-503), except a class of one per stack, which piles up
-     * to PILE_MAX.
-     * ours: Austin 2026-11-24, one-per-stack things (emblems) pile up on floors, shelves and tables;
-     * Glitch's stackmax 1 kept them apart. Never things whose copies keep their own identity: a tool (its
+     * How many of class `c` one pile on a house or Tower floor holds (floors, shelves and tables): PILE_MAX
+     * for every class, except one whose copies keep their own identity, which never joins (1): a tool (its
      * points) or a class whose copies carry words (its tag kind; the game's keepsOwnStack classes, a Still
-     * and a Teleportation Script, are tagged). The game (js/world-items.js pileMaxOf) and the realtime
-     * server (drops.go pileMax) apply the same rule.
+     * and a Teleportation Script, are tagged). A drop that would pass it joins up to it, the rest beside it.
+     * ours: Austin 2026-11-24, "Let's remove the pile limits": piles at home have no limit for any class;
+     * Glitch's stackmax capped every pile (Eleven Location.addItem 475-503: emblems 1, moonstones 3). The
+     * pack keeps Glitch's stackmax. The game (js/world-items.js pileMaxOf) and the realtime server
+     * (drops.go pileMax) apply the same rule.
      */
-    public static function pileCap(string $c, int $max): int
+    public static function pileCap(string $c): int
     {
         $economy = Economy::shared();
-        if ($max !== 1 || $economy->points($c) > 0 || $economy->tagKind($c) !== '') {
-            return $max;
+        if ($economy->points($c) > 0 || $economy->tagKind($c) !== '') {
+            return 1;
         }
         return self::PILE_MAX;
     }
@@ -441,7 +442,7 @@ final readonly class LedgerDrop
         $into = null;
         if (isset($drop['into'])) {
             $into = $db->row("SELECT status, street, class_tsid, count, points, tag, dropper_id FROM {$drops} WHERE id = ? FOR UPDATE", [$drop['into']]);
-            $joined = self::joins($into, $drop['street'], $drop['c'], $drop['n'], $drop['r'], $drop['t'] ?? null, $drop['id'], $drop['max']);
+            $joined = self::joins($into, $drop['street'], $drop['c'], $drop['n'], $drop['r'], $drop['t'] ?? null, $drop['id']);
         }
         $rest = $drop['n'] - $joined;
         $db->execute("INSERT INTO {$drops} (id, dropper_id, street, x, y, class_tsid, count, points, tag, status, created_at, taken_at, why, merged_into) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
@@ -474,7 +475,7 @@ final readonly class LedgerDrop
      * own dropper; onto `into` as many as it takes join it (joins, grow) and the rest is set down at (x, y).
      * The transaction is the caller's (Ledger::atomically).
      *
-     * @param array{op: string, id: int, drop: string, street: string, x: int, y: int, into?: string, max?: int} $m
+     * @param array{op: string, id: int, drop: string, street: string, x: int, y: int, into?: string} $m
      * @return array{status: string, why?: string, n?: int, x?: int, y?: int, into?: string, joined?: int, in?: int}
      */
     public static function moveStack(Db $db, Ledger $ledger, array $m, int $now): array
@@ -510,7 +511,7 @@ final readonly class LedgerDrop
         }
         $n = (int) $row['count'];
         $tag = $row['tag'] ?? null;
-        $joined = $into === null ? 0 : self::joins($into, $m['street'], (string) $row['class_tsid'], $n, $row['points'] === null ? null : (int) $row['points'], $tag === null ? null : (string) $tag, (int) $row['dropper_id'], (int) ($m['max'] ?? 0));
+        $joined = $into === null ? 0 : self::joins($into, $m['street'], (string) $row['class_tsid'], $n, $row['points'] === null ? null : (int) $row['points'], $tag === null ? null : (string) $tag, (int) $row['dropper_id']);
         $left = $n - $joined;
         $stamp = gmdate('Y-m-d H:i:s', $now);
         if ($left > 0) {
@@ -542,9 +543,8 @@ final readonly class LedgerDrop
         }
         $out = ['op' => $op, 'id' => $id, 'drop' => $drop, 'street' => $street, 'x' => $x, 'y' => $y];
         $into = $body['into'] ?? null;
-        $max = $body['max'] ?? null;
-        if (self::opId($into) && $into !== $drop && is_int($max) && $max >= 1 && $max <= 9999) {
-            $out += ['into' => $into, 'max' => $max];
+        if (self::opId($into) && $into !== $drop) {
+            $out += ['into' => $into];
         }
         return $out;
     }
