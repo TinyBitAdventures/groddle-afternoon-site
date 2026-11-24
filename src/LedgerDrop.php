@@ -76,7 +76,9 @@ use Minn\RestError;
  *   (logged as "place"). Recorded once per op. From then on it is any stack on the ground.
  *
  *   POST groddle/v1/ledger/drops      (signed) {}  → {"stacks":[{id, by, name, street, x, y, c, n, r?, at}]}
- *        every stack on the ground, for a realtime server that has just started.
+ *        every stack on the ground, for a realtime server that has just started; {"street":"HOUSE-7"}
+ *        one place's (G1224: drops.go asks when someone joins a house or Tower floor, for the old
+ *        floor drops HouseFloors moved there on the owner's load).
  *
  *   GET  groddle/v1/drops             the signed-in player's drops and takes their save has not applied
  *        {"drops":[{"op","side":"dropped"|"took","id","item":{c,n,r?},"why"?}]}
@@ -105,8 +107,8 @@ final readonly class LedgerDrop
     public const EAT = '/groddle/v1/ledger/drop/eat';
     public const PLACE = '/groddle/v1/ledger/drop/place';
 
-    /** Stacks one list carries (drops.go holds at most 60 a street). */
-    public const LIST_MAX = 5000;
+    /** Stacks one list carries (drops.go holds 60 a street; a house or Tower floor any number, G1224). */
+    public const LIST_MAX = 50000;
 
     public const TEXT_SHORT = "You don't have enough of that item.";
     public const TEXT_TYPE = "That can't be dropped for others to find.";
@@ -232,7 +234,10 @@ final readonly class LedgerDrop
     {
         $this->signed($request, self::GROUND);
         $db = $this->minn->db;
-        $rows = $db->rows('SELECT id, dropper_id, street, x, y, class_tsid, count, points, tag, created_at FROM ' . $db->table(self::TABLE) . " WHERE status = 'ground' ORDER BY created_at, id LIMIT " . self::LIST_MAX);
+        // G1224: {"street": "HOUSE-7"} lists one place (drops.go refresh: stacks moved there on the owner's load).
+        $street = $request->json()['street'] ?? null;
+        $one = is_string($street) && preg_match('/^[A-Za-z0-9-]{1,32}$/', $street) === 1;
+        $rows = $db->rows('SELECT id, dropper_id, street, x, y, class_tsid, count, points, tag, created_at FROM ' . $db->table(self::TABLE) . " WHERE status = 'ground'" . ($one ? ' AND street = ?' : '') . ' ORDER BY created_at, id LIMIT ' . self::LIST_MAX, $one ? [$street] : []);
         $names = (new Characters($db))->namesOf(array_values(array_unique(array_map(static fn (array $r): int => (int) $r['dropper_id'], $rows))));
         $out = [];
         foreach ($rows as $r) {
@@ -323,6 +328,64 @@ final readonly class LedgerDrop
         ]);
         $ledger->log($drop['id'], 'drop', ['drop' => $drop['op'], 'street' => $drop['street'], 'gave' => [$drop['c'] => $drop['n']]], $now);
         return ['status' => 'settled'];
+    }
+
+    /**
+     * G1224 (HouseFloors): an old floor stack of the owner's save moved to the shared floor of their
+     * house or Tower, as a drop of theirs already applied (the save loses it in the same transaction:
+     * the caller takes the row out of the stored save). Recorded once per op: true when it is on the
+     * ground now (or was moved before), false when the owner's ledger lacks it (it stays in the save).
+     * The transaction is the caller's (Ledger::atomically).
+     *
+     * @param array{op: string, street: string, x: int, y: int, c: string, n: int, r: ?int, t: ?string, at: int} $m
+     */
+    public static function fromFloor(Db $db, Ledger $ledger, array $m, int $user, int $now): bool
+    {
+        $t = $db->table(Ledger::TRADES);
+        $held = $db->row("SELECT status FROM {$t} WHERE trade_id = ? FOR UPDATE", [$m['op']]);
+        if ($held !== null) {
+            return $held['status'] === 'settled';
+        }
+        if (!Economy::shared()->tradeable($m['c'])) {
+            return false;
+        }
+        $state = $ledger->lock($user, $now);
+        if (($state['items'][$m['c']] ?? 0) < $m['n']) {
+            return false;
+        }
+        $stamp = gmdate('Y-m-d H:i:s', $now);
+        $at = $m['at'] > 0 && $m['at'] <= $now ? gmdate('Y-m-d H:i:s', $m['at']) : $stamp;
+        self::move($db, $user, $state, $m['c'], -$m['n'], $now);
+        // Applied as it is made: the stored save loses the row in this same transaction.
+        $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, a_applied_at, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?, ?)", [$m['op'], $user, self::goodsJson($m['c'], $m['n']), self::NONE, $stamp, $stamp, $stamp]);
+        $db->execute('INSERT INTO ' . $db->table(self::TABLE) . " (id, dropper_id, street, x, y, class_tsid, count, points, tag, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ground', ?)", [
+            $m['op'], $user, $m['street'], $m['x'], $m['y'], $m['c'], $m['n'], $m['r'], $m['t'], $at,
+        ]);
+        $ledger->log($user, 'drop', ['drop' => $m['op'], 'street' => $m['street'], 'gave' => [$m['c'] => $m['n']], 'from' => 'floor'], $now);
+        return true;
+    }
+
+    /**
+     * G1224 (HouseFloors::revert): a moved floor stack still on the ground goes back to its owner's
+     * ledger (the caller puts the row back in the stored save, in this same transaction), recorded once
+     * as <op>-r, applied as it is made. False when it is no longer on the ground (picked up, eaten).
+     */
+    public static function backToFloor(Db $db, Ledger $ledger, string $op, int $user, int $now): bool
+    {
+        $drops = $db->table(self::TABLE);
+        $row = $db->row("SELECT class_tsid, count, status, dropper_id FROM {$drops} WHERE id = ? FOR UPDATE", [$op]);
+        if ($row === null || $row['status'] !== 'ground' || (int) $row['dropper_id'] !== $user) {
+            return false;
+        }
+        $c = (string) $row['class_tsid'];
+        $n = (int) $row['count'];
+        $state = $ledger->lock($user, $now);
+        self::move($db, $user, $state, $c, $n, $now);
+        $stamp = gmdate('Y-m-d H:i:s', $now);
+        $db->execute("UPDATE {$drops} SET status = 'reverted', taker_id = ?, why = 'revert', taken_at = ? WHERE id = ?", [$user, $stamp, $op]);
+        $db->execute('INSERT IGNORE INTO ' . $db->table(Ledger::TRADES) . " (trade_id, status, a_id, b_id, a_gave, b_gave, a_applied_at, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?, ?)", [$op . '-r', $user, self::NONE, self::goodsJson($c, $n), $stamp, $stamp, $stamp]);
+        $ledger->log($user, 'credit', ['trade' => $op . '-r', 'got' => [$c => $n], 'from' => 'floor revert'], $now);
+        return true;
     }
 
     /**

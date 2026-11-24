@@ -301,6 +301,14 @@
       "KEY group_id (group_id)",
       "KEY claimer_id (claimer_id)"
     ],
+    "groddle_house_floors": [
+      "user_id bigint(20) unsigned NOT NULL",
+      "moved_at datetime NOT NULL",
+      "backup longtext NOT NULL",
+      "moved longtext NOT NULL",
+      "reverted_at datetime NULL DEFAULT NULL",
+      "PRIMARY KEY  (user_id)"
+    ],
     "groddle_drops": [
       "id varchar(40) NOT NULL",
       "dropper_id bigint(20) unsigned NOT NULL",

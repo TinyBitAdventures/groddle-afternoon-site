@@ -53,7 +53,9 @@ use Minn\RestError;
  * named in the answer ("ledger": {"corrected": {"items": {...},
  * "currants": n}, "text": "…"}), for the game to take out of the page too.
  * A read first applies any settled trade the stored save has not (a new
- * version then), so a reload never misses a trade or keeps what it gave.
+ * version then), so a reload never misses a trade or keeps what it gave;
+ * the first read also moves the save's old house and Tower floor drops to
+ * the shared floor (HouseFloors, G1224).
  */
 final readonly class MultiplayerSave
 {
@@ -91,7 +93,13 @@ final readonly class MultiplayerSave
             }
             $save = SaveShape::decode((string) $row['data']);
             $entries = $save === null ? [] : array_filter((array) $save->entries, 'is_string');
-            $caught = Ledger::fromSeams($this->minn)->catchUp($user, $entries, time());
+            $ledger = Ledger::fromSeams($this->minn);
+            $caught = $ledger->catchUp($user, $entries, time());
+            // G1224: on the first load, the save's old house and Tower floor drops go to the shared floor (HouseFloors).
+            $floors = $save === null ? ['changed' => false] : HouseFloors::onLoad($db, $ledger, (int) $user, $caught['entries'], time());
+            if ($floors['changed']) {
+                $caught = ['entries' => $floors['entries'], 'changed' => true];
+            }
             if ($caught['changed'] && $save !== null) {
                 $now = gmdate('Y-m-d H:i:s');
                 $json = SaveShape::encode(SaveShape::with($save, $caught['entries']));

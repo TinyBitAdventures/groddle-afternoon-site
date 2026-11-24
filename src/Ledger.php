@@ -593,6 +593,8 @@ final readonly class Ledger
             LedgerBoxes::isOwnerSide($p['trade']) => LedgerBoxes::catchUp($this->db, $entries, $user, $p),
             // A tool picked up keeps its wear (the stack's points), as a live pickup does.
             LedgerDrop::isTake($p['trade']) => LedgerDrop::catchUp($this->db, $entries, $user, $p),
+            // G1224: an old floor stack moved to the shared floor comes off a kept copy's floor, never its pack.
+            ($move = HouseFloors::moveOf($this->db, $user, $p['trade'])) !== null => HouseFloors::catchUp($entries, $move),
             // A note pinned on a board or taken off one keeps its words (LedgerBoard).
             LedgerBoard::isBoard($p['trade']) => LedgerBoard::catchUp($this->db, $entries, $user, $p),
             // An emptied jar or bottle (slice 4): it leaves the pack, and its charges with it.
