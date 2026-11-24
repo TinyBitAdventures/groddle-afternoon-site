@@ -909,6 +909,9 @@ a.cc-name:focus { outline: none; }
 .nc-icon-egghunt_egg_1 { --nc-icon: url("/assets/sprites/icons/egghunt_egg_1@3x.webp"); }
 .nc-icon-bag_gift_box_wrapped { --nc-icon: url("/assets/sprites/icons/bag_gift_box_wrapped@3x.webp"); }
 .nc-icon-street_spirit_groddle { --nc-icon: url("/assets/sprites/icons/street_spirit_groddle@3x.webp"); }
+.nc-icon-vine_radio { --nc-icon: url("/assets/decos/groddle/vine_radio.webp"); }
+.nc-icon-bag_bigger_green { --nc-icon: url("/assets/sprites/icons/bag_bigger_green@3x.webp"); }
+.nc-icon-gem_moonstone { --nc-icon: url("/assets/sprites/icons/gem_moonstone@3x.webp"); }
 .nc-icon-emblem_pot { --nc-icon: url("/assets/sprites/icons/emblem_pot@3x.webp"); }
 .nc-icon-potians_feast { --nc-icon: url("/assets/sprites/icons/potians_feast@3x.webp"); }
 .nc-icon-chick { --nc-icon: url("/assets/sprites/icons/chick@3x.webp"); }
