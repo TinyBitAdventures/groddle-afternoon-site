@@ -320,7 +320,8 @@ final readonly class Neighbours
             'homes' => HomeTending::overlay($homes, HomeTending::rowsFor($db, $owner)),
             'butler' => self::butlerView($theirs),
             'gnomes' => self::gnomeRows($theirs, $key || $letIn),
-            'icons' => self::iconRows($theirs),
+            // #697: with each one's shared actions and last tither as the site keeps them (HomeIcons).
+            'icons' => HomeIcons::overlay($db, $owner, self::iconRows($theirs)),
             'stacks' => self::stackRows(self::savedEntry($db, $owner, 'droppedItems'), self::feature($theirs, 'homes')),
             'key' => $key,
             'pass' => $this->pass($me, $owner, $name, $key),
@@ -779,12 +780,14 @@ final readonly class Neighbours
      * whoever was there could ruminate, revere and reflect on it (52, 118, 183) and be bestowed
      * upon (doPlayerResponse). From the owner's save (the giant-icons feature's `placed`, kept under
      * home:<place> at its world x): where each stands (the home street, the house's ground floor, a
-     * Tower floor: the rooms a visitor can reach), whose Giant and the actions it has left.
-     * forVisitor leaves out the house's for anyone who may not enter (G1018).
+     * Tower floor: the rooms a visitor can reach), whose Giant, the actions it has left and its
+     * last tither (a player's id, or null), as the save has them: HomeIcons keeps them from the
+     * first use that came through the site (HomeIcons::overlay). forVisitor leaves out the house's
+     * for anyone who may not enter (G1018).
      *
-     * @return list<array{id: string, giant: string, place: string, x: int, y: int, actions: int}>
+     * @return list<array{id: string, giant: string, place: string, x: int, y: int, actions: int, tither: ?int}>
      */
-    public static function iconRows(?object $state): array
+    public static function iconRows(?object $state, int $max = self::ICONS_MAX): array
     {
         $placed = self::feature($state, 'giant-icons')?->placed ?? null;
         $out = [];
@@ -793,7 +796,7 @@ final readonly class Neighbours
                 continue;
             }
             foreach ($rows as $r) {
-                if (count($out) >= self::ICONS_MAX) {
+                if (count($out) >= $max) {
                     break 2;
                 }
                 if (!is_object($r) || !is_string($r->id ?? null) || preg_match('/^icon[0-9]{1,9}$/', $r->id) !== 1 || !in_array($r->giant ?? null, self::ICON_GIANTS, true) || !is_numeric($r->x ?? null) || !is_numeric($r->y ?? null)) {
@@ -806,6 +809,7 @@ final readonly class Neighbours
                     'x' => (int) round(max(-1000000.0, min(1000000.0, (float) $r->x))),
                     'y' => (int) round(max(-1000000.0, min(1000000.0, (float) $r->y))),
                     'actions' => is_numeric($r->actions ?? null) ? max(0, min(10000, (int) $r->actions)) : 0,
+                    'tither' => is_int($r->tither ?? null) && $r->tither > 0 ? $r->tither : null,
                 ];
             }
         }
