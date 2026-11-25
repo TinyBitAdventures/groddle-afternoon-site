@@ -37,7 +37,8 @@ use Minn\RestError;
  *   HOUSE_<owner> with a key (or once the owner lets them in). With it, to
  *   look at only, the owner's Garden Gnomes where they stand ("gnomes"), and
  *   the stacks the owner keeps in their house, back yard and Tower ("stacks",
- *   stackRows: G1190).
+ *   stackRows: G1190), and the Giant Icons the owner placed ("icons",
+ *   iconRows: #697), which a visitor may ruminate, revere and reflect on.
  * - groddle/v1/homes/random: a random home among the players who opted in
  *   (callbacks/player_random_go.php is not in the dump: here, a few
  *   opted-in players in random order, the first one houses_visit allows).
@@ -113,6 +114,12 @@ final readonly class Neighbours
 
     /** The most Garden Gnomes one visit lists. */
     public const GNOMES_MAX = 24;
+
+    /** The most placed Giant Icons one visit lists (#697; the game's ICON_VISIT_MAX). */
+    public const ICONS_MAX = 24;
+
+    /** The Giant Icon classes (items/icon_*.js; the game's js/giant-icons-data.js giants). */
+    public const ICON_GIANTS = ['alph', 'cosma', 'friendly', 'grendaline', 'humbaba', 'lem', 'mab', 'pot', 'spriggan', 'ti', 'zille'];
 
     /** npc_garden_gnome.js: three phrases (369), 150 characters each (571). */
     public const GNOME_PHRASES = 3;
@@ -313,6 +320,7 @@ final readonly class Neighbours
             'homes' => HomeTending::overlay($homes, HomeTending::rowsFor($db, $owner)),
             'butler' => self::butlerView($theirs),
             'gnomes' => self::gnomeRows($theirs, $key || $letIn),
+            'icons' => self::iconRows($theirs),
             'stacks' => self::stackRows(self::savedEntry($db, $owner, 'droppedItems'), self::feature($theirs, 'homes')),
             'key' => $key,
             'pass' => $this->pass($me, $owner, $name, $key),
@@ -340,7 +348,7 @@ final readonly class Neighbours
             unset($homes->decor, $homes->backYard, $homes->yardStyle);
             $view['homes'] = $homes;
         }
-        foreach (['gnomes', 'stacks'] as $k) {
+        foreach (['gnomes', 'stacks', 'icons'] as $k) {
             if (is_array($view[$k] ?? null)) {
                 $view[$k] = array_values(array_filter($view[$k], static fn (array $r): bool => ($r['place'] ?? '') !== 'house'));
             }
@@ -760,6 +768,46 @@ final readonly class Neighbours
                 'facingLeft' => ($g->facingLeft ?? true) !== false,
                 'phrases' => $phrases,
             ];
+        }
+        return $out;
+    }
+
+    /**
+     * #697 (G1302): the Giant Icons the owner placed in their home, as a visitor sees them. A home
+     * is a POL (locations/inc_pols.js 731), so an Icon set down there stood in the location for
+     * anyone in it, only its owner could pick it up (items/include/icon.js canPickup 1-12), and
+     * whoever was there could ruminate, revere and reflect on it (52, 118, 183) and be bestowed
+     * upon (doPlayerResponse). From the owner's save (the giant-icons feature's `placed`, kept under
+     * home:<place> at its world x): where each stands (the home street, the house's ground floor, a
+     * Tower floor: the rooms a visitor can reach), whose Giant and the actions it has left.
+     * forVisitor leaves out the house's for anyone who may not enter (G1018).
+     *
+     * @return list<array{id: string, giant: string, place: string, x: int, y: int, actions: int}>
+     */
+    public static function iconRows(?object $state): array
+    {
+        $placed = self::feature($state, 'giant-icons')?->placed ?? null;
+        $out = [];
+        foreach (is_object($placed) ? get_object_vars($placed) : [] as $key => $rows) {
+            if (preg_match('/^home:(street|house|tower:[0-9])$/', (string) $key, $m) !== 1 || !is_array($rows)) {
+                continue;
+            }
+            foreach ($rows as $r) {
+                if (count($out) >= self::ICONS_MAX) {
+                    break 2;
+                }
+                if (!is_object($r) || !is_string($r->id ?? null) || preg_match('/^icon[0-9]{1,9}$/', $r->id) !== 1 || !in_array($r->giant ?? null, self::ICON_GIANTS, true) || !is_numeric($r->x ?? null) || !is_numeric($r->y ?? null)) {
+                    continue;
+                }
+                $out[] = [
+                    'id' => $r->id,
+                    'giant' => $r->giant,
+                    'place' => $m[1],
+                    'x' => (int) round(max(-1000000.0, min(1000000.0, (float) $r->x))),
+                    'y' => (int) round(max(-1000000.0, min(1000000.0, (float) $r->y))),
+                    'actions' => is_numeric($r->actions ?? null) ? max(0, min(10000, (int) $r->actions)) : 0,
+                ];
+            }
         }
         return $out;
     }
