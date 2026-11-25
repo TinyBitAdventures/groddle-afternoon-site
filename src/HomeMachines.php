@@ -42,8 +42,13 @@ use Minn\RestError;
  *   it runs (325-330), and other players' output in it is destroyed when they
  *   do (verifyDisassemble 1568-1581): here it is picked up whole, its tank
  *   with it (the remake's machines are pack tools).
- * - Where it may stand (machine_stand.js canDrop 770-788): not within 200 px
- *   of another machine nor within 70 px of an end of the street. Ours: at most
+ * - Where it may stand (machine_stand.js canDrop 770-788): the one setting
+ *   it down not within 200 px of another machine (G1303, #669: canDrop asked
+ *   pc.findCloseStack, which measured from the player, players/player.js
+ *   1152-1186, while a stack dragged in Decoration Mode landed at the pointer,
+ *   takeable.js 164-170; the realtime server sends where the player stands as
+ *   "from", else they stand where it goes) and the machine not within 70 px
+ *   of an end of the street. Ours: at most
  *   8 in one place; only the owner's own home: the home street, every floor
  *   of the house (the ground floor HOUSE_<id>, the upper ones HOUSE_<id>_<n>,
  *   the owner's own rooms: G1249, #669, Glitch's house was one location) and
@@ -96,7 +101,7 @@ use Minn\RestError;
  *
  *   POST groddle/v1/homes/machines   (the realtime server, signed; home_machines.go)
  *        {"op":"hm-<16 hex>","owner":7,"actor":9,"place":"street|house|house:<1..2>|tower:<0..8>","verb":"place|take|use|collect|refuel|music|check",
- *         "id":"hm-…","class":"fuelmaker","rx":120,"fuel":50,"key":"fuel_cell","qty":2,"all":true,"force":true,"on":true}
+ *         "id":"hm-…","class":"fuelmaker","rx":120,"from":{"rx":340,"dy":0},"fuel":50,"key":"fuel_cell","qty":2,"all":true,"force":true,"on":true}
  *        200 {"status":"settled","machine":{…}|null,"gone":"hm-…"?,"receipt":{"op","gave"|"got"}?,"taken":{"class","fuel"}?,"paid":[…],"now":ms}
  *        | 409 {"status":"refused","why":"…","text":"…","machine":{…}|null,"now":ms}
  *   GET  groddle/v1/homes/{owner}/machines   anyone not blocked: the machines as they stand (each with its place), whether I may pick one up, and the house's back yard and wall segments
@@ -224,7 +229,8 @@ final readonly class HomeMachines
             if ($span === false) {
                 return $refuse('here', sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')));
             }
-            $why = self::placeWhy($rules, $placed, $class, $b['rx'] ?? null, $span, $fixed);
+            $from = self::fromOf($b['from'] ?? null);
+            $why = $from === false ? 'here' : self::placeWhy($rules, $placed, $class, $b['rx'] ?? null, $span, $fixed, $from);
             if ($why !== null) {
                 return $refuse($why, $why === 'many' ? self::TEXT_MANY : sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')));
             }
@@ -523,12 +529,34 @@ final readonly class HomeMachines
     }
 
     /**
+     * Where the player stands, as the realtime server sends it ({"rx", "dy"}: in the place's x, and above or
+     * below its walk line): null when not sent, false when not one.
+     *
+     * @return array{rx: int, dy: int}|false|null
+     */
+    public static function fromOf(mixed $from): array|false|null
+    {
+        if ($from === null) {
+            return null;
+        }
+        if (!is_array($from) || !is_int($from['rx'] ?? null) || !is_int($from['dy'] ?? null) || abs($from['rx']) > 2000000 || abs($from['dy']) > 2000000) {
+            return false;
+        }
+        return ['rx' => $from['rx'], 'dy' => $from['dy']];
+    }
+
+    /**
      * machine_stand.js canDrop and ours: why a machine may not stand at rx (in the place's span, when it has one), or null.
      * $fixed: x of machines nobody placed (a machine room's own), as near as any other.
+     * G1303 (#669): the 200 px is from the player, $from ({rx, dy}, fromOf), as canDrop's pc.findCloseStack measured
+     * it (players/player.js 1152-1186, Euclidean from this.x / this.y); without it the player stands where it goes.
+     * The ends are checked where the machine goes (the game's js/home-machines.js placeCheck, the same cases:
+     * the game's tests/fixtures/machine-place-vectors.json).
      *
      * @param list<int> $fixed
+     * @param array{rx: int, dy: int}|null $from
      */
-    public static function placeWhy(array $rules, array $placed, mixed $class, mixed $rx, ?array $span = null, array $fixed = []): ?string
+    public static function placeWhy(array $rules, array $placed, mixed $class, mixed $rx, ?array $span = null, array $fixed = [], ?array $from = null): ?string
     {
         if (!is_string($class) || !isset($rules['machines'][$class])) {
             return 'class';
@@ -542,13 +570,11 @@ final readonly class HomeMachines
         if ($span !== null && ($rx <= $span[0] + (int) $rules['edge'] || $rx >= $span[1] - (int) $rules['edge'])) {
             return 'edge';
         }
-        foreach ($placed as $r) {
-            if (abs((int) $r['rx'] - $rx) < (int) $rules['spacing']) {
-                return 'near';
-            }
-        }
-        foreach ($fixed as $x) {
-            if (abs((int) $x - $rx) < (int) $rules['spacing']) {
+        $px = $from['rx'] ?? $rx;
+        $dy = $from['dy'] ?? 0;
+        $xs = array_merge(array_map(static fn (array $r): int => (int) $r['rx'], $placed), array_map('intval', $fixed));
+        foreach ($xs as $x) {
+            if (hypot($x - $px, $dy) < (int) $rules['spacing']) {
                 return 'near';
             }
         }
