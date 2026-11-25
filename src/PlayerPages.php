@@ -36,6 +36,16 @@ use Minn\RestError;
  * The data is Profiles', the save's and Buddies'; the pictures are the ones
  * the game uploaded, served here.
  *
+ * G1283: a public page for the home street and one for the Tower, as
+ * Glitch's site had (the archived profile's "View <name>'s Home Street"
+ * button to /locations/<home street>/, research/wayback/raw/profiles/; a
+ * Tower's location page "<Tower name>, Owned by <name>" with its cutaway of
+ * every floor and Zoom, raw/locations-np/): /players/<name>/home-street/
+ * (the home street picture, the owner's name, the house) and
+ * /players/<name>/tower/ (the cutaway, Zoom), each only when the picture
+ * is there, under the profile's own rule (who()). House interiors are never
+ * shown: Glitch never did.
+ *
  * A signed-in player looking at someone else's page gets "Add to buddy list"
  * (or "Remove from buddy list"), as glitch.com's profiles had (the archived
  * profile in research/wayback/raw/profiles/, friendAdd and friendRemove): a
@@ -70,7 +80,15 @@ final readonly class PlayerPages
         'tile' => ['tile', 'avatar_at', null],
         'home' => ['home', 'home_at', 'home_type'],
         'home-small' => ['home_small', 'home_at', 'home_type'],
+        // G1283: the Tower's cutaway (HomePicture 'tower').
+        'tower-image' => ['tower', 'tower_at', 'tower_type'],
     ];
+
+    /** G1283: the public pages of a player's home, path under /players/<name>/ (Glitch had no page for a house's inside). */
+    private const PLACES = ['home-street', 'tower'];
+
+    /** G1283: the Tower picture's frame before Zoom (its top floors; two floors, 909 px, show whole), in CSS px; Glitch's strip was 120 px. */
+    public const TOWER_FRAME_H = 960;
 
     /**
      * How wide the home street shows (srcset sizes): the page's column,
@@ -218,6 +236,135 @@ final readonly class PlayerPages
         return $this->tab($request, $slug, $tab);
     }
 
+    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{place:home-street|tower}', policy: new Policy(Access::Public))]
+    public function barePlace(Request $request, string $slug, string $place): Response
+    {
+        if ($this->find($slug) === null) {
+            throw new RouteMiss();
+        }
+        return Response::redirect("/players/{$slug}/{$place}/" . self::query($request), 301);
+    }
+
+    /**
+     * G1283: the home street's public page (the picture the game took of it, the owner, the house)
+     * or the Tower's (its cutaway of every floor, with Zoom), as Glitch's location pages for a home
+     * street and a Tower. Each is there only when its picture is, under the profile's own rule
+     * (who(): below the listed level the owner's alone, a suspended player's gone for everyone, a
+     * retired one never found), signed in or not.
+     */
+    #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{place:home-street|tower}/', policy: new Policy(Access::Public))]
+    public function place(Request $request, string $slug, string $place): Response
+    {
+        if (!in_array($place, self::PLACES, true)) {
+            throw new RouteMiss();
+        }
+        [$id, $canonical] = $this->find($slug) ?? throw new RouteMiss();
+        if ($canonical !== $slug) {
+            return Response::redirect("/players/{$canonical}/{$place}/" . self::query($request), 301);
+        }
+        $who = $this->who($request, $id, $canonical, '');
+        $profile = $who['profile'];
+        $at = $profile[$place === 'tower' ? 'tower_at' : 'home_at'] ?? null;
+        if (!is_string($at) || $at === '') {
+            throw new RouteMiss();
+        }
+        $name = $who['name'];
+        $base = $who['base'];
+        $listed = $who['facts']['level'] >= Profiles::LISTED_LEVEL;
+        $private = $listed ? '' : '    <p class="profile-private">Only you can see this page for now. Everyone can once you reach level ' . Profiles::LISTED_LEVEL . ".</p>\n";
+        $back = '<a href="' . Html::attr($base) . '">Back to ' . Html::esc($name) . "'s profile</a>";
+        if ($place === 'tower') {
+            $title = self::towerTitle($name, (string) ($profile['tower_name'] ?? ''));
+            $w = (int) ($profile['tower_w'] ?? 0);
+            $h = (int) ($profile['tower_h'] ?? 0);
+            $picture = Profiles::imageUrl($id, 'tower-image', $at);
+            // Glitch showed a strip of the cutaway with Zoom for the whole of it; without JavaScript, ?zoom=1.
+            $tall = $w > 0 && $h * min($w, 720) / $w > self::TOWER_FRAME_H;
+            $zoomed = $tall && $request->query('zoom') === '1';
+            $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
+            $main = '    <figure class="place-tower' . ($tall && !$zoomed ? ' place-tower-framed' : '') . "\" id=\"tower\">\n"
+                . '      <img src="' . Html::attr($picture) . '"' . $size . ' alt="' . Html::attr("{$title}, every floor") . "\" decoding=\"async\" />\n"
+                . "    </figure>\n"
+                . '    <p class="place-links">'
+                . ($tall ? '<a class="place-zoom" href="' . Html::attr($zoomed ? "{$base}tower/" : "{$base}tower/?zoom=1#tower") . '">' . ($zoomed ? 'Zoom out' : 'Zoom') . '</a>' : '')
+                . $back
+                . (is_string($profile['home_at'] ?? null) && $profile['home_at'] !== '' ? '<a href="' . Html::attr("{$base}home-street/") . '">View ' . Html::esc($name) . "'s Home Street</a>" : '')
+                . "</p>\n";
+            $lines = '';
+            $description = "{$title}, owned by {$name}: every floor, in Groddle Afternoon.";
+        } else {
+            $title = "{$name}'s Home Street";
+            $picture = Profiles::imageUrl($id, 'home', $at);
+            $house = HomeLayout::houseStyleName(Json::decode((string) ($profile['home_layout'] ?? ''), or: null));
+            $w = (int) ($profile['home_w'] ?? 0);
+            $h = (int) ($profile['home_h'] ?? 0);
+            $main = '    <figure class="profile-home place-street">' . self::homeImg($id, $name, $at, $profile, false) . "</figure>\n"
+                . '    <p class="place-links">' . $back
+                . (is_string($profile['tower_at'] ?? null) && $profile['tower_at'] !== '' ? '<a href="' . Html::attr("{$base}tower/") . '">View ' . Html::esc(self::towerTitle($name, (string) ($profile['tower_name'] ?? ''))) . '</a>' : '')
+                . "</p>\n";
+            $lines = $house === '' ? '' : '      <p class="place-house">House: <strong>' . Html::esc($house) . "</strong></p>\n";
+            $description = "{$name}'s home street in Groddle Afternoon" . ($house === '' ? '.' : ", with the {$house}.");
+        }
+        $avatarAt = is_string($profile['avatar_at'] ?? null) && $profile['avatar_at'] !== '' ? $profile['avatar_at'] : null;
+        $face = $avatarAt === null
+            ? self::ghost('profile-mini-art')
+            : '<img class="profile-mini-art" src="' . Html::attr(Profiles::imageUrl($id, 'tile', $avatarAt)) . '" width="100" height="144" alt="" />';
+        $nameHtml = Html::esc($name);
+        $body = '<header class="masthead note-head profile-head profile-head-mini place-head">' . "\n  <div class=\"wrap profile-top\">\n"
+            . "    <figure class=\"profile-mini\"><a href=\"" . Html::attr($base) . "\">{$face}</a></figure>\n"
+            . "    <div class=\"profile-who\">\n"
+            . '      <p class="kicker"><a href="/players/">Players</a> <a href="' . Html::attr($base) . "\">{$nameHtml}</a></p>\n"
+            . '      <h1>' . Html::esc($title) . "</h1>\n"
+            . '      <p class="place-owner">Owned by <a href="' . Html::attr($base) . "\"><strong>{$nameHtml}</strong></a></p>\n"
+            . $lines
+            . "    </div>\n  </div>\n</header>\n"
+            . "<main class=\"band profile profile-place profile-place-{$place}\">\n  <div class=\"wrap\">\n" . $private . $main . "  </div>\n</main>";
+        // The link preview is the picture itself, as Glitch's Tower pages had (og:image); none for a page that is not public.
+        $head = $listed ? self::previewTags($title, $description, rtrim((string) ($this->minn->site->option('home') ?? ''), '/'), "{$base}{$place}/", $picture, $w, $h) : "<meta name=\"robots\" content=\"noindex\" />\n";
+        return $this->page($title, $description, $body, '', $head);
+    }
+
+    /** G1283: a Tower's title: its name, else "<owner>'s Tower" as Glitch named one. */
+    public static function towerTitle(string $owner, string $tower): string
+    {
+        $tower = trim($tower);
+        return $tower !== '' ? $tower : "{$owner}'s Tower";
+    }
+
+    /**
+     * G1283: the profile's ways to the home street's and the Tower's pages, as the archived
+     * profile's "View <name>'s Home Street" button (profile-visit-home, button-tiny); each only
+     * when its picture is there.
+     */
+    public static function visitLinks(array $who): string
+    {
+        $profile = $who['profile'];
+        $links = '';
+        if (is_string($profile['home_at'] ?? null) && $profile['home_at'] !== '') {
+            $links .= '<a class="button-tiny" href="' . Html::attr($who['base'] . 'home-street/') . '">View ' . Html::esc($who['name']) . "'s Home Street</a>";
+        }
+        if (is_string($profile['tower_at'] ?? null) && $profile['tower_at'] !== '') {
+            $links .= '<a class="button-tiny" href="' . Html::attr($who['base'] . 'tower/') . '">View ' . Html::esc(self::towerTitle($who['name'], (string) ($profile['tower_name'] ?? ''))) . '</a>';
+        }
+        return $links === '' ? '' : "      <p class=\"profile-visit-home\">{$links}</p>\n";
+    }
+
+    /** A page's link preview (Open Graph and Twitter cards) with its own picture (SocialTags leaves such a page alone). */
+    private static function previewTags(string $title, string $description, string $origin, string $path, string $picture, int $w, int $h): string
+    {
+        $tags = [
+            ['property', 'og:type', 'website'], ['property', 'og:site_name', 'Groddle Afternoon'], ['property', 'og:title', $title],
+            ['property', 'og:description', $description], ['property', 'og:url', $origin . $path],
+            ['property', 'og:image', $origin . $picture], ['property', 'og:image:width', (string) $w], ['property', 'og:image:height', (string) $h],
+            ['property', 'og:image:alt', $title], ['name', 'twitter:card', 'summary_large_image'], ['name', 'twitter:image', $origin . $picture],
+        ];
+        $head = '';
+        foreach ($tags as [$kind, $key, $value]) {
+            $head .= "<meta {$kind}=\"{$key}\" content=\"" . Html::attr($value) . "\" />\n";
+        }
+        return $head;
+    }
+
     /** The profile ('') or one of its pages, under the same rule: below the listed level, the owner's alone. */
     private function tab(Request $request, string $slug, string $tab): Response
     {
@@ -269,7 +416,7 @@ final readonly class PlayerPages
     {
         $db = $this->minn->db;
         $character = $db->row('SELECT name, created_at FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]);
-        $profile = $db->row('SELECT about, avatar_at, home_at, home_w, home_h, home_small IS NOT NULL AS home_has_small, home_layout FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
+        $profile = $db->row('SELECT about, avatar_at, home_at, home_w, home_h, home_small IS NOT NULL AS home_has_small, home_layout, tower_at, tower_w, tower_h, tower_name FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
         $facts = Profiles::fromSave($db, $id);
         // Below the listed level the page is the owner's alone.
         $own = $this->minn->reader->userId === $id;
@@ -476,7 +623,7 @@ final readonly class PlayerPages
      * one (an upright phone's view, before the game took every picture in
      * the layout's frame) is cut to that frame's shape (style.css).
      */
-    private static function homeImg(int $id, string $name, string $at, array $profile): string
+    private static function homeImg(int $id, string $name, string $at, array $profile, bool $lazy = true): string
     {
         $full = Profiles::imageUrl($id, 'home', $at);
         $w = (int) ($profile['home_w'] ?? 0);
@@ -493,7 +640,7 @@ final readonly class PlayerPages
                 $attrs .= ' class="profile-home-tall"';
             }
         }
-        return '<img' . $attrs . ' alt="' . Html::attr("{$name}'s home street") . '" loading="lazy" decoding="async" />';
+        return '<img' . $attrs . ' alt="' . Html::attr("{$name}'s home street") . '"' . ($lazy ? ' loading="lazy"' : '') . ' decoding="async" />';
     }
 
     /**
@@ -534,6 +681,7 @@ final readonly class PlayerPages
                 : ($homeAt === null
                 ? "      <p class=\"profile-empty\">No picture of {$nameHtml}'s home yet. It appears after they visit their home street in multiplayer.</p>\n"
                 : '      <figure class="profile-home">' . self::homeImg($id, $name, $homeAt, $profile) . "</figure>\n"))
+            . self::visitLinks($who)
             . "    </section>\n"
             . self::snapsSection($who, self::SNAPS_SHOWN)
             . self::badgesSection($who, self::LATEST)
@@ -784,7 +932,7 @@ final readonly class PlayerPages
      * from then on they answer 404, kept MISS_KEEP. The path has no
      * .png: Kinsta's nginx answers any missing .png file itself, so PHP never saw those (2026-10-29).
      */
-    #[Route(Method::Get, '/players/{id:\d+}/{kind:avatar|tile|home|home-small}', policy: new Policy(Access::Public))]
+    #[Route(Method::Get, '/players/{id:\d+}/{kind:avatar|tile|home|home-small|tower-image}', policy: new Policy(Access::Public))]
     public function image(Request $request, string $id, string $kind): Response
     {
         [$column, $at, $typeColumn] = self::KINDS[$kind] ?? throw new RouteMiss();

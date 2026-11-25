@@ -113,6 +113,20 @@ final class HomeLayout
     private static array $partSizes = [];
 
     /**
+     * G1283: the name of the house a stored layout shows (its house spot's style, HOUSE_STYLES;
+     * an old layout's first homes named as the house they moved to), or '' when it shows none.
+     */
+    public static function houseStyleName(mixed $layout): string
+    {
+        foreach (is_array($layout) && is_array($layout['spots'] ?? null) ? $layout['spots'] : [] as $spot) {
+            if (is_array($spot) && ($spot['k'] ?? null) === 'house' && is_string($spot['s'] ?? null)) {
+                return self::HOUSE_STYLES[self::OLD_HOUSE_STYLES[$spot['s']] ?? $spot['s']] ?? '';
+            }
+        }
+        return '';
+    }
+
+    /**
      * The manifest checked and normalized, or a RestError. $root is the
      * built game (StaticRoot::$dir).
      *

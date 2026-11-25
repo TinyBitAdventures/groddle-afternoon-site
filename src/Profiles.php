@@ -31,6 +31,11 @@ use Minn\RestError;
  * with its type, size and a phone-sized copy; and, beside it, its layout
  * (HomeLayout: what is on the street and where, read off the game's stage),
  * which the profile draws as a diorama from the game's own art.
+ * G1283: a player with a Tower also sends its cutaway, every floor stacked
+ * (HomePicture's 'tower' limits) with the Tower's name, as Glitch's
+ * saveHomeImg did for a Tower location; the public pages
+ * /players/<name>/home-street/ and /players/<name>/tower/ show them
+ * (PlayerPages). House interiors are never sent or shown (Glitch never did).
  * Level and badges are read from the character's own save; the email and
  * the account's made-up username are never shown or sent.
  *
@@ -122,6 +127,26 @@ final readonly class Profiles
     }
 
     /**
+     * G1283: the Tower's cutaway (every floor, 720 wide as Glitch's saveHomeImg posted it) with
+     * the picture's key and the Tower's name, which the Tower's public page shows.
+     */
+    #[Route(Method::Put, '/groddle/v1/profile/tower', policy: new Policy(Access::SignedIn))]
+    public function tower(Request $request): Response
+    {
+        $character = $this->character();
+        $body = $request->json();
+        $key = self::key($body['key'] ?? null);
+        $name = self::towerName($body['name'] ?? '');
+        $this->throttle($character['id'], 'tower_at');
+        $tower = HomePicture::accept($body['tower'] ?? null, 'tower');
+        $this->ensureRow($character['id']);
+        $db = $this->minn->db;
+        $now = gmdate('Y-m-d H:i:s');
+        $db->execute('UPDATE ' . $db->table(self::TABLE) . ' SET tower = FROM_BASE64(?), tower_type = ?, tower_w = ?, tower_h = ?, tower_name = ?, tower_key = ?, tower_at = ?, updated_at = ? WHERE user_id = ?', [base64_encode($tower['bytes']), $tower['type'], $tower['width'], $tower['height'], $name, $key, $now, $now, $character['id']]);
+        return Response::json($this->answer($character));
+    }
+
+    /**
      * The home street as a layout (HomeLayout), with its key: checked,
      * normalized and kept as JSON. The answer, like every other here, carries
      * homeLayout (null until one is sent), which is how the game knows this
@@ -184,7 +209,7 @@ final readonly class Profiles
     private function answer(array $character): array
     {
         $db = $this->minn->db;
-        $row = $db->row('SELECT about, avatar_key, avatar_at, home_key, home_at, home_layout_key, home_layout_at FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ?', [$character['id']]);
+        $row = $db->row('SELECT about, avatar_key, avatar_at, home_key, home_at, home_layout_key, home_layout_at, tower_key, tower_at FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ?', [$character['id']]);
         $slug = self::slugs($db)[$character['id']] ?? self::slug($character['name']);
         return [
             'id' => $character['id'],
@@ -194,6 +219,8 @@ final readonly class Profiles
             'aboutMax' => self::ABOUT_MAX,
             'avatar' => self::picture($character['id'], 'avatar', $row['avatar_key'] ?? null, $row['avatar_at'] ?? null),
             'home' => self::picture($character['id'], 'home', $row['home_key'] ?? null, $row['home_at'] ?? null),
+            // G1283: the Tower's cutaway (null until one is sent); the field is how the game knows this site takes one.
+            'tower' => self::picture($character['id'], 'tower-image', $row['tower_key'] ?? null, $row['tower_at'] ?? null),
             'homeLayout' => is_string($row['home_layout_at'] ?? null) && $row['home_layout_at'] !== ''
                 ? ['key' => (string) ($row['home_layout_key'] ?? ''), 'at' => SaveShape::time($row['home_layout_at'])]
                 : null,
@@ -235,6 +262,26 @@ final readonly class Profiles
             throw new RestError('groddle_profile_about', 'Descriptions are at most ' . self::ABOUT_MAX . ' characters.', 400, ['max' => self::ABOUT_MAX]);
         }
         return WordFilter::text($text); // the remake's own word filter: kept as everyone reads it
+    }
+
+    /**
+     * A Tower's name as kept (G1283): text, no control characters, trimmed, at most
+     * HomeLayout::NAME_MAX characters, bad words a grawlix (WordFilter). '' is no name (the page
+     * says "<owner>'s Tower", as Glitch named one).
+     */
+    public static function towerName(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+        if (!is_string($value) || !mb_check_encoding($value, 'UTF-8')) {
+            throw new RestError('groddle_profile_tower_name', 'A Tower\'s name is text.', 400);
+        }
+        $name = trim((string) preg_replace('/[\p{C}]/u', '', $value));
+        if (mb_strlen($name) > HomeLayout::NAME_MAX) {
+            throw new RestError('groddle_profile_tower_name', 'A Tower\'s name is at most ' . HomeLayout::NAME_MAX . ' characters.', 400);
+        }
+        return $name === '' ? '' : WordFilter::text($name);
     }
 
     /** The key the game sends with a picture (what it was made from, so it knows when to make a new one). */

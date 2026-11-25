@@ -302,6 +302,21 @@ svg.profile-mini-art { width: 82px; height: 118px; }
 .snap-page-meta { margin: 0 0 12px; color: var(--muted); }
 .snap-page-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; font-weight: 700; }
 .snap-page-links a { color: var(--fg); }
+/* G1283: the profile's ways to its home street's and Tower's pages (Glitch's profile-visit-home, button-tiny), and those pages. */
+.profile-visit-home { display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 14px 0 0; }
+.profile-visit-home .button-tiny, .place-links .place-zoom { display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font-size: 15px; font-weight: 700; text-decoration: none; }
+.profile-visit-home .button-tiny:hover, .place-links .place-zoom:hover { border-color: var(--fg); }
+.profile-visit-home .button-tiny:focus-visible, .place-links a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.place-owner { margin: 6px 0 0; font-size: 18px; color: var(--lead); overflow-wrap: anywhere; }
+.place-owner a { color: var(--fg); }
+.place-house { margin: 4px 0 0; color: var(--muted); }
+.place-house strong { color: var(--fg); }
+.place-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 16px 0 0; font-weight: 700; }
+.place-links a { color: var(--fg); }
+.place-tower { margin: 0; max-width: 722px; border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); }
+.place-tower img { display: block; width: 100%; height: auto; }
+/* Before Zoom: the cutaway from its top floor down (PlayerPages::TOWER_FRAME_H). */
+.place-tower-framed { max-height: 960px; }
 .profile-page-achievements .profile-badges { grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr)); }
 .profile-page-achievements .profile-badges li { justify-content: flex-start; }
 @media (max-width: 560px) {

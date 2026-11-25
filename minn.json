@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.59",
+  "version": "0.5.60",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -633,6 +633,13 @@
       "home_layout mediumtext NULL",
       "home_layout_key varchar(64) NOT NULL DEFAULT ''",
       "home_layout_at datetime NULL",
+      "tower mediumblob NULL",
+      "tower_key varchar(64) NOT NULL DEFAULT ''",
+      "tower_at datetime NULL",
+      "tower_type varchar(16) NOT NULL DEFAULT 'image/png'",
+      "tower_w smallint(5) unsigned NOT NULL DEFAULT 0",
+      "tower_h smallint(5) unsigned NOT NULL DEFAULT 0",
+      "tower_name varchar(64) NOT NULL DEFAULT ''",
       "updated_at datetime NOT NULL",
       "PRIMARY KEY  (user_id)"
     ],

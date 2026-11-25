@@ -27,6 +27,11 @@ use Minn\RestError;
  * window (game.js syncLocationViewHeight: about 1.9:1 at 1280 x 800, 2.3:1
  * at 1920 x 1080), so a 1920 wide picture is 830-1010 tall: MAX_H is 1080
  * (816 would have held a 1280 x 800 window's picture to 1560 wide).
+ *
+ * G1283: the same checks keep a Tower's cutaway (accept($value, 'tower')),
+ * every floor stacked as Glitch's saveHomeImg posted it: 720 wide
+ * (APICall.as homeImage; the archived towers are 720 x 909 to 720 x 2693),
+ * so up to TOWER_MAX_H tall, with no phone copy (it is narrower than one).
  */
 final class HomePicture
 {
@@ -40,6 +45,22 @@ final class HomePicture
 
     /** The phone copy's width: a 3x phone's column (358 CSS px x 3 = 1074). */
     public const SMALL_W = 1080;
+
+    /** G1283: a Tower's cutaway (720 wide from the game; 2693 tall at 9 floors, 2990 while a tenth goes up). */
+    public const TOWER_MIN_W = 240;
+    public const TOWER_MAX_W = 1440;
+    public const TOWER_MAX_H = 3600;
+    public const TOWER_MAX_BYTES = 800 * 1024;
+
+    /**
+     * Each kind of picture's limits: [min w, min h, max w, max h, max bytes, phone copy, its word].
+     *
+     * @var array<string, array{0: int, 1: int, 2: int, 3: int, 4: int, 5: bool, 6: string}>
+     */
+    public const KINDS = [
+        'home' => [self::MIN_W, self::MIN_H, self::MAX_W, self::MAX_H, self::MAX_BYTES, true, 'a profile home'],
+        'tower' => [self::TOWER_MIN_W, self::MIN_H, self::TOWER_MAX_W, self::TOWER_MAX_H, self::TOWER_MAX_BYTES, false, 'a Tower picture'],
+    ];
 
     /** The quality GD writes WebP and JPEG at; a second try at RETRY_QUALITY if the first is over MAX_BYTES. */
     public const QUALITY = 85;
@@ -60,8 +81,9 @@ final class HomePicture
      *
      * @return array{bytes: string, type: string, width: int, height: int, small: ?string, smallWidth: int, smallHeight: int}
      */
-    public static function accept(mixed $value): array
+    public static function accept(mixed $value, string $kind = 'home'): array
     {
+        [$minW, $minH, $maxW, $maxH, $maxBytes, $phoneCopy, $word] = self::KINDS[$kind] ?? throw new RestError('groddle_profile_kind', 'That is not a picture a profile keeps.', 400);
         if (!is_string($value) || $value === '') {
             throw new RestError('groddle_profile_image', 'Send the picture as a base64 WebP, JPEG or PNG.', 400);
         }
@@ -72,19 +94,19 @@ final class HomePicture
             }
             $value = substr($value, strlen($m[0]));
         }
-        if (strlen($value) > intdiv(self::MAX_BYTES * 4, 3) + 8) {
-            throw new RestError('groddle_profile_too_large', 'That picture is larger than a profile keeps.', 413, ['max' => self::MAX_BYTES]);
+        if (strlen($value) > intdiv($maxBytes * 4, 3) + 8) {
+            throw new RestError('groddle_profile_too_large', 'That picture is larger than a profile keeps.', 413, ['max' => $maxBytes]);
         }
         $bytes = base64_decode($value, true);
         if (!is_string($bytes) || $bytes === '') {
             throw new RestError('groddle_profile_image', 'Send the picture as a base64 WebP, JPEG or PNG.', 400);
         }
-        if (strlen($bytes) > self::MAX_BYTES) {
-            throw new RestError('groddle_profile_too_large', 'That picture is larger than a profile keeps.', 413, ['max' => self::MAX_BYTES]);
+        if (strlen($bytes) > $maxBytes) {
+            throw new RestError('groddle_profile_too_large', 'That picture is larger than a profile keeps.', 413, ['max' => $maxBytes]);
         }
         [$format, $width, $height] = self::read($bytes);
-        if ($width < self::MIN_W || $height < self::MIN_H || $width > self::MAX_W || $height > self::MAX_H) {
-            throw new RestError('groddle_profile_size', "That picture is {$width}x{$height}; a profile home is " . self::MIN_W . 'x' . self::MIN_H . ' to ' . self::MAX_W . 'x' . self::MAX_H . '.', 400);
+        if ($width < $minW || $height < $minH || $width > $maxW || $height > $maxH) {
+            throw new RestError('groddle_profile_size', "That picture is {$width}x{$height}; {$word} is {$minW}x{$minH} to {$maxW}x{$maxH}.", 400);
         }
         if (!self::hasGd()) {
             return ['bytes' => $bytes, 'type' => self::TYPES[$format], 'width' => $width, 'height' => $height, 'small' => null, 'smallWidth' => 0, 'smallHeight' => 0];
@@ -94,15 +116,15 @@ final class HomePicture
             throw new RestError('groddle_profile_image', 'That picture could not be read.', 400);
         }
         $out = self::encode($image, self::QUALITY);
-        if (strlen($out['bytes']) > self::MAX_BYTES) {
+        if (strlen($out['bytes']) > $maxBytes) {
             $out = self::encode($image, self::RETRY_QUALITY);
         }
-        if (strlen($out['bytes']) > self::MAX_BYTES) {
-            throw new RestError('groddle_profile_too_large', 'That picture is larger than a profile keeps.', 413, ['max' => self::MAX_BYTES]);
+        if (strlen($out['bytes']) > $maxBytes) {
+            throw new RestError('groddle_profile_too_large', 'That picture is larger than a profile keeps.', 413, ['max' => $maxBytes]);
         }
         $small = null;
         $smallWidth = $smallHeight = 0;
-        if ($width > self::SMALL_W) {
+        if ($phoneCopy && $width > self::SMALL_W) {
             $smallWidth = self::SMALL_W;
             $smallHeight = max(1, (int) round($height * self::SMALL_W / $width));
             $copy = imagecreatetruecolor($smallWidth, $smallHeight);
