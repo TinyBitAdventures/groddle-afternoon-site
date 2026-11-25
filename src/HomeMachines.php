@@ -363,12 +363,18 @@ final readonly class HomeMachines
         });
         $state = Neighbours::state($db, $owner);
         $homes = Neighbours::homesSlice($state, false);
+        // G1018: the house's machines and its back yard are for whoever may enter (Neighbours::mayEnter).
+        $inside = (new Neighbours($this->minn))->mayEnter($request, $owner, $me);
+        if (!$inside) {
+            $out['machines'] = array_values(array_filter($out['machines'], static fn (array $m): bool => ($m['place'] ?? self::PLACE_STREET) === self::PLACE_STREET));
+        }
         return Response::json($out + [
             'owner' => $owner,
             'name' => (new Characters($db))->namesOf([$owner])[$owner] ?? '',
             'cult' => is_object($homes?->cult ?? null) ? $homes->cult : (object) [],
             // Where the house's machines stand: past the back yard, between the house's walls.
-            'backYard' => is_object($homes?->backYard ?? null) ? $homes->backYard : (object) [],
+            'backYard' => $inside && is_object($homes?->backYard ?? null) ? $homes->backYard : (object) [],
+            'inside' => $inside,
             'segments' => self::houseSegments(self::rules(), $state),
             'mayTake' => $owner === $me || (new Neighbours($this->minn))->holdsKeyTo($owner, $me),
         ]);

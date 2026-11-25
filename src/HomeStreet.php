@@ -111,7 +111,8 @@ final readonly class HomeStreet
         return Response::json([
             'owner' => ['id' => $owner, 'name' => $name],
             'signpost' => HomeSignpost::neighbors($db, $owner),
-            'poles' => self::poles($theirs),
+            // G1018: a Note Pole in the house is read by whoever may enter (Neighbours::mayEnter).
+            'poles' => (new Neighbours($this->minn))->mayEnter($request, $owner, $me) ? self::poles($theirs) : array_values(array_filter(self::poles($theirs), static fn (array $p): bool => $p['room'] !== 'house')),
             'sales' => LedgerFurniture::listed($db, $owner),
             // Ticket 51: what the owner's Storage Display Boxes sell (LedgerBoxes), and whether the caller holds a key.
             'boxes' => LedgerBoxes::shown($db, $owner, $theirs),

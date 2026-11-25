@@ -50,6 +50,18 @@ use Minn\RestError;
  *   a key to their house!") and, on a revoke, walks them out of the house
  *   (pols_kickPlayer).
  *
+ * G1018 (Austin 2026-11-25: "Only key holders should be able to see
+ * inside/backyard. Well and also visitors who knock and are let in."): the
+ * house (its furniture on every floor, the stacks and gnomes in it) and the
+ * back yard (its cultivations, look and state) go only to whoever may enter
+ * (mayEnter): the owner, a key-holder (pols_canEnter 461-476), or someone the
+ * owner let in or summoned in, which only the realtime server knows (homes.go
+ * house_auth): it hands them a proof signed with the shared secret, {k:
+ * house_in, sub: visitor, o: owner, exp}, which the game passes here as ?in=.
+ * Everyone else gets the home street and the house from outside. The same
+ * holds for the back yard's own answers (HomeYard ?place=yard, HomeMachines'
+ * house machines, HomeStreet's house Note Poles).
+ *
  * REST rules: signed in, the cookie with its nonce; the caller is the
  * signed-in user, never read from the request.
  */
@@ -73,6 +85,9 @@ final readonly class Neighbours
 
     /** Seconds a visit pass is good for (the game asks for a fresh one on every visit). */
     public const PASS_TTL = 1800;
+
+    /** G1018: the longest a realtime server's let-in proof may say it lasts (homes.go homeInLife is 600). */
+    public const INSIDE_TTL_MAX = 900;
 
     /** Seconds a key proof is good for. */
     public const TELL_TTL = 120;
@@ -139,7 +154,7 @@ final readonly class Neighbours
             throw new RestError('groddle_home_player', self::TEXT_NOT_FOUND, 404);
         }
         $me = $this->me();
-        $view = $this->visit($me, $owner);
+        $view = $this->visit($me, $owner, $this->letIn($request, $me, $owner));
         if (is_string($view)) {
             throw self::refusal($view);
         }
@@ -264,7 +279,7 @@ final readonly class Neighbours
      *
      * @return array<string, mixed>|string
      */
-    private function visit(int $me, int $owner): array|string
+    private function visit(int $me, int $owner, bool $letIn = false): array|string
     {
         $db = $this->minn->db;
         if ($owner !== $me && $this->ignoring($owner, $me)) {
@@ -291,17 +306,86 @@ final readonly class Neighbours
             return 'player_not_found';
         }
         $key = $owner === $me || $this->holdsKey($owner, $me);
-        return [
+        return self::forVisitor([
             'owner' => ['id' => $owner, 'name' => $name],
             'home' => ['owned' => true, 'style' => self::homeStyle($theirs), 'house' => self::homeHouse($theirs)],
             // Slice 2: the gardens with the key-holders' waiting acts on them (HomeTending), and the Butler as it looks.
             'homes' => HomeTending::overlay($homes, HomeTending::rowsFor($db, $owner)),
             'butler' => self::butlerView($theirs),
-            'gnomes' => self::gnomeRows($theirs, $key),
+            'gnomes' => self::gnomeRows($theirs, $key || $letIn),
             'stacks' => self::stackRows(self::savedEntry($db, $owner, 'droppedItems'), self::feature($theirs, 'homes')),
             'key' => $key,
             'pass' => $this->pass($me, $owner, $name, $key),
-        ];
+        ], $key || $letIn);
+    }
+
+    /**
+     * G1018: a visit answer as someone who may (or may not) enter the house sees it. Inside: all of
+     * it, and `inside` true. Outside: the home street (its cultivations and look, the Tower, the
+     * Butler, the gnomes and stacks out there) and the house from outside (`home.house`), with no
+     * furniture or swatches of any floor (`decor`), no back yard (`backYard`, `yardStyle`), and no
+     * gnome or stack in the house.
+     *
+     * @param array<string, mixed> $view
+     * @return array<string, mixed>
+     */
+    public static function forVisitor(array $view, bool $inside): array
+    {
+        $view['inside'] = $inside;
+        if ($inside) {
+            return $view;
+        }
+        if (is_object($view['homes'] ?? null)) {
+            $homes = clone $view['homes'];
+            unset($homes->decor, $homes->backYard, $homes->yardStyle);
+            $view['homes'] = $homes;
+        }
+        foreach (['gnomes', 'stacks'] as $k) {
+            if (is_array($view[$k] ?? null)) {
+                $view[$k] = array_values(array_filter($view[$k], static fn (array $r): bool => ($r['place'] ?? '') !== 'house'));
+            }
+        }
+        return $view;
+    }
+
+    /**
+     * G1018: whether me may enter owner's house and back yard (pols_canEnter 461-532): the owner, a
+     * key-holder, or someone the realtime server let in (the proof in ?in=, insideProof).
+     */
+    public function mayEnter(Request $request, int $owner, int $me): bool
+    {
+        return self::mayEnterWith($owner, $me, $owner !== $me && $this->holdsKeyTo($owner, $me), $request->query('in'), (new RealtimeTicket($this->minn))->secret(), time());
+    }
+
+    /** mayEnter's rule (pure): the owner, a key-holder ($key), or a good let-in proof ($token). */
+    public static function mayEnterWith(int $owner, int $me, bool $key, ?string $token, ?string $secret, int $now): bool
+    {
+        return $owner === $me || $key || ($token !== null && $token !== '' && self::insideProof($token, $secret, $me, $owner, $now));
+    }
+
+    /** The realtime server's let-in proof in the request (?in=) holds for me at owner's. */
+    private function letIn(Request $request, int $me, int $owner): bool
+    {
+        $token = $request->query('in');
+        return $token !== null && $token !== '' && self::insideProof($token, (new RealtimeTicket($this->minn))->secret(), $me, $owner, time());
+    }
+
+    /**
+     * Whether a let-in proof is good: signed with the shared secret (homes.go insideProof), kind
+     * house_in, for me at owner's, not expired, and not made to last past the server's ten minutes.
+     */
+    public static function insideProof(string $token, ?string $secret, int $me, int $owner, int $now): bool
+    {
+        if ($secret === null || strlen($token) > 1024 || preg_match('/^([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/', $token, $m) !== 1) {
+            return false;
+        }
+        $want = rtrim(strtr(base64_encode(hash_hmac('sha256', $m[1], $secret, true)), '+/', '-_'), '=');
+        if (!hash_equals($want, $m[2])) {
+            return false;
+        }
+        $claims = json_decode((string) base64_decode(strtr($m[1], '-_', '+/'), true), true);
+        return is_array($claims) && ($claims['k'] ?? null) === 'house_in' && ($claims['sub'] ?? null) === $me && ($claims['o'] ?? null) === $owner
+            && is_int($claims['exp'] ?? null) && $claims['exp'] >= $now && $claims['exp'] <= $now + self::INSIDE_TTL_MAX && $me !== $owner;
     }
 
     private static function refusal(string $error): RestError
@@ -638,9 +722,9 @@ final readonly class Neighbours
      * owner's save (the garden-gnome feature's `placed`): where each stands
      * (the home street, the house's ground floor, a Tower floor: the rooms a
      * visitor can reach), which way it faces and its phrases through the
-     * remake's own word filter. Ours: a gnome in the house says its phrases
-     * only to the owner and key-holders (`$key`); anyone else let in sees it
-     * hop without them, since this answer is given before anyone is let in.
+     * remake's own word filter. A gnome in the house says its phrases to
+     * whoever may be inside (`$key`: the owner, a key-holder, or someone let
+     * in, G1018); forVisitor leaves it out for anyone else.
      *
      * @return list<array{id: string, place: string, x: int, y: int, facingLeft: bool, phrases: list<string>}>
      */
