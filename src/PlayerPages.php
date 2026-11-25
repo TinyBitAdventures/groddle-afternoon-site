@@ -58,6 +58,11 @@ use Minn\RestError;
  * Beside it, "Send them an IM" opens the game on an IM to them
  * (/play/online/#im=<id>&name=<name>; the realtime server's im.go decides).
  *
+ * G1298: the grid sorts by Newest, Level, Age, Recently played or Name,
+ * filters (public Snaps, a Tower, a home street, online now), shows as cards
+ * or as one long neighbourhood of home street pictures, and offers "Visit a
+ * neighbour" (PlayerList, index(), visit()).
+ *
  * Drawn whole on the server in the site's look (the header menu, the
  * restoration report's tokens, light and dark) so they read without
  * JavaScript. Everything a player wrote is escaped. Only characters show:
@@ -124,6 +129,9 @@ final readonly class PlayerPages
 
     public const BUDDY_JS_KEY = 'buddy-1';
 
+    /** G1298: the Players page's script (swaps the list in place; keyed by its content, AssetKeys). */
+    public const PLAYERS_JS = '/wp-content/themes/groddle/players/players.js';
+
     /** The buddy button's labels, glitch.com's (the archived profile's buddyadd and buddyremove). */
     public const BUDDY_LABELS = ['add' => 'Add to buddy list', 'remove' => 'Remove from buddy list'];
 
@@ -157,51 +165,178 @@ final readonly class PlayerPages
         return Response::redirect('/players/' . self::query($request), 301);
     }
 
-    /** The grid: newest first, or by name. */
+    /**
+     * The grid, or the neighbourhood, sorted and filtered by its query (G1298, PlayerList):
+     * ?sort=newest|level|age|played|name, ?snaps=1 ?tower=1 ?street=1 ?online=1, ?view=street,
+     * ?page=n; ?visit=1 goes to a random listed player's home street page. All drawn here, so
+     * the page works without JavaScript (players/players.js swaps the list in place).
+     */
     #[Route(Method::Get, '/players/', policy: new Policy(Access::Public))]
     public function index(Request $request): Response
     {
         $db = $this->minn->db;
-        $byName = $request->query('sort') === 'name';
-        $page = max(1, (int) ($request->query('page') ?? '1'));
+        $o = PlayerList::options($request->query);
+        $now = time();
+        $reader = $this->minn->reader->userId;
         $characters = $db->table(Characters::TABLE);
         $users = $db->table('users');
         $profiles = $db->table(Profiles::TABLE);
         $saves = $db->table(MultiplayerSave::TABLE);
+        $meta = $db->table('usermeta');
         // Only characters at Profiles::LISTED_LEVEL or above are listed.
         $listed = "JOIN {$saves} s ON s.user_id = c.user_id AND " . Profiles::levelSql('s') . ' >= ' . Profiles::LISTED_LEVEL;
         // Retired characters (Logins) are hidden.
         $listed .= ' AND NOT EXISTS (SELECT 1 FROM ' . $db->table(Logins::TABLE) . ' rl WHERE rl.user_id = c.user_id AND rl.retired_at IS NOT NULL)';
         // So are suspended ones (a ban on any character of the login, AdminConsole::banned).
         $listed .= ' AND NOT ' . AdminConsole::bannedSql($db, 'c.user_id');
-        $total = (int) $db->value("SELECT COUNT(*) FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id {$listed}");
-        $pages = max(1, (int) ceil($total / self::PER_PAGE));
-        $page = min($page, $pages);
-        $order = $byName ? 'c.name_key ASC, c.user_id ASC' : 'c.created_at DESC, c.user_id DESC';
-        $rows = $db->rows("SELECT c.user_id, c.name, p.avatar_at FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id {$listed} LEFT JOIN {$profiles} p ON p.user_id = c.user_id ORDER BY {$order} LIMIT ? OFFSET ?", [self::PER_PAGE, ($page - 1) * self::PER_PAGE]);
-        $slugs = Profiles::slugs($db);
-
-        $tiles = '';
-        foreach ($rows as $row) {
-            $tiles .= self::tile((int) $row['user_id'], (string) $row['name'], $row['avatar_at'] ?? null, $slugs, '      ');
+        $from = "FROM {$characters} c JOIN {$users} u ON u.ID = c.user_id {$listed} LEFT JOIN {$profiles} p ON p.user_id = c.user_id";
+        if ($request->query('visit') !== null) {
+            return $this->visit($from, $reader);
         }
-        $sort = static fn (bool $name, string $label) => $name === $byName
-            ? '<span aria-current="true">' . $label . '</span>'
-            : '<a href="/players/' . ($name ? '?sort=name' : '') . '">' . $label . '</a>';
-        $count = $total === 1 ? '1 character' : number_format($total) . ' characters';
+        // "Appear offline" (PresenceSetting): never online here, and sorted as never seen; their last time is never read.
+        $hidden = "EXISTS (SELECT 1 FROM {$meta} ho WHERE ho.user_id = c.user_id AND ho.meta_key = '" . PresenceSetting::META . "' AND ho.meta_value = '1')";
+        $played = "CASE WHEN {$hidden} THEN NULL ELSE (SELECT MAX(CAST(pl.meta_value AS UNSIGNED)) FROM {$meta} pl WHERE pl.user_id = c.user_id AND pl.meta_key = '" . PlayTime::LAST . "') END";
+        // Public Snaps (G1240), none for a reader either of them blocks, as the profile (Snaps::publicOf).
+        $snaps = '(SELECT COUNT(*) FROM ' . $db->table(Snaps::TABLE) . ' sn WHERE sn.user_id = c.user_id AND sn.public = 1)';
+        if ($reader > 0) {
+            $snaps = 'CASE WHEN EXISTS (SELECT 1 FROM ' . $db->table(Buddies::IGNORES) . " ig WHERE (ig.user_id = {$reader} AND ig.ignored_id = c.user_id) OR (ig.user_id = c.user_id AND ig.ignored_id = {$reader})) THEN 0 ELSE {$snaps} END";
+        }
+        $online = $this->onlineNow($now);
+        $where = [];
+        if ($o['filters']['snaps']) {
+            $where[] = "{$snaps} > 0";
+        }
+        if ($o['filters']['tower']) {
+            $where[] = 'p.tower_at IS NOT NULL';
+        }
+        if ($o['filters']['street']) {
+            $where[] = 'p.home_at IS NOT NULL';
+        }
+        if ($o['filters']['online']) {
+            $where[] = $online === [] ? '0 = 1' : 'c.user_id IN (' . implode(', ', $online) . ") AND NOT {$hidden}";
+        }
+        $filtered = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
+        $all = (int) $db->value("SELECT COUNT(*) {$from}");
+        $total = $filtered === '' ? $all : (int) $db->value("SELECT COUNT(*) {$from}{$filtered}");
+        $streets = (int) $db->value("SELECT COUNT(*) {$from} WHERE p.home_at IS NOT NULL");
+        $pages = max(1, (int) ceil($total / self::PER_PAGE));
+        $o['page'] = min($o['page'], $pages);
+        $level = Profiles::levelSql('s');
+        $rows = $db->rows("SELECT c.user_id, c.name, c.created_at, p.avatar_at, p.home_at, p.home_w, p.home_h, p.home_small IS NOT NULL AS home_has_small, {$level} AS level, {$snaps} AS snaps, {$hidden} AS hidden, {$played} AS played {$from}{$filtered} ORDER BY " . PlayerList::orderSql($o['sort'], $level, $played) . ' LIMIT ? OFFSET ?', [self::PER_PAGE, ($o['page'] - 1) * self::PER_PAGE]);
+        $slugs = Profiles::slugs($db);
+        $isOnline = array_fill_keys($online, true);
+
+        $items = '';
+        foreach ($rows as $row) {
+            $id = (int) $row['user_id'];
+            if (!isset($slugs[$id])) {
+                continue;
+            }
+            $text = static fn (mixed $v): ?string => is_string($v) && $v !== '' ? $v : null;
+            $c = [
+                'id' => $id,
+                'name' => (string) $row['name'],
+                'slug' => $slugs[$id],
+                'avatar_at' => $text($row['avatar_at'] ?? null),
+                'level' => (int) $row['level'],
+                'joined' => strtotime(((string) $row['created_at']) . ' UTC'),
+                'played' => $row['played'] === null ? null : (int) $row['played'],
+                'snaps' => (int) $row['snaps'],
+                'online' => isset($isOnline[$id]) && !(int) $row['hidden'],
+                'home_at' => $text($row['home_at'] ?? null),
+                'home_w' => (int) ($row['home_w'] ?? 0),
+                'home_h' => (int) ($row['home_h'] ?? 0),
+                'home_small' => (bool) ($row['home_has_small'] ?? false),
+            ];
+            $items .= $o['view'] === 'street' ? PlayerList::lot($c, '        ') : PlayerList::card($c, $o['sort'], $now, '      ');
+        }
+
+        $tabs = [];
+        foreach (PlayerList::SORTS as $sort => $label) {
+            $tabs[] = $sort === $o['sort'] ? '<span aria-current="true">' . $label . '</span>' : '<a href="' . Html::attr(PlayerList::href($o, ['sort' => $sort])) . '" data-players-nav="">' . $label . '</a>';
+        }
+        $views = [];
+        foreach (PlayerList::VIEWS as $view => $label) {
+            $views[] = $view === $o['view'] ? '<span aria-current="true">' . $label . '</span>' : '<a href="' . Html::attr(PlayerList::href($o, ['view' => $view, 'page' => $o['page']])) . '" data-players-nav="">' . $label . '</a>';
+        }
+        // The filters are a form (GET), so they work without JavaScript; the script sends it on each change.
+        $form = '';
+        foreach (['sort' => array_key_first(PlayerList::SORTS), 'view' => array_key_first(PlayerList::VIEWS)] as $key => $default) {
+            $form .= $o[$key] === $default ? '' : '<input type="hidden" name="' . $key . '" value="' . Html::attr($o[$key]) . '" />';
+        }
+        foreach (PlayerList::FILTERS as $key => $label) {
+            $form .= '<label class="players-filter"><input type="checkbox" name="' . $key . '" value="1"' . ($o['filters'][$key] ? ' checked' : '') . ' /> ' . $label . '</label>';
+        }
+        $count = static fn (int $n): string => $n === 1 ? '1 character' : number_format($n) . ' characters';
+        $visit = $streets > 0 ? '<a class="players-visit" href="/players/?visit=1" rel="nofollow">Visit a neighbour</a>' : '';
         $body = '<header class="masthead note-head">' . "\n  <div class=\"wrap\">\n"
             . "    <p class=\"kicker\">Multiplayer</p>\n"
             . "    <h1>Players</h1>\n"
             . "    <p class=\"lead\">Every character in Groddle Afternoon's multiplayer from level " . Profiles::LISTED_LEVEL . " up, each in their own look. Pick one to see their home and badges.</p>\n"
             . "  </div>\n</header>\n"
-            . "<main class=\"band players\">\n  <div class=\"wrap\">\n"
-            . '    <p class="players-bar"><span>' . $count . '</span><span class="players-sort">' . $sort(false, 'Newest') . ' · ' . $sort(true, 'By name') . "</span></p>\n";
-        $body .= $tiles === ''
-            ? "    <p class=\"players-empty\">No characters here yet. A character appears once it reaches level " . Profiles::LISTED_LEVEL . ".</p>\n"
-            : "    <ul class=\"players-grid\">{$tiles}\n    </ul>\n";
-        $body .= self::pager($page, $pages, static fn (int $n): string => '/players/' . (($q = http_build_query(array_filter(['sort' => $byName ? 'name' : null, 'page' => $n > 1 ? $n : null]))) === '' ? '' : "?{$q}"));
+            . "<main class=\"band players\">\n  <div class=\"wrap\" data-players-list=\"\">\n"
+            . '    <div class="players-bar"><p class="players-count">' . ($filtered === '' ? $count($all) : number_format($total) . ' of ' . $count($all)) . "</p>{$visit}</div>\n"
+            . '    <nav class="players-sort" aria-label="Sort players">' . implode(' · ', $tabs) . "</nav>\n"
+            . '    <div class="players-tools"><form class="players-filters" method="get" action="/players/" data-players-filters="">' . $form . '<button type="submit" class="players-apply">Show</button></form>'
+            . '<nav class="players-view" aria-label="View">' . implode(' / ', $views) . "</nav></div>\n";
+        if ($items === '') {
+            $body .= $filtered === '' || $all === 0
+                ? "    <p class=\"players-empty\">No characters here yet. A character appears once it reaches level " . Profiles::LISTED_LEVEL . ".</p>\n"
+                : '    <p class="players-empty">No characters match. <a href="' . Html::attr(PlayerList::href($o, ['filters' => []])) . "\" data-players-nav=\"\">Show everyone</a></p>\n";
+        } elseif ($o['view'] === 'street') {
+            $body .= "    <div class=\"hood\" role=\"region\" aria-label=\"Neighbourhood\" tabindex=\"0\">\n      <ol class=\"hood-street\">{$items}\n      </ol>\n    </div>\n"
+                . "    <p class=\"hood-hint\">Scroll along the street and pick a house to visit it.</p>\n";
+        } else {
+            $body .= "    <ul class=\"players-grid\">{$items}\n    </ul>\n";
+        }
+        $body .= self::pager($o['page'], $pages, static fn (int $n): string => PlayerList::href($o, ['page' => $n]));
         $body .= "  </div>\n</main>";
-        return $this->page('Players', 'Every character in Groddle Afternoon multiplayer.', $body);
+        $script = '<script src="' . Html::attr(AssetKeys::url(self::PLAYERS_JS, dirname(__DIR__), 'players/players.js')) . "\" defer></script>\n";
+        return $this->page('Players', 'Every character in Groddle Afternoon multiplayer.', $body, $script);
+    }
+
+    /**
+     * G1298: "Visit a neighbour": a random listed player's home street page, chosen here so it
+     * works without JavaScript; never the reader's own while there is anyone else. Only players
+     * whose home street page is there (its picture, PlayerPages::place) are picked.
+     */
+    private function visit(string $from, int $reader): Response
+    {
+        $db = $this->minn->db;
+        $streets = "{$from} WHERE p.home_at IS NOT NULL";
+        $others = $reader > 0 ? "{$streets} AND c.user_id <> {$reader}" : $streets;
+        $n = (int) $db->value("SELECT COUNT(*) {$others}");
+        if ($n === 0) {
+            $others = $streets;
+            $n = (int) $db->value("SELECT COUNT(*) {$others}");
+        }
+        $id = $n === 0 ? null : $db->value("SELECT c.user_id {$others} ORDER BY c.user_id LIMIT 1 OFFSET ?", [random_int(0, $n - 1)]);
+        $slugs = Profiles::slugs($db);
+        $to = $id !== null && isset($slugs[(int) $id]) ? '/players/' . $slugs[(int) $id] . '/home-street/' : '/players/';
+        return Response::redirect($to, 302)->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
+     * G1298: the connected players' ids (PlayerList::onlineSnapshot: none who appear offline),
+     * asked of the realtime server at most every ONLINE_REFRESH seconds by the page view that
+     * finds the kept list stale (the site has no scheduled job), and none at all when the list
+     * is older than ONLINE_KEEP.
+     *
+     * @return list<int>
+     */
+    private function onlineNow(int $now): array
+    {
+        $site = $this->minn->site;
+        $snap = PlayerList::readOnline($site->option(PlayerList::ONLINE_OPTION));
+        if (PlayerList::onlineDue($snap, (int) ($site->option(PlayerList::ONLINE_TRIED) ?? 0), $now)) {
+            $site->setOption(PlayerList::ONLINE_TRIED, (string) $now, 'off');
+            $fresh = PlayerList::onlineSnapshot((new RealtimeCall($this->minn))->post('online', [], PlayerList::ONLINE_TIMEOUT), $now);
+            if ($fresh !== null) {
+                $site->setOption(PlayerList::ONLINE_OPTION, (string) json_encode($fresh), 'off');
+                $snap = $fresh;
+            }
+        }
+        return PlayerList::onlineIds($snap, $now);
     }
 
     #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}', policy: new Policy(Access::Public))]
@@ -1126,7 +1261,7 @@ final readonly class PlayerPages
     }
 
     /** Our own plain silhouette for a character with no picture yet (not Tiny Speck art). */
-    private static function ghost(string $class): string
+    public static function ghost(string $class): string
     {
         return '<svg class="' . $class . ' player-ghost" viewBox="0 0 100 144" width="100" height="144" role="img" aria-label="No picture yet">'
             . '<g fill="currentColor"><ellipse cx="50" cy="46" rx="29" ry="31"/><path d="M29 84c13-7 29-7 42 0l5 34H24z"/>'
