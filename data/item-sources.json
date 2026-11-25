@@ -284,7 +284,7 @@
 "furniture_armchair":{"cat":"Furniture and home","src":["made"],"ok":1,"price":1000},
 "furniture_bed":{"cat":"Furniture and home","src":["made"],"ok":1,"price":1700},
 "furniture_bench":{"cat":"Furniture and home","src":["made"],"ok":1,"price":950},
-"furniture_bookcase":{"cat":"Furniture and home","src":["other"],"ok":1,"price":1500},
+"furniture_bookcase":{"cat":"Furniture and home","src":["made"],"ok":1,"price":1500},
 "furniture_ceilingdeco":{"cat":"Furniture and home","src":["made"],"ok":1,"price":625},
 "furniture_ceilinglamp":{"cat":"Furniture and home","src":["made"],"ok":1,"price":675},
 "furniture_chair":{"cat":"Furniture and home","src":["made"],"ok":1,"price":450},
