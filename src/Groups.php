@@ -35,9 +35,12 @@ use Minn\RestError;
  * last member leaves the group is gone (group.js:931-936 doDelete). Here the
  * new administrator is worked out when the list is read, so only the
  * caller's own membership row is ever written. The administrator may
- * change the description (group.js:494-499 admin_edit; renaming, which
- * admin_edit also did, waits on a ruling). Roles beyond the two, kicks,
- * bans, applications, forums and group halls are not here.
+ * rename the group and change its description (group.js:494-499
+ * admin_edit set label and desc); a new name is told to the realtime
+ * server (RealtimeCall group_rename, groddle-afternoon-server
+ * group_rename.go), which puts one line in the group's chat (ours, Austin's
+ * ruling, register G1300). Roles beyond the two, kicks, bans, applications,
+ * forums and group halls are not here.
  *
  * Each answer about the caller carries a watch token: their group ids and
  * the channels they may use, signed with the realtime secret
@@ -74,6 +77,9 @@ final readonly class Groups
     public const NAME = '/^[A-Za-z0-9](?:[A-Za-z0-9 _-]{1,30})[A-Za-z0-9]$/';
 
     public const DESCRIPTION_MAX = 300;
+
+    /** Another group has the name (create and edit). */
+    public const TAKEN = 'There is already a group with that name. Try another.';
 
     /** An inviter with no character name: "Someone", as LedgerBoard.php and the realtime server say (the game's js/player-names.js UNNAMED_PLAYER). Our own word: no fallback name survives in the original. */
     public const UNNAMED_PLAYER = 'Someone';
@@ -136,22 +142,35 @@ final readonly class Groups
     /**
      * The group's administrator changes it (group.js:494-499 admin_edit,
      * which the website's group pages called; level 1, Administrator, held
-     * every permission, group.js:46-50, 310). The description only for now:
-     * each field the body may change is checked into $changes, so a name
-     * (admin_edit's args.name) would be one more check here. A name sent
-     * now is not read. Anyone else is refused; answers as show() does.
+     * every permission, group.js:46-50, 310): its name, with every rule a new
+     * group's name has (create), and its description. Each field the body
+     * may change is checked into $changes. A new name goes to the realtime
+     * server, which tells the members in the group's chat; the name is kept
+     * whether or not the server answers. Anyone else is refused; answers as
+     * show() does.
      */
     #[Route(Method::Put, '/groddle/v1/groups/{id:\d+}', policy: new Policy(Access::SignedIn))]
     public function edit(Request $request, string $id): Response
     {
         $group = $this->group((int) $id);
         $this->seen($group);
-        if ($this->memberRole($group, $this->me()) !== 'admin') {
+        $me = $this->me();
+        if ($this->memberRole($group, $me) !== 'admin') {
             throw new RestError('groddle_group_not_admin', 'Only the group\'s administrator can change it.', 403);
         }
         $body = $request->json();
         $changes = [];
         $fields = [];
+        if (array_key_exists('name', $body)) {
+            $name = self::name($body['name']);
+            $problem = self::nameProblem($name);
+            if ($problem !== null) {
+                $fields['name'] = $problem;
+            } elseif ($name !== (string) $group['name']) {
+                $changes['name'] = $name;
+                $changes['name_key'] = strtolower($name);
+            }
+        }
         if (array_key_exists('description', $body)) {
             $description = self::description($body['description']);
             if ($description === null) {
@@ -167,9 +186,22 @@ final readonly class Groups
             throw new RestError('groddle_group_unchanged', 'Nothing to change.', 400);
         }
         $db = $this->minn->db;
+        $groups = $db->table(self::TABLE);
+        $gid = (int) $group['id'];
+        if (isset($changes['name_key']) && $db->value("SELECT 1 FROM {$groups} WHERE name_key = ? AND id <> ?", [$changes['name_key'], $gid]) !== null) {
+            throw self::taken();
+        }
         $set = implode(', ', array_map(static fn (string $col): string => "{$col} = ?", array_keys($changes)));
-        $db->execute('UPDATE ' . $db->table(self::TABLE) . " SET {$set} WHERE id = ?", [...array_values($changes), (int) $group['id']]);
-        return Response::json($this->shown($this->group((int) $group['id'])));
+        // IGNORE: another group taking the name a moment ago leaves this row as it was (checked next).
+        $db->execute("UPDATE IGNORE {$groups} SET {$set} WHERE id = ?", [...array_values($changes), $gid]);
+        if (isset($changes['name_key']) && $db->value("SELECT name_key FROM {$groups} WHERE id = ?", [$gid]) !== $changes['name_key']) {
+            throw self::taken();
+        }
+        if (isset($changes['name'])) {
+            $by = (new Characters($db))->namesOf([$me])[$me] ?? self::UNNAMED_PLAYER;
+            (new RealtimeCall($this->minn))->post('group_rename', ['group' => $gid, 'name' => $changes['name'], 'by' => $by]);
+        }
+        return Response::json($this->shown($this->group($gid)));
     }
 
     /** Makes a group with the caller as its administrator (inc_groups.js:38-73 groups_create, group.js:24-88 doCreate). */
@@ -177,14 +209,13 @@ final readonly class Groups
     public function create(Request $request): Response
     {
         $body = $request->json();
-        $name = trim(preg_replace('/\s+/', ' ', (string) ($body['name'] ?? '')) ?? '');
+        $name = self::name($body['name'] ?? '');
         $description = self::description($body['description'] ?? '');
         $mode = (string) ($body['mode'] ?? 'public');
         $fields = [];
-        if (preg_match(self::NAME, $name) !== 1) {
-            $fields['name'] = 'Group names are 3 to 32 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
-        } elseif (WordFilter::has($name)) {
-            $fields['name'] = WordFilter::NAME_REFUSED; // the remake's own word filter: a name is refused, like a character's
+        $problem = self::nameProblem($name);
+        if ($problem !== null) {
+            $fields['name'] = $problem;
         }
         if (!in_array($mode, self::MODES, true)) {
             $fields['mode'] = 'A group is public or private.';
@@ -201,14 +232,14 @@ final readonly class Groups
         $groups = $db->table(self::TABLE);
         $key = strtolower($name);
         if ($db->value("SELECT 1 FROM {$groups} WHERE name_key = ?", [$key]) !== null) {
-            throw new RestError('groddle_group_taken', 'There is already a group with that name. Try another.', 409, ['fields' => ['name' => 'There is already a group with that name. Try another.']]);
+            throw self::taken();
         }
         $now = gmdate('Y-m-d H:i:s');
         $db->execute("INSERT IGNORE INTO {$groups} (name, name_key, description, mode, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)", [$name, $key, $description, $mode, $me, $now]);
         $id = $db->insertId();
         if ($id <= 0 || (int) $db->value("SELECT id FROM {$groups} WHERE name_key = ?", [$key]) !== $id) {
             // Two players racing for one name: the first keeps it.
-            throw new RestError('groddle_group_taken', 'There is already a group with that name. Try another.', 409, ['fields' => ['name' => 'There is already a group with that name. Try another.']]);
+            throw self::taken();
         }
         $db->execute('INSERT IGNORE INTO ' . $db->table(self::MEMBERS) . ' (group_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)', [$id, $me, 'admin', $now]);
         return Response::json($this->answer() + ['created' => $id], 201);
@@ -345,6 +376,27 @@ final readonly class Groups
             }
         }
         return self::card($group + ['members' => count($people)]) + ['member' => $member, 'invited' => $invite !== null, 'people' => $list];
+    }
+
+    /** A name as typed, its runs of spaces one space. */
+    private static function name(mixed $value): string
+    {
+        return trim(preg_replace('/\s+/', ' ', is_scalar($value) ? (string) $value : '') ?? '');
+    }
+
+    /** Why a group can't have this name (create and edit), or null. */
+    private static function nameProblem(string $name): ?string
+    {
+        if (preg_match(self::NAME, $name) !== 1) {
+            return 'Group names are 3 to 32 letters, numbers, spaces, - or _, starting and ending with a letter or number.';
+        }
+        // The remake's own word filter: a name is refused, like a character's.
+        return WordFilter::has($name) ? WordFilter::NAME_REFUSED : null;
+    }
+
+    private static function taken(): RestError
+    {
+        return new RestError('groddle_group_taken', self::TAKEN, 409, ['fields' => ['name' => self::TAKEN]]);
     }
 
     /** A description: one paragraph of plain text with bad words a grawlix (WordFilter), or null when too long. */
