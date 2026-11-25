@@ -378,6 +378,49 @@ final readonly class Ledger
         $this->db->execute('UPDATE ' . $this->db->table(self::TRADES) . " SET {$col} = ? WHERE trade_id = ? AND {$col} IS NULL", [gmdate('Y-m-d H:i:s', $now), $trade]);
     }
 
+    /**
+     * #691: the answer for an act the ledger is short for when the shortfall stands in the pack outside
+     * the ledger, past today's limit (LedgerMath::WAIT_DAY, what the last write let wait): why "waiting",
+     * the words naming the class and when it clears, the class (c, "$" for currants) and clears (the
+     * next 00:00 UTC, unix seconds: the day's first write credits it). Null when what the ledger holds
+     * and what waits still fall short of any part of $goods (a plain short). Every act that checks the
+     * ledger (a drop, gift, trade, sale, letter, machine or party spend) asks this before it says "You
+     * don't have enough of that item". Ours: Glitch had no such count (emblems simply dropped,
+     * items/emblem_alph.js 73); the daily limit and its wait are ours (LedgerMath::EMBLEM_DAILY).
+     *
+     * @param array{items: array<string,int>, currants: int} $goods what the act takes
+     * @return array{status: string, why: string, text: string, c: string, clears: int}|null
+     */
+    public function waitingFor(int $user, array $goods, string $verb, int $now): ?array
+    {
+        $state = $this->lock($user, $now);
+        $need = $goods['items'];
+        if (($goods['currants'] ?? 0) > 0) {
+            $need['$'] = (int) $goods['currants'];
+        }
+        $day = gmdate('Y-m-d', $now);
+        $first = null;
+        foreach ($need as $c => $n) {
+            $c = (string) $c;
+            $n = (int) $n;
+            $have = $c === '$' ? $state['currants'] : (int) ($state['items'][$c] ?? 0);
+            if ($have >= $n) {
+                continue;
+            }
+            $waits = (int) ($this->db->value('SELECT n FROM ' . $this->db->table(self::CREDITED) . ' WHERE user_id = ? AND kind = ? AND ref = ?', [$user, LedgerMath::WAIT_DAY, "{$day}:{$c}"]) ?? 0);
+            if ($have + $waits < $n) {
+                return null;
+            }
+            $first ??= [$c, $n, $n - max(0, $have)];
+        }
+        if ($first === null) {
+            return null;
+        }
+        [$c, $n, $k] = $first;
+        $clears = LedgerMath::nextDay($now);
+        return ['status' => 'refused', 'why' => 'waiting', 'text' => LedgerMath::waitingText($this->economy, $c, $n, $k, $verb, $now, $clears), 'c' => $c, 'clears' => $clears];
+    }
+
     // —— Save writes and reads ——
 
     /**
@@ -622,9 +665,10 @@ final readonly class Ledger
      *
      * @param array{0: int, 1: int} $ids
      * @param array{0: array, 1: array} $gave the realtime server's goods for each side
-     * @return array{status: string, short?: array}
+     * @param string $verb the act, for the words when what the giver lacks waits past today's limit (#691: waiting)
+     * @return array{status: string, short?: array, waiting?: array}
      */
-    public function settle(string $trade, array $ids, array $gave, int $now): array
+    public function settle(string $trade, array $ids, array $gave, int $now, string $verb = 'trade'): array
     {
         $t = $this->db->table(self::TRADES);
         $held = $this->db->row("SELECT status FROM {$t} WHERE trade_id = ? FOR UPDATE", [$trade]);
@@ -651,7 +695,9 @@ final readonly class Ledger
         if ($short !== null) {
             $this->db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, created_at) VALUES (?, 'void', ?, ?, ?, ?, ?)", $row);
             $this->log((int) $short['id'], 'refuse', ['trade' => $trade, 'short' => $short, 'gave' => $goods[$ids[0] === $short['id'] ? 0 : 1]], $now);
-            return ['status' => 'refused', 'short' => $short];
+            // #691: what the giver lacks may only wait past today's limit; the caller's words say so.
+            $waiting = $this->waitingFor((int) $short['id'], $goods[$ids[0] === $short['id'] ? 0 : 1], $verb, $now);
+            return ['status' => 'refused', 'short' => $short] + ($waiting === null ? [] : ['waiting' => $waiting]);
         }
         foreach ([0, 1] as $i) {
             $o = 1 - $i;

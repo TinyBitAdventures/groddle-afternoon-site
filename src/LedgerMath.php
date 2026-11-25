@@ -244,8 +244,18 @@ final class LedgerMath
     /** js/newxp.js STAGES, in order. */
     public const NEWXP_STAGES = ['clouds', 'training1', 'training2', 'house', 'skill', 'island', 'done'];
 
-    /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records. */
-    public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY];
+    /** Credited kinds that count per day (Ledger keeps today's only): capped gains, card purchases, level-ups, progression currants, earned records, what waits today. */
+    public const DAILY_KINDS = ['cap', 'cardday', 'lvlday', self::PROG_DAY, self::MARK_DAY, self::WAIT_DAY];
+
+    /**
+     * #691: the daily credited kind that remembers what the last write let stand in the save outside
+     * the ledger until a later UTC day's count (check's held: emblems past EMBLEM_DAILY, tickets past
+     * TICKET_DAILY, pieces and beads past their cap, #246's level-up currants and card items; ref the
+     * class, "$" for currants, n how many). A drop, gift, trade, sale, letter or machine the ledger is
+     * short for then says why (Ledger::waitingFor) instead of "You don't have enough of that item".
+     * Daily, so it lapses at 00:00 UTC, when the day's first write credits what waited.
+     */
+    public const WAIT_DAY = 'waitday';
 
     /**
      * G895 (#432): the most value of capped drops (classes only drop tables give, at most their cap a
@@ -946,7 +956,7 @@ final class LedgerMath
             $waited[(string) $c] = (int) $n;
         }
         $r = self::reconcile($view, $holdings, $budget, $capacity, $economy, $capsLeft, $waited);
-        $rows = $credits['rows'];
+        $rows = array_merge($credits['rows'], self::waitRows((array) ($credited[self::WAIT_DAY] ?? []), $held));
         // G905: what waits now is remembered for the next write (0 once it no longer waits).
         foreach (array_unique(array_merge(array_keys($waited), array_keys($r['held']))) as $c) {
             $n = (int) ($r['held'][$c] ?? 0);
@@ -964,6 +974,69 @@ final class LedgerMath
             $rows[] = ['cap', (string) $c, (int) ($credited['cap'][$c] ?? 0) + $n];
         }
         return ['after' => self::add($owed, $r['delta']), 'credits' => $credits, 'reconciled' => $r, 'rows' => $rows, 'allowed' => $allowed, 'held' => $held, 'inputs' => ['items' => $fromReceipts['used'], 'currants' => 0]];
+    }
+
+    /**
+     * #691: WAIT_DAY rows for what stands in the save outside the ledger now ($held: class -> n, "$" the
+     * currants), against today's rows ($had): a row for each that changed, 0 once it no longer waits.
+     *
+     * @return list<array{0: string, 1: string, 2: int}>
+     */
+    public static function waitRows(array $had, array $held): array
+    {
+        $now = $held['items'];
+        if ($held['currants'] > 0) {
+            $now['$'] = $held['currants'];
+        }
+        $rows = [];
+        foreach (array_unique(array_merge(array_map('strval', array_keys($had)), array_map('strval', array_keys($now)))) as $c) {
+            $n = (int) ($now[$c] ?? 0);
+            if ($n !== (int) ($had[$c] ?? 0)) {
+                $rows[] = [self::WAIT_DAY, $c, $n];
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * #691: the words for an act refused because $k of the $n it takes of class $c ("$": currants)
+     * stand in the pack outside the ledger, past today's limit, until 00:00 UTC ($clears): "This
+     * Emblem of Mab is past today's limit, so it isn't counted yet. You can drop it after midnight UTC
+     * (in about 3 hours)." $verb is the act (drop, give, trade, sell, send, use). The game's words
+     * (js/ledger-waiting.js waitingText) are the same.
+     */
+    public static function waitingText(Economy $economy, string $c, int $n, int $k, string $verb, int $now, int $clears): string
+    {
+        $one = $k === 1;
+        if ($c === '$') {
+            $who = number_format($k) . ' of your currants';
+        } elseif ($n === 1) {
+            $who = 'This ' . $economy->name($c, 1);
+        } elseif ($k === $n) {
+            $who = 'These ' . $economy->label($c, $n);
+            $one = false;
+        } else {
+            $who = number_format($k) . ' of these ' . $economy->name($c, 2);
+        }
+        return $who . ($one ? " is past today's limit, so it isn't counted yet. You can {$verb} it" : " are past today's limit, so they aren't counted yet. You can {$verb} them")
+            . ' after midnight UTC (' . self::untilText($clears - $now) . ').';
+    }
+
+    /** #691: "in 25 minutes", "in about 3 hours": how long until a wait clears. */
+    public static function untilText(int $seconds): string
+    {
+        $m = max(1, (int) ceil($seconds / 60));
+        if ($m < 60) {
+            return $m === 1 ? 'in 1 minute' : "in {$m} minutes";
+        }
+        $h = max(1, (int) round($m / 60));
+        return $h === 1 ? 'in about 1 hour' : "in about {$h} hours";
+    }
+
+    /** #691: when what waits today clears: the next 00:00 UTC (the day's first write credits it). */
+    public static function nextDay(int $now): int
+    {
+        return intdiv($now, 86400) * 86400 + 86400;
     }
 
     /**

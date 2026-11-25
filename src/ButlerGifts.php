@@ -256,7 +256,8 @@ final readonly class ButlerGifts
         $ledger = Ledger::fromSeams($this->minn);
         $mine = $ledger->lock($me, $now);
         if (($mine['items'][$class] ?? 0) < $n) {
-            return ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
+            // #691: past today's limit, not yet in the ledger (Ledger::waitingFor).
+            return $ledger->waitingFor($me, ['items' => [$class => $n], 'currants' => 0], 'give', $now) ?? ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
         }
         $stamp = gmdate('Y-m-d H:i:s', $now);
         $merged = self::leave(self::stack($db->row("SELECT class_tsid, count, r, tag FROM {$stock} WHERE owner_id = ? FOR UPDATE", [$me])), $class, $n, $keep, $copy['r'], CopyTags::decode($copy['tag']));

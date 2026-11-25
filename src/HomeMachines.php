@@ -330,7 +330,9 @@ final readonly class HomeMachines
             if (($state['items'][$c] ?? 0) < $n) {
                 $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'void', ?, 0, ?, '{\"items\":[],\"currants\":0}', NULL, ?)", [$op, $actor, self::goodsJson($judged['held']), gmdate('Y-m-d H:i:s')]);
                 $ledger->log($actor, 'refuse', ['spend' => $op, 'why' => 'home_machine', 'short' => ['id' => $actor, 'c' => (string) $c]], time());
-                return $refuse('short', self::TEXT_SHORT, $row);
+                // #691: past today's limit, not yet in the ledger (Ledger::waitingFor).
+                $waiting = $ledger->waitingFor($actor, ['items' => $judged['held'], 'currants' => 0], 'use', time());
+                return $waiting === null ? $refuse('short', self::TEXT_SHORT, $row) : $answer('refused', $waiting + ['machine' => self::view($row)]);
             }
         }
         $this->spend($ledger, $op, $actor, $state, $judged['held'], 'home_machine');

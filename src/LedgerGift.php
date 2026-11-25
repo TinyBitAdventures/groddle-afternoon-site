@@ -187,9 +187,10 @@ final readonly class LedgerGift
             }
         }
         $goods = ['items' => $gift['items'], 'currants' => 0];
-        $out = $ledger->settle($gift['op'], [$gift['from'], $gift['to']], [$goods, ['items' => [], 'currants' => 0]], $now);
+        $out = $ledger->settle($gift['op'], [$gift['from'], $gift['to']], [$goods, ['items' => [], 'currants' => 0]], $now, 'give');
         if ($out['status'] !== 'settled') {
-            return ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
+            // #691: past today's limit, not yet in the ledger (Ledger::waitingFor).
+            return $out['waiting'] ?? ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
         }
         $db->execute("INSERT INTO {$gifts} (id, from_id, to_id, goods, box, ref, note_title, note_body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
             $gift['op'], $gift['from'], $gift['to'], (string) json_encode($gift['items'], JSON_UNESCAPED_SLASHES), $gift['box'] ? 1 : 0, $gift['ref'],

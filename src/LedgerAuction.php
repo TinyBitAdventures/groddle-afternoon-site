@@ -258,7 +258,9 @@ final readonly class LedgerAuction
         $op = self::op($id, 'l');
         $moved = $this->settleAlone($op, $me, ['items' => [$c => $n], 'currants' => $fee], ['items' => [], 'currants' => 0], 'list', $now);
         if ($moved !== null) {
-            return $moved === 'currants' ? self::refused('fee', self::TEXT_FEE) : self::refused('short', self::TEXT_SHORT);
+            // #691: past today's limit, not yet in the ledger (Ledger::waitingFor).
+            $waiting = $moved === 'void' ? null : Ledger::fromSeams($this->minn)->waitingFor($me, ['items' => [$c => $n], 'currants' => $fee], 'sell', $now);
+            return $waiting ?? ($moved === 'currants' ? self::refused('fee', self::TEXT_FEE) : self::refused('short', self::TEXT_SHORT));
         }
         $stamp = gmdate('Y-m-d H:i:s', $now);
         $db->execute("INSERT INTO {$t} (id, seller_id, class_tsid, count, cost, fee, r, tag, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)", [

@@ -174,7 +174,9 @@ final readonly class LedgerSpend
         if ($short !== null) {
             $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'void', ?, 0, ?, ?, NULL, ?)", $row);
             $ledger->log($id, 'refuse', ['spend' => $op, 'why' => $why, 'short' => $short], $now);
-            return ['status' => 'refused', 'short' => $short];
+            // #691: past today's limit, not yet in the ledger (Ledger::waitingFor).
+            $waiting = $ledger->waitingFor($id, $gave, 'spend', $now);
+            return ['status' => 'refused', 'short' => $short] + ($waiting === null ? [] : ['waiting' => $waiting]);
         }
         $this->move($id, $state, $gave, -1, $now);
         $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$op, $id, self::json($gave), '{"items":[],"currants":0}', gmdate('Y-m-d H:i:s', $now), gmdate('Y-m-d H:i:s', $now)]);

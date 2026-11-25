@@ -25,7 +25,9 @@ use Minn\RestError;
  *
  *   POST groddle/v1/ledger/drop       (the realtime server, signed: ServiceCall)
  *        {"op":"drop-<16 hex>","id":7,"street":"LA5…","x":1200,"y":-120,"item":{"c":"apple","n":3,"r"?:40}}
- *        200 {"status":"settled"} | 409 {"status":"refused","why":"type|short","text":"…"}
+ *        200 {"status":"settled"} | 409 {"status":"refused","why":"type|short|waiting","text":"…","c"?,"clears"?}
+ *   (waiting, #691: the pack holds it but it is past today's limit, not in the ledger until the next
+ *   00:00 UTC, clears; Ledger::waitingFor)
  *
  *   The stack leaves the dropper's ledger at once, recorded as a settled
  *   trade with nobody (groddle_trades, b_id 0, as LedgerSpend does), and
@@ -409,7 +411,7 @@ final readonly class LedgerDrop
         $held = $db->row("SELECT status FROM {$t} WHERE trade_id = ? FOR UPDATE", [$drop['op']]);
         if ($held !== null) {
             if ($held['status'] !== 'settled') {
-                return ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
+                return $ledger->waitingFor($drop['id'], ['items' => [$drop['c'] => $drop['n']], 'currants' => 0], 'drop', $now) ?? ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
             }
             // As recorded: the part that joined a like stack, and what lies on its own.
             $mine = $db->row("SELECT count, status, merged_into FROM {$drops} WHERE id = ?", [$drop['op']]);
@@ -430,8 +432,10 @@ final readonly class LedgerDrop
         if (($state['items'][$drop['c']] ?? 0) < $drop['n']) {
             // Recorded void, so asking again answers the same.
             $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'void', ?, 0, ?, ?, NULL, ?)", [$drop['op'], $drop['id'], $gave, self::NONE, $stamp]);
-            $ledger->log($drop['id'], 'refuse', ['drop' => $drop['op'], 'why' => 'short', 'c' => $drop['c'], 'n' => $drop['n']], $now);
-            return ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
+            // #691: an emblem (ticket, bead ...) past today's limit is in the pack but not the ledger yet: say so.
+            $waiting = $ledger->waitingFor($drop['id'], ['items' => [$drop['c'] => $drop['n']], 'currants' => 0], 'drop', $now);
+            $ledger->log($drop['id'], 'refuse', ['drop' => $drop['op'], 'why' => $waiting === null ? 'short' : 'waiting', 'c' => $drop['c'], 'n' => $drop['n']], $now);
+            return $waiting ?? ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];
         }
         self::move($db, $drop['id'], $state, $drop['c'], -$drop['n'], $now);
         $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'settled', ?, 0, ?, ?, ?, ?)", [$drop['op'], $drop['id'], $gave, self::NONE, $stamp, $stamp]);

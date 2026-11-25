@@ -215,11 +215,16 @@ final class Economy
         return (int) ($this->items[$class]['pts'] ?? 0);
     }
 
+    /** "Cherry", "Cherries": the trade table's name for one or more of a class. */
+    public function name(string $class, int $n): string
+    {
+        $row = $this->items[$class] ?? [];
+        return $n === 1 ? ($row['n'] ?? $class) : ($row['p'] ?? $row['n'] ?? $class);
+    }
+
     /** "3 Cherries", "1 Pick": the trade table's names. */
     public function label(string $class, int $n): string
     {
-        $row = $this->items[$class] ?? [];
-        $name = $n === 1 ? ($row['n'] ?? $class) : ($row['p'] ?? $row['n'] ?? $class);
-        return number_format($n) . ' ' . $name;
+        return number_format($n) . ' ' . $this->name($class, $n);
     }
 }

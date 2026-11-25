@@ -322,7 +322,9 @@ final readonly class LedgerMail
         $op = self::op($call['id'], 's');
         $short = self::settleAlone($this->minn, $op, $me, $gave, ['items' => [], 'currants' => 0], 'send', $now);
         if ($short !== null) {
-            return $short === 'currants' ? self::refused('no_cash', self::TEXT_NO_CASH) + ['cost' => $cost] : self::refused('short', self::TEXT_SHORT);
+            // #691: past today's limit, not yet in the ledger (Ledger::waitingFor).
+            $waiting = $short === 'void' ? null : Ledger::fromSeams($this->minn)->waitingFor($me, $gave, 'send', $now);
+            return $waiting ?? ($short === 'currants' ? self::refused('no_cash', self::TEXT_NO_CASH) + ['cost' => $cost] : self::refused('short', self::TEXT_SHORT));
         }
         $quote = '';
         $quoteFrom = null;
