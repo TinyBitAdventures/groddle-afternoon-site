@@ -8,17 +8,21 @@ use Minn\Html;
 
 /**
  * The Players page's ways to look (Austin 2026-11-25, register G1298): sorts beside Newest
- * (Level, Age, Recently played, Name), filters (Has public snaps, Has a Tower, Has a home
- * street, Online now), a Cards / Neighbourhood view and "Visit a neighbour". Everything is a
+ * (Level, Age, Recently played, Name), filters (Has public snaps, Has a Tower, Has a home),
+ * a Cards / Neighbourhood view and "Visit a neighbour". Everything is a
  * query parameter (?sort=level&snaps=1&view=street&page=2, ?visit=1) read on the server, so the
  * page works without JavaScript; players/players.js only swaps the list in place.
  *
  * What a card shows is what a profile already shows in public (the level, the join date, the
- * public Snaps, the home street and Tower pages), plus two things from play: when they last
+ * public Snaps, the home street picture, the Tower page), plus two things from play: when they last
  * played, in days (PlayTime's last time; Austin approved this sort on 2026-11-25, the total stays
  * administrators' alone), and a green dot while they are connected (the realtime server's
- * "online" list). A player with "Appear offline" (PresenceSetting) is never
- * online here and sorts as never seen: their last time is never read out of the database.
+ * "online" list). Those two are for signed-in players only (an account with a character;
+ * Austin 2026-11-25: "I don't want non players to see that"): a signed-out page is drawn with
+ * no dot, no "Played ..." and no Recently played sort, and asks nothing about either (no data
+ * attribute, no JSON). There is no Online now filter. A player with "Appear offline"
+ * (PresenceSetting) is never online here and sorts as never seen: their last time is never
+ * read out of the database.
  *
  * Glitch's profiles showed the join date ("Joined ..."; research/wayback/raw/profiles/) and a
  * player's home street; the neighbourhood view lays every listed home street picture side by
@@ -32,7 +36,13 @@ final class PlayerList
     public const SORTS = ['newest' => 'Newest', 'level' => 'Level', 'age' => 'Age', 'played' => 'Recently played', 'name' => 'Name'];
 
     /** The filters, query key => label (each ?key=1). */
-    public const FILTERS = ['snaps' => 'Has public snaps', 'tower' => 'Has a Tower', 'street' => 'Has a home street', 'online' => 'Online now'];
+    public const FILTERS = ['snaps' => 'Has public snaps', 'tower' => 'Has a Tower', 'home' => 'Has a home'];
+
+    /** The sorts only signed-in players are offered (the rest of the world sees no play times). */
+    public const PLAYER_SORTS = ['played'];
+
+    /** Filters' earlier names, still read: ?street=1 was Has a home street. */
+    public const FILTER_ALIASES = ['street' => 'home'];
 
     /** The views, query value => label; the first is the default. */
     public const VIEWS = ['cards' => 'Cards', 'street' => 'Neighbourhood'];
@@ -59,22 +69,31 @@ final class PlayerList
     public const LOT_W = 360;
 
     /**
-     * The page's options from its query: an unknown sort or view is the default, a filter is on
-     * only as "1", the page at least 1.
+     * The page's options from its query: an unknown sort or view is the default (so is a
+     * player-only sort for anyone else), a filter is on only as "1", the page at least 1.
      *
      * @param array<string, mixed> $query
      * @return array{sort: string, filters: array<string, bool>, view: string, page: int}
      */
-    public static function options(array $query): array
+    public static function options(array $query, bool $player = false): array
     {
-        $sort = is_string($query['sort'] ?? null) && isset(self::SORTS[$query['sort']]) ? $query['sort'] : array_key_first(self::SORTS);
+        $sort = is_string($query['sort'] ?? null) && isset(self::sorts($player)[$query['sort']]) ? $query['sort'] : array_key_first(self::SORTS);
         $view = is_string($query['view'] ?? null) && isset(self::VIEWS[$query['view']]) ? $query['view'] : array_key_first(self::VIEWS);
         $filters = [];
         foreach (self::FILTERS as $key => $label) {
             $filters[$key] = ($query[$key] ?? null) === '1';
         }
+        foreach (self::FILTER_ALIASES as $old => $key) {
+            $filters[$key] = $filters[$key] || ($query[$old] ?? null) === '1';
+        }
         $page = is_string($query['page'] ?? null) && ctype_digit($query['page']) ? max(1, (int) $query['page']) : 1;
         return ['sort' => $sort, 'filters' => $filters, 'view' => $view, 'page' => $page];
+    }
+
+    /** The sorts offered: every one to a signed-in player, the others to everyone else. @return array<string, string> */
+    public static function sorts(bool $player): array
+    {
+        return $player ? self::SORTS : array_diff_key(self::SORTS, array_flip(self::PLAYER_SORTS));
     }
 
     /**
@@ -214,8 +233,8 @@ final class PlayerList
 
     /**
      * One lot of the neighbourhood: the home street picture (its phone copy when there is one),
-     * lazy, the name under it, opening the home street's page; a player with no picture yet
-     * gets a plain empty lot (CSS only) opening their profile.
+     * lazy, the name under it, opening their profile (which draws the home street); a player
+     * with no picture yet gets a plain empty lot (CSS only).
      *
      * @param array{id: int, name: string, slug: string, home_at: ?string, home_w: int, home_h: int, home_small: bool, online: bool} $c
      */
@@ -237,7 +256,7 @@ final class PlayerList
             $sw = $small ? HomePicture::SMALL_W : $w;
             $size = " width=\"{$sw}\" height=\"" . max(1, (int) round($h * $sw / $w)) . '"';
         }
-        return "\n{$indent}<li class=\"hood-lot\"><a href=\"{$base}home-street/\">"
+        return "\n{$indent}<li class=\"hood-lot\"><a href=\"{$base}\">"
             . '<img class="hood-house" src="' . Html::attr($src) . "\"{$size} alt=\"" . Html::attr("{$c['name']}'s home street") . '" loading="lazy" decoding="async" />'
             . "<span class=\"hood-name\">{$name}{$dot}</span></a></li>";
     }

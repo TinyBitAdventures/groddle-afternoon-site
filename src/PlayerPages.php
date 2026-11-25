@@ -36,15 +36,16 @@ use Minn\RestError;
  * The data is Profiles', the save's and Buddies'; the pictures are the ones
  * the game uploaded, served here.
  *
- * G1283: a public page for the home street and one for the Tower, as
- * Glitch's site had (the archived profile's "View <name>'s Home Street"
- * button to /locations/<home street>/, research/wayback/raw/profiles/; a
- * Tower's location page "<Tower name>, Owned by <name>" with its cutaway of
- * every floor and Zoom, raw/locations-np/): /players/<name>/home-street/
- * (the home street picture, the owner's name, the house) and
- * /players/<name>/tower/ (the cutaway, Zoom), each only when the picture
- * is there, under the profile's own rule (who()). House interiors are never
- * shown: Glitch never did.
+ * G1283: a public page for the Tower, as Glitch's site had (a Tower's
+ * location page "<Tower name>, Owned by <name>" with its cutaway of every
+ * floor and Zoom, raw/locations-np/): /players/<name>/tower/ (the cutaway,
+ * Zoom), only when the picture is there, under the profile's own rule
+ * (who()). House interiors are never shown: Glitch never did. Glitch's
+ * profile also had "View <name>'s Home Street" (to /locations/<home
+ * street>/, research/wayback/raw/profiles/); here the profile itself draws
+ * the home street (the diorama), so a page of its static picture added
+ * nothing (Austin 2026-11-25): /players/<name>/home-street/ answers 301 to
+ * the profile, so links already shared still work.
  *
  * A signed-in player looking at someone else's page gets "Add to buddy list"
  * (or "Remove from buddy list"), as glitch.com's profiles had (the archived
@@ -59,7 +60,7 @@ use Minn\RestError;
  * (/play/online/#im=<id>&name=<name>; the realtime server's im.go decides).
  *
  * G1298: the grid sorts by Newest, Level, Age, Recently played or Name,
- * filters (public Snaps, a Tower, a home street, online now), shows as cards
+ * filters (public Snaps, a Tower, a home street picture), shows as cards
  * or as one long neighbourhood of home street pictures, and offers "Visit a
  * neighbour" (PlayerList, index(), visit()).
  *
@@ -89,8 +90,8 @@ final readonly class PlayerPages
         'tower-image' => ['tower', 'tower_at', 'tower_type'],
     ];
 
-    /** G1283: the public pages of a player's home, path under /players/<name>/ (Glitch had no page for a house's inside). */
-    private const PLACES = ['home-street', 'tower'];
+    /** G1283: the public page of a player's home, path under /players/<name>/ (Glitch had no page for a house's inside). */
+    private const PLACES = ['tower'];
 
     /** G1283: the Tower picture's frame before Zoom (its top floors; two floors, 909 px, show whole), in CSS px; Glitch's strip was 120 px. */
     public const TOWER_FRAME_H = 960;
@@ -167,17 +168,19 @@ final readonly class PlayerPages
 
     /**
      * The grid, or the neighbourhood, sorted and filtered by its query (G1298, PlayerList):
-     * ?sort=newest|level|age|played|name, ?snaps=1 ?tower=1 ?street=1 ?online=1, ?view=street,
-     * ?page=n; ?visit=1 goes to a random listed player's home street page. All drawn here, so
+     * ?sort=newest|level|age|played|name, ?snaps=1 ?tower=1 ?home=1 (?street=1 before), ?view=street,
+     * ?page=n; ?visit=1 goes to a random listed player with a home street picture. All drawn here, so
      * the page works without JavaScript (players/players.js swaps the list in place).
      */
     #[Route(Method::Get, '/players/', policy: new Policy(Access::Public))]
     public function index(Request $request): Response
     {
         $db = $this->minn->db;
-        $o = PlayerList::options($request->query);
         $now = time();
         $reader = $this->minn->reader->userId;
+        // Who is online and when they last played are for signed-in players only (Austin 2026-11-25).
+        $player = $reader > 0 && $this->isPlayer($reader);
+        $o = PlayerList::options($request->query, $player);
         $characters = $db->table(Characters::TABLE);
         $users = $db->table('users');
         $profiles = $db->table(Profiles::TABLE);
@@ -195,13 +198,13 @@ final readonly class PlayerPages
         }
         // "Appear offline" (PresenceSetting): never online here, and sorted as never seen; their last time is never read.
         $hidden = "EXISTS (SELECT 1 FROM {$meta} ho WHERE ho.user_id = c.user_id AND ho.meta_key = '" . PresenceSetting::META . "' AND ho.meta_value = '1')";
-        $played = "CASE WHEN {$hidden} THEN NULL ELSE (SELECT MAX(CAST(pl.meta_value AS UNSIGNED)) FROM {$meta} pl WHERE pl.user_id = c.user_id AND pl.meta_key = '" . PlayTime::LAST . "') END";
+        $played = $player ? "CASE WHEN {$hidden} THEN NULL ELSE (SELECT MAX(CAST(pl.meta_value AS UNSIGNED)) FROM {$meta} pl WHERE pl.user_id = c.user_id AND pl.meta_key = '" . PlayTime::LAST . "') END" : 'NULL';
         // Public Snaps (G1240), none for a reader either of them blocks, as the profile (Snaps::publicOf).
         $snaps = '(SELECT COUNT(*) FROM ' . $db->table(Snaps::TABLE) . ' sn WHERE sn.user_id = c.user_id AND sn.public = 1)';
         if ($reader > 0) {
             $snaps = 'CASE WHEN EXISTS (SELECT 1 FROM ' . $db->table(Buddies::IGNORES) . " ig WHERE (ig.user_id = {$reader} AND ig.ignored_id = c.user_id) OR (ig.user_id = c.user_id AND ig.ignored_id = {$reader})) THEN 0 ELSE {$snaps} END";
         }
-        $online = $this->onlineNow($now);
+        $online = $player ? $this->onlineNow($now) : [];
         $where = [];
         if ($o['filters']['snaps']) {
             $where[] = "{$snaps} > 0";
@@ -209,11 +212,8 @@ final readonly class PlayerPages
         if ($o['filters']['tower']) {
             $where[] = 'p.tower_at IS NOT NULL';
         }
-        if ($o['filters']['street']) {
+        if ($o['filters']['home']) {
             $where[] = 'p.home_at IS NOT NULL';
-        }
-        if ($o['filters']['online']) {
-            $where[] = $online === [] ? '0 = 1' : 'c.user_id IN (' . implode(', ', $online) . ") AND NOT {$hidden}";
         }
         $filtered = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
         $all = (int) $db->value("SELECT COUNT(*) {$from}");
@@ -252,7 +252,7 @@ final readonly class PlayerPages
         }
 
         $tabs = [];
-        foreach (PlayerList::SORTS as $sort => $label) {
+        foreach (PlayerList::sorts($player) as $sort => $label) {
             $tabs[] = $sort === $o['sort'] ? '<span aria-current="true">' . $label . '</span>' : '<a href="' . Html::attr(PlayerList::href($o, ['sort' => $sort])) . '" data-players-nav="">' . $label . '</a>';
         }
         $views = [];
@@ -296,9 +296,9 @@ final readonly class PlayerPages
     }
 
     /**
-     * G1298: "Visit a neighbour": a random listed player's home street page, chosen here so it
-     * works without JavaScript; never the reader's own while there is anyone else. Only players
-     * whose home street page is there (its picture, PlayerPages::place) are picked.
+     * G1298: "Visit a neighbour": a random listed player's profile (which draws their home
+     * street), chosen here so it works without JavaScript; never the reader's own while there is
+     * anyone else. Only players with a home street picture are picked.
      */
     private function visit(string $from, int $reader): Response
     {
@@ -312,7 +312,7 @@ final readonly class PlayerPages
         }
         $id = $n === 0 ? null : $db->value("SELECT c.user_id {$others} ORDER BY c.user_id LIMIT 1 OFFSET ?", [random_int(0, $n - 1)]);
         $slugs = Profiles::slugs($db);
-        $to = $id !== null && isset($slugs[(int) $id]) ? '/players/' . $slugs[(int) $id] . '/home-street/' : '/players/';
+        $to = $id !== null && isset($slugs[(int) $id]) ? '/players/' . $slugs[(int) $id] . '/' : '/players/';
         return Response::redirect($to, 302)->withHeader('Cache-Control', 'no-store');
     }
 
@@ -374,32 +374,36 @@ final readonly class PlayerPages
     #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{place:home-street|tower}', policy: new Policy(Access::Public))]
     public function barePlace(Request $request, string $slug, string $place): Response
     {
-        if ($this->find($slug) === null) {
-            throw new RouteMiss();
+        [, $canonical] = $this->find($slug) ?? throw new RouteMiss();
+        if ($place === 'home-street') {
+            return Response::redirect("/players/{$canonical}/", 301);
         }
         return Response::redirect("/players/{$slug}/{$place}/" . self::query($request), 301);
     }
 
     /**
-     * G1283: the home street's public page (the picture the game took of it, the owner, the house)
-     * or the Tower's (its cutaway of every floor, with Zoom), as Glitch's location pages for a home
-     * street and a Tower. Each is there only when its picture is, under the profile's own rule
-     * (who(): below the listed level the owner's alone, a suspended player's gone for everyone, a
-     * retired one never found), signed in or not.
+     * G1283: the Tower's public page (its cutaway of every floor, with Zoom), as Glitch's location
+     * pages for a Tower, there only when its picture is, under the profile's own rule (who(): below
+     * the listed level the owner's alone, a suspended player's gone for everyone, a retired one never
+     * found), signed in or not. The home street's page answers 301 to the profile, which draws the
+     * home street itself (Austin 2026-11-25), so links already shared still work.
      */
     #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/{place:home-street|tower}/', policy: new Policy(Access::Public))]
     public function place(Request $request, string $slug, string $place): Response
     {
+        [$id, $canonical] = $this->find($slug) ?? throw new RouteMiss();
+        if ($place === 'home-street') {
+            return Response::redirect("/players/{$canonical}/", 301);
+        }
         if (!in_array($place, self::PLACES, true)) {
             throw new RouteMiss();
         }
-        [$id, $canonical] = $this->find($slug) ?? throw new RouteMiss();
         if ($canonical !== $slug) {
             return Response::redirect("/players/{$canonical}/{$place}/" . self::query($request), 301);
         }
         $who = $this->who($request, $id, $canonical, '');
         $profile = $who['profile'];
-        $at = $profile[$place === 'tower' ? 'tower_at' : 'home_at'] ?? null;
+        $at = $profile['tower_at'] ?? null;
         if (!is_string($at) || $at === '') {
             throw new RouteMiss();
         }
@@ -408,38 +412,22 @@ final readonly class PlayerPages
         $listed = $who['facts']['level'] >= Profiles::LISTED_LEVEL;
         $private = $listed ? '' : '    <p class="profile-private">Only you can see this page for now. Everyone can once you reach level ' . Profiles::LISTED_LEVEL . ".</p>\n";
         $back = '<a href="' . Html::attr($base) . '">Back to ' . Html::esc($name) . "'s profile</a>";
-        if ($place === 'tower') {
-            $title = self::towerTitle($name, (string) ($profile['tower_name'] ?? ''));
-            $w = (int) ($profile['tower_w'] ?? 0);
-            $h = (int) ($profile['tower_h'] ?? 0);
-            $picture = Profiles::imageUrl($id, 'tower-image', $at);
-            // Glitch showed a strip of the cutaway with Zoom for the whole of it; without JavaScript, ?zoom=1.
-            $tall = $w > 0 && $h * min($w, 720) / $w > self::TOWER_FRAME_H;
-            $zoomed = $tall && $request->query('zoom') === '1';
-            $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
-            $main = '    <figure class="place-tower' . ($tall && !$zoomed ? ' place-tower-framed' : '') . "\" id=\"tower\">\n"
-                . '      <img src="' . Html::attr($picture) . '"' . $size . ' alt="' . Html::attr("{$title}, every floor") . "\" decoding=\"async\" />\n"
-                . "    </figure>\n"
-                . '    <p class="place-links">'
-                . ($tall ? '<a class="place-zoom" href="' . Html::attr($zoomed ? "{$base}tower/" : "{$base}tower/?zoom=1#tower") . '">' . ($zoomed ? 'Zoom out' : 'Zoom') . '</a>' : '')
-                . $back
-                . (is_string($profile['home_at'] ?? null) && $profile['home_at'] !== '' ? '<a href="' . Html::attr("{$base}home-street/") . '">View ' . Html::esc($name) . "'s Home Street</a>" : '')
-                . "</p>\n";
-            $lines = '';
-            $description = "{$title}, owned by {$name}: every floor, in Groddle Afternoon.";
-        } else {
-            $title = "{$name}'s Home Street";
-            $picture = Profiles::imageUrl($id, 'home', $at);
-            $house = HomeLayout::houseStyleName(Json::decode((string) ($profile['home_layout'] ?? ''), or: null));
-            $w = (int) ($profile['home_w'] ?? 0);
-            $h = (int) ($profile['home_h'] ?? 0);
-            $main = '    <figure class="profile-home place-street">' . self::homeImg($id, $name, $at, $profile, false) . "</figure>\n"
-                . '    <p class="place-links">' . $back
-                . (is_string($profile['tower_at'] ?? null) && $profile['tower_at'] !== '' ? '<a href="' . Html::attr("{$base}tower/") . '">View ' . Html::esc(self::towerTitle($name, (string) ($profile['tower_name'] ?? ''))) . '</a>' : '')
-                . "</p>\n";
-            $lines = $house === '' ? '' : '      <p class="place-house">House: <strong>' . Html::esc($house) . "</strong></p>\n";
-            $description = "{$name}'s home street in Groddle Afternoon" . ($house === '' ? '.' : ", with the {$house}.");
-        }
+        $title = self::towerTitle($name, (string) ($profile['tower_name'] ?? ''));
+        $w = (int) ($profile['tower_w'] ?? 0);
+        $h = (int) ($profile['tower_h'] ?? 0);
+        $picture = Profiles::imageUrl($id, 'tower-image', $at);
+        // Glitch showed a strip of the cutaway with Zoom for the whole of it; without JavaScript, ?zoom=1.
+        $tall = $w > 0 && $h * min($w, 720) / $w > self::TOWER_FRAME_H;
+        $zoomed = $tall && $request->query('zoom') === '1';
+        $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
+        $main = '    <figure class="place-tower' . ($tall && !$zoomed ? ' place-tower-framed' : '') . "\" id=\"tower\">\n"
+            . '      <img src="' . Html::attr($picture) . '"' . $size . ' alt="' . Html::attr("{$title}, every floor") . "\" decoding=\"async\" />\n"
+            . "    </figure>\n"
+            . '    <p class="place-links">'
+            . ($tall ? '<a class="place-zoom" href="' . Html::attr($zoomed ? "{$base}tower/" : "{$base}tower/?zoom=1#tower") . '">' . ($zoomed ? 'Zoom out' : 'Zoom') . '</a>' : '')
+            . $back
+            . "</p>\n";
+        $description = "{$title}, owned by {$name}: every floor, in Groddle Afternoon.";
         $avatarAt = is_string($profile['avatar_at'] ?? null) && $profile['avatar_at'] !== '' ? $profile['avatar_at'] : null;
         $face = $avatarAt === null
             ? self::ghost('profile-mini-art')
@@ -451,7 +439,6 @@ final readonly class PlayerPages
             . '      <p class="kicker"><a href="/players/">Players</a> <a href="' . Html::attr($base) . "\">{$nameHtml}</a></p>\n"
             . '      <h1>' . Html::esc($title) . "</h1>\n"
             . '      <p class="place-owner">Owned by <a href="' . Html::attr($base) . "\"><strong>{$nameHtml}</strong></a></p>\n"
-            . $lines
             . "    </div>\n  </div>\n</header>\n"
             . "<main class=\"band profile profile-place profile-place-{$place}\">\n  <div class=\"wrap\">\n" . $private . $main . "  </div>\n</main>";
         // The link preview is the picture itself, as Glitch's Tower pages had (og:image); none for a page that is not public.
@@ -467,17 +454,14 @@ final readonly class PlayerPages
     }
 
     /**
-     * G1283: the profile's ways to the home street's and the Tower's pages, as the archived
-     * profile's "View <name>'s Home Street" button (profile-visit-home, button-tiny); each only
-     * when its picture is there.
+     * G1283: the profile's way to the Tower's page, in the archived profile's "View <name>'s Home
+     * Street" button's look (profile-visit-home, button-tiny); only when its picture is there. No
+     * home street button: the profile draws the home street itself (Austin 2026-11-25).
      */
     public static function visitLinks(array $who): string
     {
         $profile = $who['profile'];
         $links = '';
-        if (is_string($profile['home_at'] ?? null) && $profile['home_at'] !== '') {
-            $links .= '<a class="button-tiny" href="' . Html::attr($who['base'] . 'home-street/') . '">View ' . Html::esc($who['name']) . "'s Home Street</a>";
-        }
         if (is_string($profile['tower_at'] ?? null) && $profile['tower_at'] !== '') {
             $links .= '<a class="button-tiny" href="' . Html::attr($who['base'] . 'tower/') . '">View ' . Html::esc(self::towerTitle($who['name'], (string) ($profile['tower_name'] ?? ''))) . '</a>';
         }
