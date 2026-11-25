@@ -242,6 +242,8 @@ a.console-hint { color: var(--fg); }
 .console-msg-who { margin: 0 0 3px; font-size: 12px; }
 .console-msg-who time { color: var(--muted); }
 .console-msg-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.console-msg-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.console-msg-link:hover { text-decoration-thickness: 2px; }
 .console-msg-history { margin-top: 6px; font-size: 12px; }
 .console-msg-history summary { cursor: pointer; color: var(--muted); }
 .console-msg-history ol { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; }

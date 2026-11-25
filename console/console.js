@@ -179,6 +179,74 @@ export function creditBody({ kind = '', points = '', reason = '', refs = '' } = 
 
 export const TICKET_STATUS = Object.freeze({ open: 'Open', answered: 'Answered', working: 'Working on it', closed: 'Closed' });
 
+/** The longest address that becomes a link (the game's js/chat-links.js LINK_MAX). */
+export const LINK_MAX = 400;
+// An http(s) address at the start or after a character that is not part of a word, an address or a scheme.
+const LINK_CANDIDATE = /(^|[^A-Za-z0-9_@.\-/:%+])(https?:\/\/[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+)/gi;
+const LINK_TRAILING = new Set(['.', ',', '!', '?', ';', ':', "'", '"', '*']);
+
+/** PURE: an address without the punctuation after it ("site.com)." in "(see site.com)." is "site.com"). */
+export function linkTrim(raw) {
+  let s = String(raw || '');
+  const count = (ch) => s.split(ch).length - 1;
+  for (;;) {
+    const c = s.at(-1);
+    if (c === undefined) break;
+    if (LINK_TRAILING.has(c)) s = s.slice(0, -1);
+    else if (c === ')' && count(')') > count('(')) s = s.slice(0, -1);
+    else if (c === ']' && count(']') > count('[')) s = s.slice(0, -1);
+    else break;
+  }
+  return s;
+}
+
+/**
+ * PURE: a message cut into words and links, in order: [{ text }] and [{ text, href, host }]
+ * (Austin 2026-11-25, report #669: a reply's game link could not be clicked in the console). Only
+ * http and https addresses with a host and no user name or password are links; anything else stays words.
+ */
+export function messageLinks(text) {
+  const s = String(text ?? '');
+  const out = [];
+  const words = (w) => {
+    if (!w) return;
+    const last = out.at(-1);
+    if (last && !last.href) last.text += w;
+    else out.push({ text: w });
+  };
+  let at = 0;
+  LINK_CANDIDATE.lastIndex = 0;
+  for (let m = LINK_CANDIDATE.exec(s); m; m = LINK_CANDIDATE.exec(s)) {
+    const start = m.index + m[1].length;
+    const raw = linkTrim(m[2]);
+    let u = null;
+    if (raw && raw.length <= LINK_MAX) {
+      try { u = new URL(raw); } catch { u = null; }
+    }
+    if (!u || !/^https?:$/.test(u.protocol) || u.username || u.password || !u.hostname) {
+      LINK_CANDIDATE.lastIndex = start + 1;
+      continue;
+    }
+    words(s.slice(at, start));
+    out.push({ text: raw, href: u.href, host: u.host.toLowerCase() });
+    at = start + raw.length;
+    LINK_CANDIDATE.lastIndex = at;
+  }
+  words(s.slice(at));
+  return out;
+}
+
+/** A message's words as a paragraph, its addresses as links opened in a new tab (text nodes and textContent only). */
+export function linkedBody(text, cls = 'console-msg-body') {
+  const p = el('p', { class: cls });
+  for (const seg of messageLinks(text)) {
+    p.append(seg.href
+      ? el('a', { href: seg.href, target: '_blank', rel: 'noopener noreferrer nofollow ugc', class: 'console-msg-link', title: `Opens ${seg.host}`, text: seg.text })
+      : document.createTextNode(seg.text));
+  }
+  return p;
+}
+
 /**
  * An edited message's earlier texts (Austin 2026-11-02), oldest first, folded under the message:
  * each with when it was written and when the next edit replaced it. Null when it was never edited.
@@ -191,7 +259,7 @@ export function messageHistory(m, when) {
     el('summary', { text: `Edited ${n === 1 ? 'once' : `${n} times`}: earlier ${n === 1 ? 'version' : 'versions'}` }),
     el('ol', {}, ...revs.map((r, i) => el('li', {},
       el('p', { class: 'console-msg-who' }, el('time', { datetime: r.at, text: `Version ${i + 1} · written ${when(r.at)}, replaced ${when(r.replaced)}` })),
-      el('p', { class: 'console-msg-body', text: r.body })))));
+      linkedBody(r.body)))));
 }
 
 /**
@@ -1620,7 +1688,7 @@ function boot() {
     } else img.removeAttribute('src');
     $('[data-console-messages]').replaceChildren(...(r.messages || []).map((m) => el('li', { class: `console-msg console-msg-${m.author}` },
       el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${messageWhen(m, when)}`, title: m.edited ? `Edited ${when(m.edited)}` : null })),
-      el('p', { class: 'console-msg-body', text: m.body }),
+      linkedBody(m.body),
       replyPictures(m),
       messageHistory(m, when),
       reactionRow(t.id, m))));
