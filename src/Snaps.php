@@ -115,7 +115,7 @@ final readonly class Snaps
         return Response::json($this->album($me));
     }
 
-    /** Saves a Snap: {image, caption, street, x, y}. */
+    /** Saves a Snap: {image, caption, street, x, y, whole?} (whole: a whole-home Snap, G1284). */
     #[Route(Method::Post, '/groddle/v1/snaps', policy: new Policy(Access::SignedIn))]
     public function save(Request $request): Response
     {
@@ -128,7 +128,8 @@ final readonly class Snaps
         $y = self::coordinate($body['y'] ?? 0);
         $this->mayStart($me);
         $this->withinLimits($me);
-        $image = SnapImage::accept($body['image'] ?? null);
+        // G1284: a whole-home Snap (every floor stacked) is taller; only a literal true asks for its limits.
+        $image = SnapImage::accept($body['image'] ?? null, ($body['whole'] ?? false) === true);
 
         $dir = self::dir();
         if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {

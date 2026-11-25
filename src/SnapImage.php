@@ -34,6 +34,14 @@ final class SnapImage
     public const MAX_W = 1920;
     public const MAX_H = 1200;
 
+    /**
+     * A whole-home Snap (G1284, Austin 2026-11-25: Camera Mode's "Snap the whole house", every floor
+     * stacked): taller and larger, so a 9-floor Tower (1178 x 4402 in the game) keeps 963 px of width.
+     * Only an upload that says `whole: true` (Snaps::save) is checked against these.
+     */
+    public const WHOLE_MAX_H = 3600;
+    public const WHOLE_MAX_BYTES = 2_000_000;
+
     /** The JPEG quality GD writes the kept picture at. */
     public const QUALITY = 85;
 
@@ -54,12 +62,15 @@ final class SnapImage
 
     /**
      * The picture checked and written again as a JPEG: the bytes to keep,
-     * with their width and height.
+     * with their width and height. `$whole`: a whole-home Snap's limits
+     * (WHOLE_MAX_H, WHOLE_MAX_BYTES) instead of a Snap's.
      *
      * @return array{bytes: string, width: int, height: int, small: ?string}
      */
-    public static function accept(mixed $value): array
+    public static function accept(mixed $value, bool $whole = false): array
     {
+        $maxBytes = $whole ? self::WHOLE_MAX_BYTES : self::MAX_BYTES;
+        $maxH = $whole ? self::WHOLE_MAX_H : self::MAX_H;
         if (!is_string($value) || $value === '') {
             throw new RestError('groddle_snap_image', 'Send the snap as a base64 JPEG or PNG.', 400);
         }
@@ -71,30 +82,30 @@ final class SnapImage
             }
             $value = substr($value, $comma + 1);
         }
-        if (strlen($value) > intdiv(self::MAX_BYTES * 4, 3) + 8) {
-            throw new RestError('groddle_snap_too_large', 'That snap is larger than the site keeps.', 413, ['max' => self::MAX_BYTES]);
+        if (strlen($value) > intdiv($maxBytes * 4, 3) + 8) {
+            throw new RestError('groddle_snap_too_large', 'That snap is larger than the site keeps.', 413, ['max' => $maxBytes]);
         }
         $bytes = base64_decode($value, true);
         if (!is_string($bytes) || $bytes === '') {
             throw new RestError('groddle_snap_image', 'Send the snap as a base64 JPEG or PNG.', 400);
         }
-        if (strlen($bytes) > self::MAX_BYTES) {
-            throw new RestError('groddle_snap_too_large', 'That snap is larger than the site keeps.', 413, ['max' => self::MAX_BYTES]);
+        if (strlen($bytes) > $maxBytes) {
+            throw new RestError('groddle_snap_too_large', 'That snap is larger than the site keeps.', 413, ['max' => $maxBytes]);
         }
         [, $width, $height] = self::read($bytes);
-        if ($width < self::MIN_W || $height < self::MIN_H || $width > self::MAX_W || $height > self::MAX_H) {
-            throw new RestError('groddle_snap_size', "That snap is {$width}x{$height}; a snap is " . self::MIN_W . 'x' . self::MIN_H . ' to ' . self::MAX_W . 'x' . self::MAX_H . '.', 400);
+        if ($width < self::MIN_W || $height < self::MIN_H || $width > self::MAX_W || $height > $maxH) {
+            throw new RestError('groddle_snap_size', "That snap is {$width}x{$height}; a snap is " . self::MIN_W . 'x' . self::MIN_H . ' to ' . self::MAX_W . 'x' . $maxH . '.', 400);
         }
         $canvas = self::decode($bytes, $width, $height);
         $out = '';
         foreach ([self::QUALITY, ...self::FALLBACK_QUALITIES] as $quality) {
             $out = self::jpeg($canvas, $quality);
-            if (strlen($out) <= self::MAX_BYTES) {
+            if (strlen($out) <= $maxBytes) {
                 break;
             }
         }
-        if (strlen($out) > self::MAX_BYTES) {
-            throw new RestError('groddle_snap_too_large', 'That snap is larger than the site keeps.', 413, ['max' => self::MAX_BYTES]);
+        if (strlen($out) > $maxBytes) {
+            throw new RestError('groddle_snap_too_large', 'That snap is larger than the site keeps.', 413, ['max' => $maxBytes]);
         }
         // The cards' copy: SMALL_W wide, or none when the picture is no wider.
         $small = null;
