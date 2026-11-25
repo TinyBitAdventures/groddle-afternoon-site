@@ -50,8 +50,9 @@ use Minn\RestError;
  *   "from", else they stand where it goes) and the machine not within 70 px
  *   of an end of the street. Ours: at most
  *   8 in one place; only the owner's own home: the home street, every floor
- *   of the house (the ground floor HOUSE_<id>, the upper ones HOUSE_<id>_<n>,
- *   the owner's own rooms: G1249, #669, Glitch's house was one location) and
+ *   of the house (the ground floor HOUSE_<id>, the upper ones HOUSE_<id>_<n>:
+ *   G1249, #669, Glitch's house was one location; whoever may enter reaches
+ *   every floor, R5, G1313) and
  *   the Tower's floors (lane HOMES2, Austin 2026-11-01: "Machines may stand on
  *   the home street, in the house and in the Tower"; the source allowed any
  *   location but an instance). Each row keeps its place ("street", "house",

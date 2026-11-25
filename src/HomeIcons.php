@@ -30,7 +30,7 @@ use Minn\RestError;
  * this table keeps, from the first use that came through here, each one's actions and last tither,
  * so every use, the owner's online ones too, is checked and spent in one place:
  *
- *   POST groddle/v1/homes/{owner}/icons  {"icon":"icon3","place":"street"|"house"|"tower:2","act":"ruminate|revere|reflect|tithe|bestow"}
+ *   POST groddle/v1/homes/{owner}/icons  {"icon":"icon3","place":"street"|"house"|"house:1"|"tower:2","act":"ruminate|revere|reflect|tithe|bestow"}
  *        200 {"ok":true,"icon":Icon,"tither":bool,"tell":"<proof>"} | {"ok":false,"code":"tithe_due|no_tithe|not_tither","text","icon":Icon}
  *   GET  groddle/v1/homes/icons          the signed-in owner's Icons as this table keeps them: {"icons":[Icon]}
  *
@@ -85,7 +85,7 @@ final readonly class HomeIcons
         $icon = is_string($body['icon'] ?? null) ? $body['icon'] : '';
         $place = is_string($body['place'] ?? null) ? $body['place'] : '';
         $act = is_string($body['act'] ?? null) ? $body['act'] : '';
-        if (preg_match('/^icon[0-9]{1,9}$/', $icon) !== 1 || preg_match('/^(street|house|tower:[0-9])$/', $place) !== 1 || !in_array($act, self::ACTS, true)) {
+        if (preg_match('/^icon[0-9]{1,9}$/', $icon) !== 1 || (preg_match('/^(street|tower:[0-9])$/', $place) !== 1 && !Neighbours::isHousePlace($place)) || !in_array($act, self::ACTS, true)) {
             throw new RestError('groddle_icon_invalid', 'Name the Icon, where it stands and what to do.', 400);
         }
         $db = $this->minn->db;
@@ -94,7 +94,8 @@ final readonly class HomeIcons
             if ($db->value("SELECT 1 FROM {$ignores} WHERE (user_id = ? AND ignored_id = ?) OR (user_id = ? AND ignored_id = ?)", [$owner, $me, $me, $owner]) !== null) {
                 throw new RestError('groddle_icon_blocked', Neighbours::TEXT_BLOCKED, 403);
             }
-            if ($place === 'house' && !(new Neighbours($this->minn))->mayEnter($request, $owner, $me)) {
+            // R5 (G1313): any floor of the house, to whoever may enter it.
+            if (Neighbours::isHousePlace($place) && !(new Neighbours($this->minn))->mayEnter($request, $owner, $me)) {
                 throw new RestError('groddle_icon_house', self::TEXT_HOUSE, 403);
             }
             if (Neighbours::inTutorial(Neighbours::state($db, $me))) {

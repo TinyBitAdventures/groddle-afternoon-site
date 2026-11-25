@@ -63,6 +63,15 @@ use Minn\RestError;
  * holds for the back yard's own answers (HomeYard ?place=yard, HomeMachines'
  * house machines, HomeStreet's house Note Poles).
  *
+ * R5 (G1313, Austin 2026-11-25: "as Glitch: key holders and let-in visitors
+ * go upstairs; upper floors shared like the ground floor"): every floor of the
+ * house is the house (isHousePlace). Glitch's house was one location, its
+ * floors stacked in it (locations/inc_homes.js homes_add_floor_at 189-219) and
+ * joined by Doors no verb guards (items/furniture_door.js), so whoever
+ * pols_canEnter let in stood on every floor. So the upper floors' furniture
+ * (`homes.floors`), and the stacks, gnomes, Icons and machines on them
+ * ("house:1", "house:2"), go to whoever may enter, as the ground floor's do.
+ *
  * REST rules: signed in, the cookie with its nonce; the caller is the
  * signed-in user, never read from the request.
  */
@@ -111,6 +120,12 @@ final readonly class Neighbours
      * The game's normalizeOwnerStacks keeps 11 rooms of this.
      */
     public const STACKS_MAX = 1000;
+
+    /**
+     * R5 (G1313): a place that is a floor of the house: "house" (the ground floor, HOUSE_<id>) or an
+     * upper floor, "house:1" / "house:2" (HOUSE_<id>_<floor>; config_base.js home_limits MAX_FLOORS 3).
+     */
+    public const HOUSE_PLACE = '/^house(:[12])?$/';
 
     /** The most Garden Gnomes one visit lists. */
     public const GNOMES_MAX = 24;
@@ -332,8 +347,8 @@ final readonly class Neighbours
      * G1018: a visit answer as someone who may (or may not) enter the house sees it. Inside: all of
      * it, and `inside` true. Outside: the home street (its cultivations and look, the Tower, the
      * Butler, the gnomes and stacks out there) and the house from outside (`home.house`), with no
-     * furniture or swatches of any floor (`decor`), no back yard (`backYard`, `yardStyle`), and no
-     * gnome or stack in the house.
+     * furniture or swatches of any floor (`decor`, the upper floors' `floors`), no back yard
+     * (`backYard`, `yardStyle`), and no gnome, stack or Icon on any floor of the house (R5).
      *
      * @param array<string, mixed> $view
      * @return array<string, mixed>
@@ -346,15 +361,21 @@ final readonly class Neighbours
         }
         if (is_object($view['homes'] ?? null)) {
             $homes = clone $view['homes'];
-            unset($homes->decor, $homes->backYard, $homes->yardStyle);
+            unset($homes->decor, $homes->floors, $homes->backYard, $homes->yardStyle);
             $view['homes'] = $homes;
         }
         foreach (['gnomes', 'stacks', 'icons'] as $k) {
             if (is_array($view[$k] ?? null)) {
-                $view[$k] = array_values(array_filter($view[$k], static fn (array $r): bool => ($r['place'] ?? '') !== 'house'));
+                $view[$k] = array_values(array_filter($view[$k], static fn (array $r): bool => !self::isHousePlace((string) ($r['place'] ?? ''))));
             }
         }
         return $view;
+    }
+
+    /** R5 (G1313): whether a place is a floor of the house, any of them (HOUSE_PLACE). */
+    public static function isHousePlace(string $place): bool
+    {
+        return preg_match(self::HOUSE_PLACE, $place) === 1;
     }
 
     /**
@@ -568,7 +589,8 @@ final readonly class Neighbours
      * moved: the game shows it to visitors, locked to the owner). Only what is needed to draw one:
      * no bag contents, names or copy words (a visitor cannot open or read them).
      * place: "house" (x from the house's left end: the homes slice's houseX, which the game saves
-     * the indoor stacks against) or "tower:<floor>" (the floor's own x).
+     * the indoor stacks against), "house:1" / "house:2" (an upper floor, R5: its own x) or
+     * "tower:<floor>" (the floor's own x).
      *
      * @return list<array{id: string, place: string, c: string, n: int, x: int, y: int, on?: int}>
      */
@@ -580,6 +602,10 @@ final readonly class Neighbours
         }
         $houseX = $homes !== null && is_numeric($homes->houseX ?? null) ? (int) round((float) $homes->houseX) : 0;
         $places = ['RH_HOME_INT' => ['house', $houseX]];
+        // R5 (G1313): an upper floor of the house (homes-feature HOUSE_FLOOR_DROP_PREFIX), its own x.
+        for ($f = 1; $f <= 2; $f++) {
+            $places['RH_HOME_FLOOR_' . $f] = ['house:' . $f, 0];
+        }
         for ($f = 0; $f <= 9; $f++) {
             $places['RH_HOME_TOWER_' . $f] = ['tower:' . $f, 0];
         }
@@ -729,7 +755,7 @@ final readonly class Neighbours
      * idle0_onMsg 452-484, talk_onRun 611-619), and only its owner could
      * teach it, flip it or pick it up (232-243, 303-312, 354-364). From the
      * owner's save (the garden-gnome feature's `placed`): where each stands
-     * (the home street, the house's ground floor, a Tower floor: the rooms a
+     * (the home street, any floor of the house, R5, a Tower floor: the rooms a
      * visitor can reach), which way it faces and its phrases through the
      * remake's own word filter. A gnome in the house says its phrases to
      * whoever may be inside (`$key`: the owner, a key-holder, or someone let
@@ -748,11 +774,11 @@ final readonly class Neighbours
             if (!is_object($g) || !is_string($g->id ?? null) || !is_string($g->place ?? null) || !is_numeric($g->x ?? null) || !is_numeric($g->y ?? null)) {
                 continue;
             }
-            if (preg_match('/^[A-Za-z0-9_-]{1,40}$/', $g->id) !== 1 || preg_match('/^(street|house|tower:[0-9])$/', $g->place) !== 1) {
+            if (preg_match('/^[A-Za-z0-9_-]{1,40}$/', $g->id) !== 1 || (preg_match('/^(street|tower:[0-9])$/', $g->place) !== 1 && !self::isHousePlace($g->place))) {
                 continue;
             }
             $phrases = [];
-            foreach ($g->place !== 'house' || $key ? (is_array($g->phrases ?? null) ? $g->phrases : []) : [] as $p) {
+            foreach (!self::isHousePlace($g->place) || $key ? (is_array($g->phrases ?? null) ? $g->phrases : []) : [] as $p) {
                 if (count($phrases) >= self::GNOME_PHRASES) {
                     break;
                 }
@@ -779,8 +805,8 @@ final readonly class Neighbours
      * anyone in it, only its owner could pick it up (items/include/icon.js canPickup 1-12), and
      * whoever was there could ruminate, revere and reflect on it (52, 118, 183) and be bestowed
      * upon (doPlayerResponse). From the owner's save (the giant-icons feature's `placed`, kept under
-     * home:<place> at its world x): where each stands (the home street, the house's ground floor, a
-     * Tower floor: the rooms a visitor can reach), whose Giant, the actions it has left and its
+     * home:<place> at its world x): where each stands (the home street, any floor of the house, R5,
+     * a Tower floor: the rooms a visitor can reach), whose Giant, the actions it has left and its
      * last tither (a player's id, or null), as the save has them: HomeIcons keeps them from the
      * first use that came through the site (HomeIcons::overlay). forVisitor leaves out the house's
      * for anyone who may not enter (G1018).
@@ -792,7 +818,7 @@ final readonly class Neighbours
         $placed = self::feature($state, 'giant-icons')?->placed ?? null;
         $out = [];
         foreach (is_object($placed) ? get_object_vars($placed) : [] as $key => $rows) {
-            if (preg_match('/^home:(street|house|tower:[0-9])$/', (string) $key, $m) !== 1 || !is_array($rows)) {
+            if (preg_match('/^home:(street|house|house:[12]|tower:[0-9])$/', (string) $key, $m) !== 1 || !is_array($rows)) {
                 continue;
             }
             foreach ($rows as $r) {
@@ -863,6 +889,15 @@ final readonly class Neighbours
         // Ticket 51: what a cabinet holds is for its owner and their key-holders (LedgerBoxes, the cabinets route).
         if (is_object($out->decor ?? null)) {
             $out->decor = self::withoutCabinets($out->decor);
+        }
+        // R5 (G1313): the upper floors (homes-feature floors: each floor's decor and the Doors joining
+        // them), as the ground floor; not the floor the owner stands on or the Door being built.
+        $floors = $homes->floors ?? null;
+        if ($furniture && is_object($floors) && is_array($floors->upper ?? null) && $floors->upper !== []) {
+            $out->floors = (object) [
+                'upper' => array_map(static fn (mixed $d): mixed => is_object($d) ? self::withoutCabinets($d) : $d, array_slice($floors->upper, 0, 2)),
+                'links' => is_array($floors->links ?? null) ? array_slice($floors->links, 0, 2) : [],
+            ];
         }
         foreach (['streetStyle', 'yardStyle'] as $key) {
             $value = $homes->{$key} ?? null;

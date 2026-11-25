@@ -115,9 +115,9 @@ use Minn\RestError;
  * save (Ledger::catchUp, a plain stack in or out of the pack).
  *
  * Streets: a public street's tsid; a player's home street, house (with its back
- * yard) and Tower floors as the realtime server names them with "-" for "_"
- * (HOME-<owner>, HOUSE-<owner>, TOWER-<owner>-<floor>; drops.go dropSiteStreet,
- * G627 and G1190), all within the street rule below.
+ * yard), the house's upper floors and Tower floors as the realtime server names them with "-" for "_"
+ * (HOME-<owner>, HOUSE-<owner>, HOUSE-<owner>-<floor>, TOWER-<owner>-<floor>; drops.go dropSiteStreet,
+ * G627, G1190 and R5, G1313), all within the street rule below.
  *
  * Ours: only a class the ledger carries (Economy) is shared; the game drops
  * anything else as its own, as in solo. Words: inc_trading.js:456 for a
@@ -331,10 +331,14 @@ final readonly class LedgerDrop
         return $out;
     }
 
-    /** A house or a Tower floor as the site names it (drops.go dropSiteStreet), and whose it is; 0 for any other street. */
+    /**
+     * A house or a Tower floor as the site names it (drops.go dropSiteStreet), and whose it is; 0 for any
+     * other street. Every floor of the house is the house (R5, G1313): HOUSE-<owner> and an upper floor,
+     * HOUSE-<owner>-<floor> (1 or 2).
+     */
     public static function floorOwner(string $street): int
     {
-        if (preg_match('/^HOUSE-([1-9][0-9]{0,17})$/', $street, $m) === 1 || preg_match('/^TOWER-([1-9][0-9]{0,17})-[0-9]$/', $street, $m) === 1) {
+        if (preg_match('/^HOUSE-([1-9][0-9]{0,17})(-[12])?$/', $street, $m) === 1 || preg_match('/^TOWER-([1-9][0-9]{0,17})-[0-9]$/', $street, $m) === 1) {
             return (int) $m[1];
         }
         return 0;
