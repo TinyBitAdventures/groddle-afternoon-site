@@ -74,8 +74,22 @@ final readonly class LedgerFurniture
     /** canSell 400-405. */
     public const UNSELLABLE = ['furniture_chassis', 'furniture_tower_chassis', 'furniture_door'];
 
-    /** Pieces on sale in one house at once (ours). */
-    public const LISTED_MAX = 60;
+    /** Rows read at a time for the owner's piles (piles): every page is read, so none is left out. */
+    public const PILES_PAGE = 200;
+
+    /*
+     * No limit on how many pieces a house has on sale at once, or on the piles
+     * of currants waiting to be collected (Austin 2026-11-25). Glitch had
+     * none: furniture_base set_sale_price (furniture_bed.js 92-191) asks only
+     * canSell (400-405, never a chassis or a door), an emptied bag, a piece
+     * not soulbound and its currants collected ("You have to collect the
+     * currants first."), and nothing in the item, the house (locations/
+     * home.js, inc_pols.js) or the player counts the pieces for sale; each
+     * sale left its own pile_of_currants in the house (sellItem 609,
+     * location.js createAndReturnItem), never capped. The remake had capped a
+     * house at 60 pieces ("You have a lot on sale already.") and the owner's
+     * list of piles at the first 100, the rest left out of every answer.
+     */
 
     // furniture_bed.js 514, 576, 591, 596, 145; pile_of_currants.js; ours where marked.
     public const TEXT_NOT_SELLING = 'That store is no longer selling.';
@@ -85,7 +99,6 @@ final readonly class LedgerFurniture
     public const TEXT_EMPTY = 'This item must be emptied before it can be sold.';
     public const TEXT_CANT_SELL = "You can't sell that.";               // ours: the source shows no verb
     public const TEXT_NOT_HERE = "That isn't in your house.";            // ours
-    public const TEXT_TOO_MANY = 'You have a lot on sale already.';     // ours
     public const TEXT_OWN = "That's yours already.";                    // ours: the source shows no verb
     public const TEXT_NO_PILE = 'There are no currants here for you.';  // ours
 
@@ -139,9 +152,6 @@ final readonly class LedgerFurniture
             if ($held !== null) {
                 $db->execute("UPDATE {$t} SET price = ?, class_tsid = ?, updated_at = ? WHERE id = ?", [$price, $class, $now, (string) $held['id']]);
                 return;
-            }
-            if ((int) $db->value("SELECT COUNT(*) FROM {$t} WHERE owner_id = ? AND status = 'listed'", [$me]) >= self::LISTED_MAX) {
-                throw new RestError('groddle_sale_many', self::TEXT_TOO_MANY, 400);
             }
             $db->execute("INSERT INTO {$t} (id, owner_id, uid, class_tsid, price, status, buyer_id, x, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'listed', 0, 0, ?, ?)", [self::newOp(), $me, $uid, $class, $price, $now, $now]);
         });
@@ -297,7 +307,8 @@ final readonly class LedgerFurniture
     // —— Reading ——
 
     /**
-     * The owner's pieces on sale that their stored house still has placed.
+     * The owner's pieces on sale that their stored house still has placed,
+     * every one of them (no cap, as Glitch).
      *
      * @return list<array{op: string, uid: int, class: string, price: int}>
      */
@@ -305,7 +316,7 @@ final readonly class LedgerFurniture
     {
         $state = Neighbours::state($db, $owner);
         $out = [];
-        foreach ($db->rows('SELECT id, uid, class_tsid, price FROM ' . $db->table(self::TABLE) . " WHERE owner_id = ? AND status = 'listed' ORDER BY uid LIMIT " . self::LISTED_MAX, [$owner]) as $r) {
+        foreach ($db->rows('SELECT id, uid, class_tsid, price FROM ' . $db->table(self::TABLE) . " WHERE owner_id = ? AND status = 'listed' ORDER BY uid", [$owner]) as $r) {
             $row = self::placed($state, (int) $r['uid']);
             if ($row === null || (string) ($row->classTsid ?? '') !== (string) $r['class_tsid']) {
                 continue;
@@ -316,13 +327,24 @@ final readonly class LedgerFurniture
     }
 
     /**
-     * The owner's piles: pieces sold whose currants wait to be collected.
+     * The owner's piles: pieces sold whose currants wait to be collected,
+     * every one of them, oldest first (the game draws and collects each; a
+     * pile left out of the answer could never be collected). Read a page of
+     * PILES_PAGE rows at a time so a long list is never one huge read.
      *
      * @return list<array{op: string, uid: int, class: string, price: int, x: int, buyer: array{id: int, name: string}, at: int}>
      */
     public static function piles(Db $db, int $owner): array
     {
-        $rows = $db->rows('SELECT id, uid, class_tsid, price, x, buyer_id, sold_at FROM ' . $db->table(self::TABLE) . " WHERE owner_id = ? AND status = 'sold' ORDER BY sold_at, id LIMIT 100", [$owner]);
+        $t = $db->table(self::TABLE);
+        $rows = [];
+        for ($offset = 0; ; $offset += self::PILES_PAGE) {
+            $page = $db->rows("SELECT id, uid, class_tsid, price, x, buyer_id, sold_at FROM {$t} WHERE owner_id = ? AND status = 'sold' ORDER BY sold_at, id LIMIT " . self::PILES_PAGE . ' OFFSET ' . $offset, [$owner]);
+            array_push($rows, ...$page);
+            if (count($page) < self::PILES_PAGE) {
+                break;
+            }
+        }
         $names = (new Characters($db))->namesOf(array_map(static fn (array $r): int => (int) $r['buyer_id'], $rows));
         $out = [];
         foreach ($rows as $r) {
