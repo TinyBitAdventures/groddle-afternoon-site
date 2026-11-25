@@ -34,7 +34,9 @@ use Minn\RestError;
  * joined first takes over (get_promote_candidate 826-884), and when the
  * last member leaves the group is gone (group.js:931-936 doDelete). Here the
  * new administrator is worked out when the list is read, so only the
- * caller's own membership row is ever written. Roles beyond the two, kicks,
+ * caller's own membership row is ever written. The administrator may
+ * change the description (group.js:494-499 admin_edit; renaming, which
+ * admin_edit also did, waits on a ruling). Roles beyond the two, kicks,
  * bans, applications, forums and group halls are not here.
  *
  * Each answer about the caller carries a watch token: their group ids and
@@ -127,21 +129,47 @@ final readonly class Groups
     public function show(Request $request, string $id): Response
     {
         $group = $this->group((int) $id);
-        $me = $this->me();
-        $member = $this->memberRole($group, $me) !== null;
-        $invite = $this->invite((int) $group['id'], $me);
-        if ($group['mode'] !== 'public' && !$member && $invite === null) {
-            throw self::missing();
+        $this->seen($group);
+        return Response::json($this->shown($group));
+    }
+
+    /**
+     * The group's administrator changes it (group.js:494-499 admin_edit,
+     * which the website's group pages called; level 1, Administrator, held
+     * every permission, group.js:46-50, 310). The description only for now:
+     * each field the body may change is checked into $changes, so a name
+     * (admin_edit's args.name) would be one more check here. A name sent
+     * now is not read. Anyone else is refused; answers as show() does.
+     */
+    #[Route(Method::Put, '/groddle/v1/groups/{id:\d+}', policy: new Policy(Access::SignedIn))]
+    public function edit(Request $request, string $id): Response
+    {
+        $group = $this->group((int) $id);
+        $this->seen($group);
+        if ($this->memberRole($group, $this->me()) !== 'admin') {
+            throw new RestError('groddle_group_not_admin', 'Only the group\'s administrator can change it.', 403);
         }
-        $people = $this->members((int) $group['id']);
-        $names = (new Characters($this->minn->db))->namesOf(array_map(static fn (array $m): int => $m['id'], $people));
-        $list = [];
-        foreach ($people as $m) {
-            if (isset($names[$m['id']])) {
-                $list[] = ['id' => $m['id'], 'name' => $names[$m['id']], 'role' => $m['role'], 'joinedAt' => SaveShape::time($m['joined_at'])];
+        $body = $request->json();
+        $changes = [];
+        $fields = [];
+        if (array_key_exists('description', $body)) {
+            $description = self::description($body['description']);
+            if ($description === null) {
+                $fields['description'] = 'Descriptions are up to ' . self::DESCRIPTION_MAX . ' characters.';
+            } else {
+                $changes['description'] = $description;
             }
         }
-        return Response::json(self::card($group + ['members' => count($people)]) + ['member' => $member, 'invited' => $invite !== null, 'people' => $list]);
+        if ($fields !== []) {
+            throw new RestError('groddle_group_invalid', (string) reset($fields), 400, ['fields' => $fields]);
+        }
+        if ($changes === []) {
+            throw new RestError('groddle_group_unchanged', 'Nothing to change.', 400);
+        }
+        $db = $this->minn->db;
+        $set = implode(', ', array_map(static fn (string $col): string => "{$col} = ?", array_keys($changes)));
+        $db->execute('UPDATE ' . $db->table(self::TABLE) . " SET {$set} WHERE id = ?", [...array_values($changes), (int) $group['id']]);
+        return Response::json($this->shown($this->group((int) $group['id'])));
     }
 
     /** Makes a group with the caller as its administrator (inc_groups.js:38-73 groups_create, group.js:24-88 doCreate). */
@@ -291,6 +319,32 @@ final readonly class Groups
             throw self::missing();
         }
         return $row;
+    }
+
+    /** A private group is missing to anyone not in it or invited to it. */
+    private function seen(array $group): void
+    {
+        $me = $this->me();
+        if ($group['mode'] !== 'public' && $this->memberRole($group, $me) === null && $this->invite((int) $group['id'], $me) === null) {
+            throw self::missing();
+        }
+    }
+
+    /** One group as show() answers it: the card, the caller's place in it, and its people. */
+    private function shown(array $group): array
+    {
+        $me = $this->me();
+        $member = $this->memberRole($group, $me) !== null;
+        $invite = $this->invite((int) $group['id'], $me);
+        $people = $this->members((int) $group['id']);
+        $names = (new Characters($this->minn->db))->namesOf(array_map(static fn (array $m): int => $m['id'], $people));
+        $list = [];
+        foreach ($people as $m) {
+            if (isset($names[$m['id']])) {
+                $list[] = ['id' => $m['id'], 'name' => $names[$m['id']], 'role' => $m['role'], 'joinedAt' => SaveShape::time($m['joined_at'])];
+            }
+        }
+        return self::card($group + ['members' => count($people)]) + ['member' => $member, 'invited' => $invite !== null, 'people' => $list];
     }
 
     /** A description: one paragraph of plain text with bad words a grawlix (WordFilter), or null when too long. */
