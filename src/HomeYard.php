@@ -129,7 +129,7 @@ final readonly class HomeYard
     public const BACK = 'b:';
     /** The table's target column (minn.json varchar(24)). */
     public const TARGET_MAX = 24;
-    public const TEXT_NOT_INSIDE = "You can't see into their back yard from here."; // ours: G1018
+    public const TEXT_NOT_INSIDE = "You can't see into their back yard from here."; // the remake's line (G1018)
     /** The game's js/animal-husbandry.js MAGIC_STICKS. */
     public const MAGIC_STICKS = ['magic_pig_stick', 'magic_chicken_stick', 'magic_butterfly_stick'];
     /** The game's js/animal-husbandry.js REMOTE_MACHINES: what Remote Herdkeeping sets down on the home street. */
