@@ -341,7 +341,7 @@ final readonly class HomeYard
         foreach (self::usesOf($db, $owner, $me, HomePool::today()) as $what => $n) {
             $mine[$what] = $n;
         }
-        $homes = Neighbours::homesSlice($state);
+        $homes = Neighbours::homesSlice($state, false);
         return Response::json([
             'owner' => $owner,
             'name' => (new Characters($db))->namesOf([$owner])[$owner] ?? '',

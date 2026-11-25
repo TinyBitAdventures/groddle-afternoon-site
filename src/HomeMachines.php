@@ -362,7 +362,7 @@ final readonly class HomeMachines
             return ['now' => $now, 'machines' => array_values(array_map(self::view(...), $rows))];
         });
         $state = Neighbours::state($db, $owner);
-        $homes = Neighbours::homesSlice($state);
+        $homes = Neighbours::homesSlice($state, false);
         return Response::json($out + [
             'owner' => $owner,
             'name' => (new Characters($db))->namesOf([$owner])[$owner] ?? '',

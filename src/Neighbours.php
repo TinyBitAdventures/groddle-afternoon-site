@@ -80,11 +80,21 @@ final readonly class Neighbours
     /** Opted-in players tried for one random visit. */
     public const RANDOM_TRIES = 8;
 
-    /** The most of a homes slice sent to a visitor. */
-    public const HOME_BUDGET = 400000;
+    /**
+     * The most of a homes slice sent to a visitor, as JSON. A house holds any number of pieces, as
+     * Glitch (config_base.js home_limits 213-236 limits floors, walls and the yard; inc_homes.js
+     * counts no furniture; Austin 2026-11-25): a placed piece is about 125 bytes, so this is some
+     * 10,000 pieces on the ground floor, far past any house in play. Past it the visit is refused
+     * with TEXT_TOO_FULL, never sent with pieces left out.
+     */
+    public const HOME_BUDGET = 1500000;
 
-    /** The most of the owner's own stacks one visit lists for one room (the house, a Tower floor). */
-    public const STACKS_MAX = 200;
+    /**
+     * The most of the owner's own stacks one visit lists for one room (the house, a Tower floor):
+     * what they set on their furniture, which a room with any number of pieces can carry many of.
+     * The game's normalizeOwnerStacks keeps 11 rooms of this.
+     */
+    public const STACKS_MAX = 1000;
 
     /** The most Garden Gnomes one visit lists. */
     public const GNOMES_MAX = 24;
@@ -97,6 +107,8 @@ final readonly class Neighbours
     public const TEXT_NOT_FOUND = 'Could not find that player.';
     public const TEXT_BLOCKED = 'You are blocked by that player.';
     public const TEXT_NO_HOUSE = 'Could not find their house.';
+    /** Ours: a homes slice over HOME_BUDGET. */
+    public const TEXT_TOO_FULL = 'That house holds more than a visit can show.';
     public const TEXT_NEWXP = "That player has not finished the tutorial, and can't be visited until they do.";
     public const TEXT_NEWXP_US = "You can't do that until you finish the tutorial.";
     public const TEXT_RANDOM_NONE = 'Hmm, something went wrong :(';
@@ -248,7 +260,7 @@ final readonly class Neighbours
 
     /**
      * The visit view, or the houses_visit error: player_not_found, blocked,
-     * house_not_found, newxp, newxp_us.
+     * house_not_found, newxp, newxp_us (or too_full: over HOME_BUDGET).
      *
      * @return array<string, mixed>|string
      */
@@ -272,7 +284,7 @@ final readonly class Neighbours
         }
         $homes = self::homesSlice($theirs);
         if ($homes === null) {
-            return 'house_not_found';
+            return 'too_full';
         }
         $name = (new Characters($db))->namesOf([$owner])[$owner] ?? null;
         if ($name === null) {
@@ -297,6 +309,7 @@ final readonly class Neighbours
         return match ($error) {
             'blocked' => new RestError('groddle_home_blocked', self::TEXT_BLOCKED, 403),
             'house_not_found' => new RestError('groddle_home_none', self::TEXT_NO_HOUSE, 404),
+            'too_full' => new RestError('groddle_home_too_full', self::TEXT_TOO_FULL, 413),
             'newxp' => new RestError('groddle_home_newxp', self::TEXT_NEWXP, 403),
             'newxp_us' => new RestError('groddle_home_newxp_us', self::TEXT_NEWXP_US, 403),
             default => new RestError('groddle_home_player', self::TEXT_NOT_FOUND, 404),
@@ -695,14 +708,18 @@ final readonly class Neighbours
         return $copy;
     }
 
-    public static function homesSlice(?object $state): ?object
+    /**
+     * $furniture false leaves the house's and the Tower's furniture out (the yard and machine
+     * answers read only the cultivations), so no number of pieces can empty those.
+     */
+    public static function homesSlice(?object $state, bool $furniture = true): ?object
     {
         $homes = self::feature($state, 'homes');
         if ($homes === null) {
             return (object) [];
         }
         $out = (object) [];
-        foreach (['decor', 'cult', 'backYard'] as $key) {
+        foreach ($furniture ? ['decor', 'cult', 'backYard'] : ['cult', 'backYard'] as $key) {
             if (is_object($homes->{$key} ?? null)) {
                 $out->{$key} = $homes->{$key};
             }
@@ -739,7 +756,7 @@ final readonly class Neighbours
                 $look->floorLabels = $labels;
             }
             $out->tower = $look;
-            if (is_array($homes->towerDecor ?? null)) {
+            if ($furniture && is_array($homes->towerDecor ?? null)) {
                 $out->towerDecor = array_map(static fn (mixed $d): mixed => is_object($d) ? self::withoutCabinets($d) : $d, $homes->towerDecor);
             }
         }

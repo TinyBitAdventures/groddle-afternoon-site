@@ -90,6 +90,12 @@ final readonly class LedgerBoxes
     /** Ours: the most one key-holder move carries. */
     public const MOVE_MAX = 9999;
 
+    /**
+     * The boxes one owner's answers list at most: a query bound, not a house limit (a house holds
+     * any number of pieces, as Glitch; Austin 2026-11-25). Far past any house in play.
+     */
+    public const BOXES_MAX = 2000;
+
     /** Ours: the ops a house lists as pending at most. */
     public const PENDING_MAX = 500;
 
@@ -484,7 +490,7 @@ final readonly class LedgerBoxes
     {
         $state = Neighbours::state($db, $owner);
         $boxes = [];
-        foreach ($db->rows('SELECT uid, class_tsid, price, selling, income FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY uid LIMIT 200', [$owner]) as $r) {
+        foreach ($db->rows('SELECT uid, class_tsid, price, selling, income FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY uid LIMIT ' . self::BOXES_MAX, [$owner]) as $r) {
             $uid = (int) $r['uid'];
             $class = (string) $r['class_tsid'];
             $stock = self::stockOf($db, $owner, $state, $uid, $class);
@@ -502,7 +508,7 @@ final readonly class LedgerBoxes
     public static function shown(Db $db, int $owner, ?object $state): array
     {
         $out = [];
-        foreach ($db->rows('SELECT uid, class_tsid, price FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? AND selling = 1 AND price > 0 ORDER BY uid LIMIT 200', [$owner]) as $r) {
+        foreach ($db->rows('SELECT uid, class_tsid, price FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? AND selling = 1 AND price > 0 ORDER BY uid LIMIT ' . self::BOXES_MAX, [$owner]) as $r) {
             $stock = self::stockOf($db, $owner, $state, (int) $r['uid'], (string) $r['class_tsid']);
             if ($stock > 0) {
                 $out[] = ['uid' => (int) $r['uid'], 'class' => (string) $r['class_tsid'], 'price' => (int) $r['price'], 'stock' => $stock];
