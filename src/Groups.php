@@ -39,8 +39,11 @@ use Minn\RestError;
  * admin_edit set label and desc); a new name is told to the realtime
  * server (RealtimeCall group_rename, groddle-afternoon-server
  * group_rename.go), which puts one line in the group's chat (ours, Austin's
- * ruling, register G1300). Roles beyond the two, kicks, bans, applications,
- * forums and group halls are not here.
+ * ruling, register G1300). Roles beyond the two, kicks, bans, applications
+ * and forums are not here. A group hall is made on a street (LedgerHall);
+ * each card here says which one the group owns (G1301, #696: `hall`, the
+ * hall's job id, which the game names by its street), as Glitch made the
+ * group the hall's owner (quest.js 1846-1859).
  *
  * Each answer about the caller carries a watch token: their group ids and
  * the channels they may use, signed with the realtime secret
@@ -124,8 +127,9 @@ final readonly class Groups
             (SELECT 1 FROM {$members} m WHERE m.group_id = g.id AND m.user_id = ?) AS mine
             FROM {$groups} g WHERE {$where} ORDER BY members DESC, g.created_at DESC, g.id DESC LIMIT " . self::SEARCH_LIMIT, [$this->me(), ...$params]);
         $out = [];
+        $halls = $this->halls(array_map(static fn (array $r): int => (int) $r['id'], $rows));
         foreach ($rows as $r) {
-            $out[] = self::card($r) + ['member' => $r['mine'] !== null];
+            $out[] = self::card($r, $halls) + ['member' => $r['mine'] !== null];
         }
         return Response::json(['q' => $q, 'groups' => $out]);
     }
@@ -375,7 +379,7 @@ final readonly class Groups
                 $list[] = ['id' => $m['id'], 'name' => $names[$m['id']], 'role' => $m['role'], 'joinedAt' => SaveShape::time($m['joined_at'])];
             }
         }
-        return self::card($group + ['members' => count($people)]) + ['member' => $member, 'invited' => $invite !== null, 'people' => $list];
+        return self::card($group + ['members' => count($people)], $this->halls([(int) $group['id']])) + ['member' => $member, 'invited' => $invite !== null, 'people' => $list];
     }
 
     /** A name as typed, its runs of spaces one space. */
@@ -448,8 +452,13 @@ final readonly class Groups
         return null;
     }
 
-    /** What a list shows of a group (group.js:473-483 get_basic_info). */
-    private static function card(array $row): array
+    /**
+     * What a list shows of a group (group.js:473-483 get_basic_info), and
+     * the hall it owns from halls() (null for none).
+     *
+     * @param array<int, array{job: string}> $halls
+     */
+    private static function card(array $row, array $halls = []): array
     {
         return [
             'id' => (int) $row['id'],
@@ -457,7 +466,32 @@ final readonly class Groups
             'description' => (string) $row['description'],
             'mode' => $row['mode'] === 'private' ? 'private' : 'public',
             'members' => (int) ($row['members'] ?? 0),
+            'hall' => $halls[(int) $row['id']] ?? null,
         ];
+    }
+
+    /**
+     * G1301 (#696): the group hall each of these groups owns, by group id:
+     * a LedgerHall row whose project finished (status 'built'; a claim
+     * still under way, one that ran out and one lost to a hall the group
+     * already had are not a hall). One a group (group.hasPol, quest.js:1325).
+     *
+     * @param list<int> $ids
+     * @return array<int, array{job: string}>
+     */
+    private function halls(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter($ids, static fn (int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+        $db = $this->minn->db;
+        $rows = $db->rows('SELECT group_id, job_id FROM ' . $db->table(LedgerHall::TABLE) . " WHERE status = 'built' AND group_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY built_at ASC, claim_id ASC', $ids);
+        $out = [];
+        foreach ($rows as $r) {
+            $out[(int) $r['group_id']] ??= ['job' => (string) $r['job_id']];
+        }
+        return $out;
     }
 
     /** The caller's groups, invitations and channels, and the watch token over them. */
@@ -475,12 +509,13 @@ final readonly class Groups
             WHERE i.user_id = ? AND NOT EXISTS (SELECT 1 FROM {$members} x WHERE x.group_id = i.group_id AND x.user_id = i.user_id) ORDER BY i.invited_at DESC", [$me]);
         $names = (new Characters($db))->namesOf(array_map(static fn (array $r): int => (int) $r['invited_by'], $asked));
         $out = ['max' => self::MAX_GROUPS, 'groups' => [], 'invites' => []];
+        $halls = $this->halls(array_map(static fn (array $r): int => (int) $r['id'], [...$mine, ...$asked]));
         foreach ($mine as $r) {
-            $out['groups'][] = self::card($r) + ['role' => $this->memberRole($r, $me) ?? 'member', 'joinedAt' => SaveShape::time((string) $r['joined_at'])];
+            $out['groups'][] = self::card($r, $halls) + ['role' => $this->memberRole($r, $me) ?? 'member', 'joinedAt' => SaveShape::time((string) $r['joined_at'])];
         }
         foreach ($asked as $r) {
             $by = (int) $r['invited_by'];
-            $out['invites'][] = self::card($r) + ['invitedBy' => ['id' => $by, 'name' => $names[$by] ?? self::UNNAMED_PLAYER], 'invitedAt' => SaveShape::time((string) $r['invited_at'])];
+            $out['invites'][] = self::card($r, $halls) + ['invitedBy' => ['id' => $by, 'name' => $names[$by] ?? self::UNNAMED_PLAYER], 'invitedAt' => SaveShape::time((string) $r['invited_at'])];
         }
         $out['count'] = count($out['groups']);
         $out['channels'] = $this->channels($me);
