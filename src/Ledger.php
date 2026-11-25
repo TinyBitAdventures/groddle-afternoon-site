@@ -385,8 +385,9 @@ final readonly class Ledger
      * next 00:00 UTC, unix seconds: the day's first write credits it). Null when what the ledger holds
      * and what waits still fall short of any part of $goods (a plain short). Every act that checks the
      * ledger (a drop, gift, trade, sale, letter, machine or party spend) asks this before it says "You
-     * don't have enough of that item". Ours: Glitch had no such count (emblems simply dropped,
-     * items/emblem_alph.js 73); the daily limit and its wait are ours (LedgerMath::EMBLEM_DAILY).
+     * don't have enough of that item". Ours: Glitch had no such count; the daily limits and their
+     * waits are ours (LedgerMath TICKET_DAILY, CRACK_WAIT, the caps, #246's). Emblems never wait
+     * (G1299: as Glitch, items/emblem_alph.js 73 dropped them freely).
      *
      * @param array{items: array<string,int>, currants: int} $goods what the act takes
      * @return array{status: string, why: string, text: string, c: string, clears: int}|null

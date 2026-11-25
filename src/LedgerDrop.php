@@ -432,7 +432,7 @@ final readonly class LedgerDrop
         if (($state['items'][$drop['c']] ?? 0) < $drop['n']) {
             // Recorded void, so asking again answers the same.
             $db->execute("INSERT INTO {$t} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'void', ?, 0, ?, ?, NULL, ?)", [$drop['op'], $drop['id'], $gave, self::NONE, $stamp]);
-            // #691: an emblem (ticket, bead ...) past today's limit is in the pack but not the ledger yet: say so.
+            // #691: a ticket (bead, piece ...) past today's limit is in the pack but not the ledger yet: say so.
             $waiting = $ledger->waitingFor($drop['id'], ['items' => [$drop['c'] => $drop['n']], 'currants' => 0], 'drop', $now);
             $ledger->log($drop['id'], 'refuse', ['drop' => $drop['op'], 'why' => $waiting === null ? 'short' : 'waiting', 'c' => $drop['c'], 'n' => $drop['n']], $now);
             return $waiting ?? ['status' => 'refused', 'why' => 'short', 'text' => self::TEXT_SHORT];

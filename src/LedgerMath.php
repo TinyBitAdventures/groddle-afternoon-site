@@ -37,8 +37,9 @@ namespace Groddle\Minn;
  *
  * G895 (#432) credits what the save's own records say it earned (earned: a
  * shrine's emblems, the Gameshow Tickets its donations gave and a cracked
- * Petrified Rock's pieces), as many as the write shows, each rule with a daily
- * count; one past the count waits in the save outside the ledger.
+ * Petrified Rock's pieces), as many as the write shows; tickets and pieces
+ * with a daily count (one past it waits in the save outside the ledger),
+ * emblems with none (G1299, as Glitch).
  */
 final class LedgerMath
 {
@@ -124,18 +125,18 @@ final class LedgerMath
     public const MARK_DAY = 'markday';
 
     /**
-     * Emblems (Austin 2026-11-16): a shrine's emblem stands up to the number the save's shrine record
-     * shows earned (systems.shrines.emblems, js/shrines.js claimShrineEmblem; items/include/shrines.js
-     * give_emblem 78-166), at most EMBLEM_DAILY a UTC day for all Giants together. The record is the
-     * client's word, so the cap is what bounds a forged save: 4 is 4,000 of value a day, about an
-     * hour of the budget's connected-time refill. Honest play rarely meets it: an emblem costs 1,000
-     * favor and up (100 more each time), donations give a tenth of the base cost as favor and at most
-     * one emblem's worth a Giant a game day (shrines.js 306-327), so each emblem takes some 10,000
-     * currants of donated goods. One past the count is never taken: up to EMBLEM_WAIT of them stand
-     * in the save outside the ledger (held) and are credited on a later day.
+     * Emblems (Austin 2026-11-25, G1299, #691): a shrine's emblem stands up to the number the save's
+     * shrine record shows earned (systems.shrines.emblems, js/shrines.js claimShrineEmblem;
+     * items/include/shrines.js give_emblem 78-166), all of them, with no daily count and no wait, as
+     * Glitch (items/emblem_alph.js has no limit). The record is the client's word: what bounds an
+     * emblem is that the record gained one since it was last credited (MARK "emblem:<giant>") and
+     * that the write shows it beyond the ledger's view. An emblem the record does not show goes
+     * through the budget like any gain. Honest play pays for each: an emblem costs 1,000 favor and up
+     * (100 more each time), donations give a tenth of the base cost as favor and at most one
+     * emblem's worth a Giant a game day (shrines.js 306-327), so each takes some 10,000 currants of
+     * donated goods. An emblem that waited under the old daily count (marked owed, in the pack outside
+     * the ledger) is credited by the next write, since the record still allows it.
      */
-    public const EMBLEM_DAILY = 4;
-    public const EMBLEM_WAIT = 4;
 
     /**
      * Gameshow Tickets (G895): a shrine donation may give one (js/shrines.js donateToShrine 460-475,
@@ -249,8 +250,8 @@ final class LedgerMath
 
     /**
      * #691: the daily credited kind that remembers what the last write let stand in the save outside
-     * the ledger until a later UTC day's count (check's held: emblems past EMBLEM_DAILY, tickets past
-     * TICKET_DAILY, pieces and beads past their cap, #246's level-up currants and card items; ref the
+     * the ledger until a later UTC day's count (check's held: tickets past TICKET_DAILY, pieces and
+     * beads past their cap, #246's level-up currants and card items; never an emblem, G1299; ref the
      * class, "$" for currants, n how many). A drop, gift, trade, sale, letter or machine the ledger is
      * short for then says why (Ledger::waitingFor) instead of "You don't have enough of that item".
      * Daily, so it lapses at 00:00 UTC, when the day's first write credits what waited.
@@ -1001,7 +1002,7 @@ final class LedgerMath
     /**
      * #691: the words for an act refused because $k of the $n it takes of class $c ("$": currants)
      * stand in the pack outside the ledger, past today's limit, until 00:00 UTC ($clears): "This
-     * Emblem of Mab is past today's limit, so it isn't counted yet. You can drop it after midnight UTC
+     * Gameshow Ticket is past today's limit, so it isn't counted yet. You can drop it after midnight UTC
      * (in about 3 hours)." $verb is the act (drop, give, trade, sell, send, use). The game's words
      * (js/ledger-waiting.js waitingText) are the same.
      */
@@ -1794,12 +1795,12 @@ final class LedgerMath
     /**
      * G895 (#432): gains the save's own records say it earned, credited outside the budget, as
      * many as the write shows beyond the expected view: a shrine's emblems, up to the emblems the
-     * shrine record gained since it was last credited, EMBLEM_DAILY a day for all Giants; Gameshow
+     * shrine record gained since it was last credited, all of them (G1299: no daily count); Gameshow
      * Tickets, one a shrine donation counted since, TICKET_DAILY a day; artifact pieces and beads,
      * CRACK_YIELD a crack counted since, within the rocks the Feat rewards gave ($feats() counts the
      * realtime server's signed rewards) and each class's daily cap ($capsLeft, lowered). What the
      * record allows past today's count waits (held: it stands in the save outside the ledger, up to
-     * EMBLEM_WAIT, and the record keeps it owed for a later day); what the record allows and the
+     * TICKET_WAIT or CRACK_WAIT, and the record keeps it owed for a later day); what the record allows and the
      * write does not show (an emblem spent in the write that earned it) is not kept owed. Returns the
      * goods to credit, what is held, the rows to store and what was credited, for the log.
      *
@@ -1839,17 +1840,15 @@ final class LedgerMath
                 $out['rows'][] = [self::MARK_DAY, $rule, (int) ($credited[self::MARK_DAY][$rule] ?? 0) + $used];
             }
         };
-        // Emblems: every Giant's class shares the day's count.
-        $room = max(0, self::EMBLEM_DAILY - (int) ($credited[self::MARK_DAY]['emblem'] ?? 0));
-        $start = $room;
-        $wait = self::EMBLEM_WAIT;
+        // Emblems (G1299): all the record gained, no daily count and nothing waits, as Glitch.
         foreach ($marks as $ref => $now) {
             $class = str_starts_with($ref, 'emblem:') ? 'emblem_' . substr($ref, 7) : '';
             if ($class !== '' && $economy->tradeable($class)) {
+                $room = PHP_INT_MAX;
+                $wait = 0;
                 $take($ref, $class, $now, $room, $wait);
             }
         }
-        $day('emblem', $start - $room);
         // Gameshow Tickets: one a shrine donation at most.
         $room = max(0, self::TICKET_DAILY - (int) ($credited[self::MARK_DAY]['ticket'] ?? 0));
         $start = $room;

@@ -33,7 +33,7 @@ use Minn\Db;
  * counts, per character: a clamp row's items (its own detail and, when
  * writes were folded into it, "last") from G895_FROM on (the v0.43.0 deploy;
  * since= moves it) of those kinds only, within the fixed rules' own counts a
- * UTC day (EMBLEM_DAILY emblems, TICKET_DAILY tickets, a capped class its
+ * UTC day (G895_EMBLEM_DAY emblems, TICKET_DAILY tickets, a capped class its
  * cap). Ordinary gains (crops, currants) are not in it: the fix does not
  * credit those either.
  *
@@ -72,6 +72,13 @@ final class LedgerRefund
     public const REF_G895 = 'g895';
     public const TEXT_G895 = 'Sorry! Our save checker took back something you had earned and said your pack was corrected. That was our mistake, now fixed. Here it is back.';
     public const G895_FROM = '2026-11-16 15:50:00';
+
+    /**
+     * The G895 fix's emblem count a UTC day for all Giants (LedgerMath EMBLEM_DAILY until G1299 took
+     * the count away, 2026-11-25): what owedG895 pays within, so the refund it already paid stays the
+     * same refund.
+     */
+    public const G895_EMBLEM_DAY = 4;
 
     /** G905: the ref, the letter (plain, no em-dashes; the same subject) and where the scan starts (the v0.43.0 deploy, UTC). */
     public const REF_G905 = 'g905';
@@ -193,7 +200,7 @@ final class LedgerRefund
     /**
      * G895: what each character lost of the kinds the fix now credits or lets wait, from clamp rows
      * ({id, user_id, at, kind, detail}) from $from on, within each rule's count a UTC day: a shrine's
-     * emblems (EMBLEM_DAILY for all Giants), Gameshow Tickets (TICKET_DAILY), a capped class (beads,
+     * emblems (G895_EMBLEM_DAY for all Giants), Gameshow Tickets (TICKET_DAILY), a capped class (beads,
      * artifact pieces, Musicblocks ...) its cap. Pure, so a test can run it on fixture rows. Each
      * entry has the shape owed() gives (levels and cards empty, currants 0) plus days: what each UTC
      * day's rows took, after the counts.
@@ -205,7 +212,7 @@ final class LedgerRefund
         $since = strtotime($from . ' UTC');
         $rule = static function (string $c) use ($economy): ?array {
             if (str_starts_with($c, 'emblem_') && $economy->tradeable($c)) {
-                return ['emblem', LedgerMath::EMBLEM_DAILY];
+                return ['emblem', self::G895_EMBLEM_DAY];
             }
             if ($c === LedgerMath::TICKET_CLASS) {
                 return ['ticket', LedgerMath::TICKET_DAILY];
