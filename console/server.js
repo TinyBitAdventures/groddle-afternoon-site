@@ -380,13 +380,9 @@ function boot() {
     if (!loaded) { loaded = true; load(); } else if (state.data) { lastWidth = Math.round(panel.clientWidth); drawCharts(); drawScatter(); }
     if (!state.timer) state.timer = setInterval(tick, 60000);
   };
-  tab?.addEventListener('click', () => {
-    setTimeout(maybe, 0);
-    if (location.hash !== '#server') history.replaceState(null, '', '#server');
-  });
+  // Its address (/console/server/) is console.js's: showTab writes it, and opening it shows this panel.
+  tab?.addEventListener('click', () => setTimeout(maybe, 0));
   new MutationObserver(maybe).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
-  if (location.hash === '#server') tab?.click();
-  addEventListener('hashchange', () => { if (location.hash === '#server' && panel.hidden) tab?.click(); });
   maybe();
 }
 

@@ -142,13 +142,9 @@ function boot() {
   const tab = document.querySelector('[data-console-tab="ledger"]');
   let loaded = false;
   const maybe = () => { if (!panel.hidden && !loaded) { loaded = true; load(); } };
-  tab?.addEventListener('click', () => {
-    setTimeout(maybe, 0);
-    if (location.hash !== '#ledger') history.replaceState(null, '', '#ledger');
-  });
+  // Its address (/console/ledger/) is console.js's: showTab writes it, and opening it shows this panel.
+  tab?.addEventListener('click', () => setTimeout(maybe, 0));
   new MutationObserver(maybe).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
-  if (location.hash === '#ledger') tab?.click();
-  addEventListener('hashchange', () => { if (location.hash === '#ledger' && panel.hidden) tab?.click(); });
   maybe();
 }
 

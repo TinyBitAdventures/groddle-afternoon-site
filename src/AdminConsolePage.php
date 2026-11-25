@@ -15,7 +15,10 @@ use Minn\Http\Response;
 use Minn\Http\Route;
 
 /**
- * /console/, the administrators' console. Ten tabs, eleven with the level builder on: Players (who is online,
+ * /console/, the administrators' console. Each tab has its own address since 2026-11-25 (TABS below:
+ * /console/boards/, /console/reports/<id>/, /console/chat/<player>/, /console/reports/?q=<words>, Builder at
+ * /console/drafts/); the #names in this comment are the old links, which still open their tab and become its address.
+ * Ten tabs, eleven with the level builder on: Players (who is online,
  * the Rook attacks under way with End attack, a message to everyone online, finding a player, and acting on one: message,
  * teleport, give, refill, boot, ban; the bans and the activity log) and Reports (players' bug
  * reports as threads with the picture of the game a report may carry: read,
@@ -81,13 +84,13 @@ final readonly class AdminConsolePage
     public const ASSET_KEY = 'skin-12';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its own content key: Extension::importMap). */
-    public const SERVER_ASSET_KEY = 'server-3';
+    public const SERVER_ASSET_KEY = 'server-4';
 
     /** Bumped when console/analytics.js or console/analytics.css changes. */
-    public const ANALYTICS_ASSET_KEY = 'analytics-3';
+    public const ANALYTICS_ASSET_KEY = 'analytics-4';
 
     /** Bumped when console/ledger.js or console/ledger.css changes. */
-    public const LEDGER_ASSET_KEY = 'ledger-2';
+    public const LEDGER_ASSET_KEY = 'ledger-3';
 
     public function __construct(private Seams $minn)
     {
@@ -120,12 +123,41 @@ final readonly class AdminConsolePage
         return $user !== null && Capabilities::fromDb($this->minn->db)->can($user->id, 'manage_options');
     }
 
+    /**
+     * Each tab's own address (Austin 2026-11-25: "/console/#boards is changed to /console/boards"): /console/<tab>/,
+     * with /console/reports/<id>/ for one report and /console/chat/<player>/ for one player's chat; a search is
+     * /console/reports/?q=<words>. The Players tab is /console/ itself, and the Builder tab is /console/drafts/
+     * (AdminBuilderPage owns /console/builder/). All of them serve the one page; console/console.js reads the
+     * address (consoleRoute) and writes it as tabs change (consolePath), and turns the old #hash links into these.
+     */
+    public const TABS = 'reports|chat|credits|boards|community|moderation|server|analytics|ledger|drafts';
+
+    #[Route(Method::Get, self::PATH . '{tab:' . self::TABS . '}', policy: new Policy(Access::Public))]
+    public function bareTab(Request $request): Response
+    {
+        return Response::redirect(rtrim($request->path, '/') . '/' . $request->queryStringWithout(), 301);
+    }
+
+    #[Route(Method::Get, self::PATH . '{tab:' . self::TABS . '}/', policy: new Policy(Access::Public))]
+    public function tab(Request $request): Response
+    {
+        return $this->page($request);
+    }
+
+    #[Route(Method::Get, self::PATH . '{tab:reports|chat}/{id:\d+}/', policy: new Policy(Access::Public))]
+    public function item(Request $request): Response
+    {
+        return $this->page($request);
+    }
+
     #[Route(Method::Get, self::PATH, policy: new Policy(Access::Public))]
     public function page(Request $request): Response
     {
         $user = $this->minn->user();
         if ($user === null) {
-            return Response::redirect('/minn-admin/login?redirect_to=' . rawurlencode(self::PATH), 302)->withHeader('Cache-Control', 'no-store');
+            // Back to the address asked for after signing in (a deep link survives the sign-in).
+            $back = self::isConsolePath($request->path) ? $request->path . $request->queryStringWithout() : self::PATH;
+            return Response::redirect('/minn-admin/login?redirect_to=' . rawurlencode($back), 302)->withHeader('Cache-Control', 'no-store');
         }
         if (!Capabilities::fromDb($this->minn->db)->can($user->id, 'manage_options')) {
             return Response::html(self::refused(), 403)->withHeader('Cache-Control', 'no-store');
@@ -133,6 +165,12 @@ final readonly class AdminConsolePage
         return Response::html($this->minn->frontBar($this->document()))
             ->withHeader('Cache-Control', 'no-store')
             ->withHeader('X-Robots-Tag', 'noindex');
+    }
+
+    /** Whether a path is one of the console page's own: /console/, a tab's, or a report's or a player's chat. */
+    public static function isConsolePath(string $path): bool
+    {
+        return preg_match('#^/console/(?:(?:' . self::TABS . ')/|(?:reports|chat)/\d+/)?$#', $path) === 1;
     }
 
     /** The plain refusal: no header menu, nothing about the console. */

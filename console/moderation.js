@@ -261,12 +261,9 @@ function boot() {
   const tab = document.querySelector('[data-console-tab="moderation"]');
   let loaded = false;
   const maybe = () => { if (!panel.hidden && !loaded) { loaded = true; load(); } };
-  tab?.addEventListener('click', () => {
-    setTimeout(maybe, 0);
-    if (location.hash !== '#moderation') history.replaceState(null, '', '#moderation');
-  });
+  // Its address (/console/moderation/) is console.js's: showTab writes it, and opening it shows this panel.
+  tab?.addEventListener('click', () => setTimeout(maybe, 0));
   new MutationObserver(maybe).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
-  if (location.hash === '#moderation') tab?.click();
   maybe();
 }
 

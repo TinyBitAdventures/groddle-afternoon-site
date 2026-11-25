@@ -401,6 +401,58 @@ export function reportsHashQuery(hash) {
   try { return reportQuery(decodeURIComponent((m[1] || '').replace(/\+/g, ' '))); } catch { return ''; }
 }
 
+/**
+ * The tabs with an address of their own (Austin 2026-11-25: "/console/#boards is changed to /console/boards"), each
+ * tab's word in it (src/AdminConsolePage.php TABS, which serves them). Players is /console/ itself; Builder is
+ * /console/drafts/, since the level builder's page owns /console/builder/.
+ */
+export const TAB_PATHS = Object.freeze({ reports: 'reports', chat: 'chat', credits: 'credits', boards: 'boards', community: 'community', moderation: 'moderation', server: 'server', analytics: 'analytics', ledger: 'ledger', builder: 'drafts' });
+
+/**
+ * PURE: a route's address: /console/, /console/<tab>/, /console/reports/<id>/ (one report), /console/chat/<player>/
+ * (one player's chat), /console/reports/?q=<words> (a search). Anything unknown is /console/.
+ */
+export function consolePath({ tab = 'players', id = 0, q = '' } = {}) {
+  const word = TAB_PATHS[tab];
+  if (!word) return '/console/';
+  const n = Math.floor(Number(id)) || 0;
+  const path = `/console/${word}/`;
+  if (n > 0 && (tab === 'reports' || tab === 'chat')) return `${path}${n}/`;
+  const query = tab === 'reports' ? reportQuery(q) : '';
+  return query ? `${path}?q=${encodeURIComponent(query)}` : path;
+}
+
+/** PURE: what an old #hash link opened ({ tab, id, q }), or null: #boards, #builder, #report=<id>, #reports?q=, #chat=<id>. */
+export function legacyRoute(hash) {
+  const h = String(hash || '');
+  let m;
+  if ((m = /^#report=(\d{1,12})$/.exec(h))) return { tab: 'reports', id: Number(m[1]), q: '' };
+  if ((m = /^#chat=(\d{1,12})$/.exec(h))) return { tab: 'chat', id: Number(m[1]), q: '' };
+  const search = reportsHashQuery(h);
+  if (search !== null) return { tab: 'reports', id: 0, q: search };
+  const word = h.slice(1);
+  return Object.hasOwn(TAB_PATHS, word) ? { tab: word, id: 0, q: '' } : null;
+}
+
+/** PURE: what an address opens, { tab, id, q }: an old #hash link first, else the path and its ?q=. */
+export function consoleRoute(pathname = '/console/', search = '', hash = '') {
+  const legacy = legacyRoute(hash);
+  if (legacy) return legacy;
+  const none = { tab: 'players', id: 0, q: '' };
+  const m = /^\/console\/(?:([a-z]+)\/(?:(\d{1,12})\/)?)?$/.exec(String(pathname || ''));
+  if (!m || !m[1]) return none;
+  const tab = Object.keys(TAB_PATHS).find((k) => TAB_PATHS[k] === m[1]);
+  if (!tab) return none;
+  const id = m[2] && (tab === 'reports' || tab === 'chat') ? Number(m[2]) : 0;
+  if (m[2] && !id) return none;
+  let q = '';
+  if (tab === 'reports' && !id) {
+    const raw = /(?:^\?|&)q=([^&]*)/.exec(String(search || ''))?.[1] || '';
+    try { q = reportQuery(decodeURIComponent(raw.replace(/\+/g, ' '))); } catch { q = ''; }
+  }
+  return { tab, id, q };
+}
+
 /** Text cut where the search is in it, letter case aside: [[text, hit]], for <mark>; [[text, false]] with no search. */
 export function highlightParts(text, q) {
   const s = String(text ?? '');
@@ -446,9 +498,9 @@ export function reportMenuFor(t, { open = false } = {}) {
   return items.map((i) => ({ enabled: true, reason: '', ...i }));
 }
 
-/** A report's link in the console (#report=<id>). */
+/** A report's link in the console (/console/reports/<id>/). */
 export function reportLink(id, origin = '') {
-  return `${origin}/console/#report=${Number(id) || 0}`;
+  return `${origin}${consolePath({ tab: 'reports', id: Number(id) || 0 })}`;
 }
 
 /** The Give pop-up's words for a class no player can get in the game (data/item-sources.json ok 0). */
@@ -1318,7 +1370,7 @@ function boot() {
     chatForm.player.value = `#${player.id}`;
     chat.loaded = true; // showTab would load the unfiltered log first
     showTab('chat');
-    history.replaceState(null, '', `#chat=${player.id}`);
+    go({ tab: 'chat', id: player.id }, { push: false });
     loadChat();
     chatForm.player.focus();
   }
@@ -1470,14 +1522,19 @@ function boot() {
     if (id === 'reports') loadTickets();
     if (id === 'builder') loadDrafts();
     if (id === 'credits') loadCredits();
-    if (id === 'credits' && location.hash !== '#credits') history.replaceState(null, '', '#credits');
     if (id === 'community') loadCommunity();
-    if (id === 'community' && location.hash !== '#community') history.replaceState(null, '', '#community');
     if (id === 'boards') loadBoards();
-    if (id === 'boards' && location.hash !== '#boards') history.replaceState(null, '', '#boards');
     if (id === 'chat' && !chat.loaded) loadChat();
-    if (id === 'chat' && !/^#chat(=\d+)?$/.test(location.hash)) history.replaceState(null, '', '#chat');
-    if (id === 'builder' && location.hash !== '#builder') history.replaceState(null, '', '#builder');
+    // Every tab has its address (the Moderation, Server, Analytics and Ledger modules load from their panel showing).
+    go(id === 'reports' ? { tab: id, id: tickets.open || 0, q: tickets.q } : { tab: id });
+  }
+  /** The address for a route: a new history entry, or the same one changed (a search as it is typed). */
+  let routing = false;
+  function go(route, { push = true } = {}) {
+    if (routing) return;
+    const url = consolePath(route);
+    if (url === location.pathname + location.search && !location.hash) return;
+    history[push ? 'pushState' : 'replaceState'](null, '', url);
   }
   tablist.addEventListener('click', (e) => { const t = e.target.closest('[role="tab"]'); if (t) showTab(t.dataset.consoleTab); });
   tablist.addEventListener('keydown', (e) => {
@@ -1630,7 +1687,7 @@ function boot() {
     if (query === tickets.q) return;
     tickets.q = query;
     Object.assign(tickets, { list: [], more: false, total: null });
-    if (hash) history.replaceState(null, '', reportsHash(query));
+    if (hash) go({ tab: 'reports', q: query }, { push: false });
     if (load) loadTickets();
   }
   ticketSearch.q.addEventListener('input', () => {
@@ -1825,6 +1882,7 @@ function boot() {
     if (open) return void (pickerFor === box && !reactPicker?.hidden ? closePicker() : openPicker(box, open));
   });
   async function openTicket(id, focus = true) {
+    go({ tab: 'reports', id });
     try { renderThread(await api.call(`admin/tickets/${id}`), focus); } catch (err) { return failed(err); }
     loadCredit(id);
   }
@@ -1938,7 +1996,6 @@ function boot() {
     $('[data-console-tab="credits"]').setAttribute('aria-label', n ? `Credits, ${n} not scored yet` : 'Credits');
   }
   function openReport(id) {
-    history.replaceState(null, '', `#report=${id}`);
     showTab('reports');
     openTicket(id);
   }
@@ -2034,18 +2091,26 @@ function boot() {
       } catch (err) { failed(err); }
     });
   }
-  function fromHash() {
-    const m = /^#report=(\d+)$/.exec(location.hash);
-    const search = reportsHashQuery(location.hash);
-    if (m) { showTab('reports'); openTicket(Number(m[1]), false); } else if (search !== null) { setSearch(search, { hash: false, fill: true, load: false }); showTab('reports'); }
-    else if (location.hash === '#builder' && $('[data-console-tab="builder"]')) showTab('builder');
-    else if (/^#chat=\d+$/.test(location.hash)) openChat({ id: Number(location.hash.slice(6)) });
-    else if (location.hash === '#chat') showTab('chat');
-    else if (location.hash === '#credits') showTab('credits');
-    else if (location.hash === '#boards') showTab('boards');
-    else if (location.hash === '#community') showTab('community');
+  /**
+   * Opens what the address names (consoleRoute): on load, on Back and Forward, and from an old #hash link, which
+   * then becomes its address (/console/#boards is /console/boards/, #report=39 is /console/reports/39/).
+   */
+  function fromAddress() {
+    const r = consoleRoute(location.pathname, location.search, location.hash);
+    const known = r.tab === 'players' || Boolean($(`[data-console-tab="${r.tab}"]`));
+    const route = known ? r : { tab: 'players', id: 0, q: '' };
+    routing = true;
+    try {
+      if (route.tab === 'reports' && route.id) { showTab('reports'); openTicket(route.id, false); }
+      else if (route.tab === 'reports') { setSearch(route.q, { hash: false, fill: true, load: false }); showTab('reports'); }
+      else if (route.tab === 'chat' && route.id) openChat({ id: route.id });
+      else showTab(route.tab);
+    } finally { routing = false; }
+    const url = consolePath(route);
+    if (location.hash || url !== location.pathname + location.search) history.replaceState(null, '', url);
   }
-  addEventListener('hashchange', fromHash);
+  addEventListener('popstate', fromAddress);
+  addEventListener('hashchange', fromAddress);
 
   // == The picture, full size, in a popup over the console ==
   // A plain click opens it here; Cmd, Ctrl, Shift or a middle click still open the link in a tab.
@@ -2086,7 +2151,7 @@ function boot() {
       const me = await api.call('me');
       state.me = Number(me?.player?.id) || 0;
     } catch { /* the lists say what went wrong */ }
-    fromHash();
+    fromAddress();
     await pollOnline(true);
     loadBans();
     loadLog();

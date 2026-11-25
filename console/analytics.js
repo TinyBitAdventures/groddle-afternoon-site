@@ -377,13 +377,9 @@ function boot() {
     if (!loaded) { loaded = true; load(); } else if (state.data) { lastWidth = Math.round(panel.clientWidth); drawCharts(); }
     if (!state.timer) state.timer = setInterval(tick, 300000);
   };
-  tab?.addEventListener('click', () => {
-    setTimeout(maybe, 0);
-    if (location.hash !== '#analytics') history.replaceState(null, '', '#analytics');
-  });
+  // Its address (/console/analytics/) is console.js's: showTab writes it, and opening it shows this panel.
+  tab?.addEventListener('click', () => setTimeout(maybe, 0));
   new MutationObserver(maybe).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
-  if (location.hash === '#analytics') tab?.click();
-  addEventListener('hashchange', () => { if (location.hash === '#analytics' && panel.hidden) tab?.click(); });
   maybe();
 }
 
