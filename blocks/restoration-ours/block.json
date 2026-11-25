@@ -1,0 +1,21 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "groddle/restoration-ours",
+	"title": "Restoration our additions",
+	"category": "widgets",
+	"description": "Our additions beside the Tiny Speck originals they stand in for, from made.json: the stat icons, the reimagined clothes and every addition kept since, with the compare popup.",
+	"attributes": {},
+	"supports": {
+		"html": false,
+		"className": false,
+		"customClassName": false
+	},
+	"textdomain": "groddle",
+	"keywords": [
+		"restoration",
+		"art",
+		"compare",
+		"report"
+	]
+}

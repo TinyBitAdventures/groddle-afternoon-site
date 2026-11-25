@@ -20,6 +20,12 @@ use Minn\Extension\Seams;
  * frame, and a one-row walk steps through its frames in CSS where motion is
  * welcome. No JavaScript: the page reads the same without it.
  *
+ * The Our additions section (blocks/restoration-ours, Austin 2026-11-25,
+ * #699, G1308) is drawn the same way from made.json `ours`: each addition of
+ * ours (an icon set, a colourway) beside the Tiny Speck original it stands in
+ * for, from groddle-afternoon tools/made-art/compare.json, so the same compare
+ * popup (restoration/made-compare.js) flips between them.
+ *
  * Plain PHP with no engine classes in draw(), so tests run it with php -r.
  */
 final class RestorationMade
@@ -33,6 +39,24 @@ final class RestorationMade
                 ? DataKeys::html(self::draw($decoded), DataKeys::map($root->dir))
                 : '<p class="report-pending">The art made for Groddle appears once the game is built (public/restoration/made.json).</p>';
         });
+        $minn->block('blocks/restoration-ours', static function () use ($file, $root): string {
+            $decoded = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+            return is_array($decoded)
+                ? DataKeys::html(self::drawOurs($decoded), DataKeys::map($root->dir))
+                : '<p class="report-pending">Our additions appear once the game is built (public/restoration/made.json).</p>';
+        });
+    }
+
+    /** Every addition in made.json `ours`, each beside its Tiny Speck original, as the made pieces are drawn. */
+    public static function drawOurs(array $d): string
+    {
+        $out = '';
+        foreach ($d['ours'] ?? [] as $piece) {
+            if (is_array($piece)) {
+                $out .= self::piece($piece);
+            }
+        }
+        return '<div class="made-list made-ours" data-kicker="Our addition">' . $out . '</div>';
     }
 
     /** Every piece in made.json (register() adds the game's content keys to the images, DataKeys). */
@@ -56,7 +80,7 @@ final class RestorationMade
     private static function src(mixed $src): ?string
     {
         $src = (string) $src;
-        return preg_match('#^/assets/[A-Za-z0-9_@./-]+\.(?:webp|png|jpe?g)$#', $src) === 1 && !str_contains($src, '..') ? $src : null;
+        return preg_match('#^/assets/[A-Za-z0-9_@./-]+\.(?:webp|png|jpe?g|svg)$#', $src) === 1 && !str_contains($src, '..') ? $src : null;
     }
 
     private static function piece(array $p): string
@@ -81,7 +105,7 @@ final class RestorationMade
             . implode('', array_map(static fn (array $f): string => $f[0], $figures)) . '</div>'
             . '<div class="made-words">'
             . '<h3 id="' . $anchor . '-h">' . self::esc($p['name'] ?? '') . '</h3>'
-            . (empty($p['madeLabel']) ? '' : '<p class="made-when">Made ' . self::esc($p['madeLabel']) . '</p>')
+            . (!empty($p['when']) ? '<p class="made-when">' . self::esc($p['when']) . '</p>' : (empty($p['madeLabel']) ? '' : '<p class="made-when">Made ' . self::esc($p['madeLabel']) . '</p>'))
             . '<p class="made-caption">' . self::esc($p['caption'] ?? '') . '</p>'
             . ($facts === '' ? '' : '<dl class="made-facts">' . $facts . '</dl>')
             . '</div></article>';
