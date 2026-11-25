@@ -101,6 +101,20 @@ use Minn\RestError;
  *   GET  groddle/v1/homes/{owner}/yard    a visitor: the owner's Patches, trees and animals as they stand, and my uses today
  *        (and, to look at only, the owner's placed Magic Sticks and yard machines: "sticks", "machines")
  *   GET  groddle/v1/homes/yard            the owner: the acts waiting for my game
+ *
+ * G1018 (M28; Austin 2026-11-25): the back yard is the house's, and whoever may
+ * enter it (the owner, a key-holder, someone let in: Neighbours::mayEnter, the
+ * realtime server's HOUSE_<owner>) may use the same verbs on its own
+ * cultivations (homes.backYard, its world slots on RH_HOME_INT), with the same
+ * rules, limits, pool and receipts: Dirt Piles dug with a working shovel
+ * (dirt_pile.js verbs.dig 102-115: "There isn't enough dirt left to dig." at
+ * 113; Wine of the Dead's pour, 67, is the owner's: container.owner == pc),
+ * Peat Bogs harvested with a hoe (peat_1.js), barnacles scraped, Jellisacs
+ * scooped, rocks mined, Patches dug, tended and planted. Its things are named
+ * with the prefix "b:" ("b:node:dirt_pile:0", "b:rock:1", "b:patch:0"), so one
+ * table, one set of marks and one waiting list hold both yards, and each pile's
+ * digs are one count for the owner and every guest.
+ *   GET  groddle/v1/homes/{owner}/yard?place=yard[&in=…]   the back yard as it stands now, to those who may enter
  */
 final readonly class HomeYard
 {
@@ -109,6 +123,13 @@ final readonly class HomeYard
 
     /** The home street's tsid in a save (js/features/homes-feature.js HOME_STREET_TSID). */
     public const STREET = 'RH_HOME_EXT';
+    /** G1018: the house and its back yard (js/homes.js HOME_INTERIOR_TSID). */
+    public const INTERIOR = 'RH_HOME_INT';
+    /** G1018: what names a thing in the back yard. */
+    public const BACK = 'b:';
+    /** The table's target column (minn.json varchar(24)). */
+    public const TARGET_MAX = 24;
+    public const TEXT_NOT_INSIDE = "You can't see into their back yard from here."; // ours: G1018
     /** The game's js/animal-husbandry.js MAGIC_STICKS. */
     public const MAGIC_STICKS = ['magic_pig_stick', 'magic_chicken_stick', 'magic_butterfly_stick'];
     /** The game's js/animal-husbandry.js REMOTE_MACHINES: what Remote Herdkeeping sets down on the home street. */
@@ -238,9 +259,15 @@ final readonly class HomeYard
             $skills = self::learned($visitorState);
             $uses = self::usesOf($db, $owner, $visitor, $day);
             $nowMs = (int) floor(microtime(true) * 1000);
+            // G1018: the back yard's things are judged on its own cultivations and slots, as the street's are.
+            $place = self::placeOf($id);
+            $at = self::placeState($state, $place);
+            $here = self::placeRows($waiting, $place);
+            $usesHere = self::placeKeyed($uses, $place);
+            $bare = self::bare($id);
             $judged = $kind === 'rock' || $kind === 'node'
-                ? self::judgeStock($rules, $state, $waiting, $uses, self::upgrades($visitorState), $kind, $id, $verb, $nowMs, static fn (int $lo, int $hi): int => random_int($lo, $hi), $help)
-                : self::judge($rules, $state, $waiting, $uses, $skills, $kind, $id, $verb, $nowMs, $kind === 'tree' ? self::careOf($db, $owner, $visitor, $day) : []);
+                ? self::judgeStock($rules, $at, $here, $usesHere, self::upgrades($visitorState), $kind, $bare, $verb, $nowMs, static fn (int $lo, int $hi): int => random_int($lo, $hi), $help)
+                : self::judge($rules, $at, $here, $usesHere, $skills, $kind, $bare, $verb, $nowMs, $kind === 'tree' ? self::placeKeyed(self::careOf($db, $owner, $visitor, $day), $place) : []);
             if (isset($judged['why'])) {
                 return ['status' => 'refused', 'why' => $judged['why'], 'text' => $judged['text']];
             }
@@ -288,7 +315,11 @@ final readonly class HomeYard
 
     // —— A visitor ——
 
-    /** The owner's Patches, trees and animals on their home street as they stand now, and my uses of them today. */
+    /**
+     * The owner's Patches, trees and animals on their home street as they stand now, and my uses of
+     * them today. G1018: ?place=yard is the back yard's rocks, nodes and Patches (ids "b:…"), only
+     * to whoever may enter the house (Neighbours::mayEnter: ?in= is the realtime server's proof).
+     */
     #[Route(Method::Get, '/groddle/v1/homes/{id:\d+}/yard', policy: new Policy(Access::SignedIn))]
     public function view(Request $request, string $id): Response
     {
@@ -298,11 +329,21 @@ final readonly class HomeYard
         if ($owner <= 0 || ($owner !== $me && $this->blocked($owner, $me))) {
             throw new RestError('groddle_yard_blocked', self::TEXT_BLOCKED, 403);
         }
-        $state = Neighbours::state($db, $owner);
-        if (!Neighbours::hasHome($state)) {
+        $place = $request->query('place') === 'yard' ? 'yard' : 'street';
+        if ($place === 'yard' && !(new Neighbours($this->minn))->mayEnter($request, $owner, $me)) {
+            throw new RestError('groddle_yard_inside', self::TEXT_NOT_INSIDE, 403);
+        }
+        $saved = Neighbours::state($db, $owner);
+        if (!Neighbours::hasHome($saved)) {
             throw new RestError('groddle_yard_none', HomePool::TEXT_NO_HOME, 404);
         }
-        $waiting = self::unapplied($state, $db->rows('SELECT id, kind, target, verb, took, what, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id', [$owner]));
+        $all = self::unapplied($saved, $db->rows('SELECT id, kind, target, verb, took, what, at_ms FROM ' . $db->table(self::TABLE) . ' WHERE owner_id = ? ORDER BY at_ms, id', [$owner]));
+        if ($place === 'yard') {
+            return Response::json(self::backYardView(self::rules(), $saved, $all, self::usesOf($db, $owner, $me, HomePool::today()), (int) floor(microtime(true) * 1000))
+                + ['owner' => $owner, 'name' => (new Characters($db))->namesOf([$owner])[$owner] ?? '', 'day' => HomePool::today()]);
+        }
+        $state = $saved;
+        $waiting = self::placeRows($all, 'street');
         $nowMs = (int) floor(microtime(true) * 1000);
         $rules = self::rules();
         // MPVISIT: the rocks and resource nodes as they stand now (worn-out ones are protos: not listed).
@@ -338,7 +379,7 @@ final readonly class HomeYard
             $animals[] = ['id' => $row->id, 'classId' => $row->classId, 'x' => $x, 'homeX' => $homeX, 'state' => is_object($row->state ?? null) ? $row->state : (object) []];
         }
         $mine = [];
-        foreach (self::usesOf($db, $owner, $me, HomePool::today()) as $what => $n) {
+        foreach (self::placeKeyed(self::usesOf($db, $owner, $me, HomePool::today()), 'street') as $what => $n) {
             $mine[$what] = $n;
         }
         $homes = Neighbours::homesSlice($state, false);
@@ -383,10 +424,152 @@ final readonly class HomeYard
 
     // —— The rules (pure; tests: php -r) ——
 
+    /**
+     * G1018: the back yard as it stands now for someone inside: its cultivations (`cult`), rocks,
+     * nodes and Patches with their real state (a Dirt Pile's digs left, a Peat Bog's, a pod's
+     * barnacle, each Patch's stage), named "b:…", and my uses of them today (`mine`, "<verb>:b:…").
+     * The same reading as the street's (rockNow, nodeNow, plotNow), on the back yard's own slots
+     * and the acts still waiting for the owner's game.
+     *
+     * @param list<array<string, mixed>> $waiting every waiting act at this home (both yards)
+     * @param array<string, int> $uses every use of mine there today (usesOf)
+     * @return array<string, mixed>
+     */
+    public static function backYardView(array $rules, ?object $saved, array $waiting, array $uses, int $nowMs): array
+    {
+        $state = self::placeState($saved, 'yard');
+        $here = self::placeRows($waiting, 'yard');
+        $rocks = [];
+        foreach (self::homeRocks($rules, $state) as $r) {
+            if (!self::worn($rules, $state, $here, $r['item'], $nowMs)) {
+                $rocks[] = ['id' => self::BACK . $r['id'], 'classId' => $r['classId'], 'rx' => $r['rx'], 'rock' => self::rockNow($rules, $state, $here, $r, $nowMs)];
+            }
+        }
+        $nodes = [];
+        foreach (self::homeNodes($rules, $state, $nowMs) as $n) {
+            if (!self::worn($rules, $state, $here, $n['item'], $nowMs)) {
+                $node = self::nodeNow($rules, $state, $here, $n, $nowMs);
+                if ($n['cls'] === 'npc_firefly' && $node['units'] < 1) {
+                    $node += ['depleted' => true, 'respawnAt' => $node['regrowAt']];
+                }
+                $nodes[] = ['id' => self::BACK . $n['id'], 'classTsid' => $n['classTsid'], 'rx' => $n['rx'], 'dy' => $n['dy'], 'node' => $node];
+            }
+        }
+        $patches = [];
+        foreach (self::patchItems($state) as $key => $rx) {
+            $plot = self::plotNow(self::storedPlot($state, $key), $key, $here, $nowMs, $rules);
+            if ($plot !== null) {
+                $patches[] = ['key' => self::BACK . $key, 'rx' => $rx, 'plot' => $plot];
+            }
+        }
+        $mine = [];
+        foreach (self::placeKeyed($uses, 'yard') as $what => $n) {
+            [$verb, $thing] = explode(':', $what, 2);
+            $mine[$verb . ':' . self::BACK . $thing] = $n;
+        }
+        $cult = $saved?->systems?->features?->homes?->backYard ?? null;
+        return [
+            'place' => 'yard',
+            'cult' => is_object($cult) ? $cult : (object) [],
+            'patches' => $patches,
+            'animals' => [],
+            'sticks' => [],
+            'machines' => [],
+            'rocks' => $rocks,
+            'nodes' => $nodes,
+            'mine' => (object) $mine,
+        ];
+    }
+
+    /** G1018: 'yard' for a thing in the back yard ("b:…"), else 'street'. */
+    public static function placeOf(string $id): string
+    {
+        return str_starts_with($id, self::BACK) ? 'yard' : 'street';
+    }
+
+    /** A thing's id without the back yard's prefix. */
+    public static function bare(string $id): string
+    {
+        return str_starts_with($id, self::BACK) ? substr($id, strlen(self::BACK)) : $id;
+    }
+
+    /**
+     * G1018: the owner's save as one yard's rules read it. The street: as it is. The back yard: its
+     * cultivations (homes.backYard) where the street's are read (homes.cult) and its world slots
+     * (RH_HOME_INT: rocks, resource nodes, Patches) where the street's are (RH_HOME_EXT), the home
+     * and the applied acts as they are; no animals, sticks or machines (the house's are HomeMachines').
+     */
+    public static function placeState(?object $state, string $place): ?object
+    {
+        if ($place !== 'yard' || $state === null) {
+            return $state;
+        }
+        $features = $state->systems->features ?? null;
+        $back = is_object($features) ? ($features->homes->backYard ?? null) : null;
+        $inside = $state->world->streets->{self::INTERIOR} ?? null;
+        $slots = (object) [];
+        foreach (['rocks', 'features'] as $k) {
+            if (is_object($inside) && isset($inside->{$k})) {
+                $slots->{$k} = $inside->{$k};
+            }
+        }
+        if (is_object($slots->features ?? null)) {
+            $f = (object) [];
+            foreach (['resource-nodes', 'patches'] as $k) {
+                if (isset($slots->features->{$k})) {
+                    $f->{$k} = $slots->features->{$k};
+                }
+            }
+            $slots->features = $f;
+        }
+        return (object) [
+            'systems' => (object) [
+                'home' => $state->systems->home ?? null,
+                'features' => (object) [
+                    'homes' => (object) ['cult' => is_object($back) ? $back : (object) ['items' => []]],
+                    self::SLICE => is_object($features) ? ($features->{self::SLICE} ?? null) : null,
+                ],
+            ],
+            'world' => (object) ['streets' => (object) [self::STREET => $slots]],
+            'player' => $state->player ?? null,
+        ];
+    }
+
+    /** G1018: the waiting acts on one yard's things, named as that yard's rules know them (bare). */
+    public static function placeRows(array $rows, string $place): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            $target = (string) ($r['target'] ?? '');
+            if (self::placeOf($target) === $place) {
+                $r['target'] = self::bare($target);
+                $out[] = $r;
+            }
+        }
+        return $out;
+    }
+
+    /** G1018: "<verb>:<id>" counts of one yard's things, bare. */
+    public static function placeKeyed(array $keyed, string $place): array
+    {
+        $out = [];
+        foreach ($keyed as $what => $n) {
+            $parts = explode(':', (string) $what, 2);
+            if (count($parts) === 2 && self::placeOf($parts[1]) === $place) {
+                $out[$parts[0] . ':' . self::bare($parts[1])] = $n;
+            }
+        }
+        return $out;
+    }
+
     public static function validId(mixed $kind, mixed $id): bool
     {
-        if (!is_string($id)) {
+        if (!is_string($id) || strlen($id) > self::TARGET_MAX) {
             return false;
+        }
+        // G1018: the back yard's rocks, nodes and Patches (it keeps no animals).
+        if (str_starts_with($id, self::BACK)) {
+            return $kind !== 'animal' && self::validId($kind, substr($id, strlen(self::BACK))) && !str_starts_with(substr($id, strlen(self::BACK)), self::BACK);
         }
         return match ($kind) {
             'animal' => preg_match('/^a\d{1,6}$/', $id) === 1,
