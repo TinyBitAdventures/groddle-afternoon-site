@@ -129,6 +129,8 @@ final readonly class HomeMachines
     // fuelmaker.js and machine_stand.js where marked; ours otherwise.
     public const TEXT_GONE = 'That is not there any more.';
     public const TEXT_HERE = 'This %s cannot be placed here.'; // machine_stand.js canDrop
+    /** #730 (G1333): ours. The 200 px is from where you stand (placeWhy 'near'); the game's js/home-machines.js placeNear. */
+    public const TEXT_NEAR = 'Stand further from the other machines to set this one down.';
     public const TEXT_MANY = 'You have a lot of machines out already.';
     public const TEXT_RUNNING = 'The machine is still running. %s remaining.'; // verbs.use 657
     public const TEXT_OTHER = 'Someone else is using this. %s remaining.'; // verbs.use 659
@@ -233,7 +235,11 @@ final readonly class HomeMachines
             $from = self::fromOf($b['from'] ?? null);
             $why = $from === false ? 'here' : self::placeWhy($rules, $placed, $class, $b['rx'] ?? null, $span, $fixed, $from);
             if ($why !== null) {
-                return $refuse($why, $why === 'many' ? self::TEXT_MANY : sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')));
+                return $refuse($why, match ($why) {
+                    'many' => self::TEXT_MANY,
+                    'near' => self::TEXT_NEAR,
+                    default => sprintf(self::TEXT_HERE, self::label($rules, is_string($class) ? $class : '')),
+                });
             }
             $fuel = max(0, min((int) $rules['maxFuel'], is_int($b['fuel'] ?? null) ? $b['fuel'] : (int) $rules['fresh']));
             $row = ['id' => $op, 'owner' => $owner, 'class' => $class, 'place' => $place, 'rx' => (int) $b['rx'], 'fuel' => $fuel, 'music' => true, 'job' => null, 'contents' => [], 'status' => 'placed', 'taken_op' => null, 'taker' => null];
