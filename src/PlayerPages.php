@@ -536,16 +536,8 @@ final readonly class PlayerPages
         $db = $this->minn->db;
         $character = $db->row('SELECT name, created_at FROM ' . $db->table(Characters::TABLE) . ' WHERE user_id = ?', [$id]);
         $profile = $db->row('SELECT about, avatar_at, home_at, home_w, home_h, home_small IS NOT NULL AS home_has_small, home_layout, tower_at, tower_w, tower_h, tower_name FROM ' . $db->table(Profiles::TABLE) . ' WHERE user_id = ?', [$id]) ?? [];
-        $facts = Profiles::fromSave($db, $id);
-        // Below the listed level the page is the owner's alone.
+        $facts = self::shown($db, $id, $this->minn->reader->userId) ?? throw new RouteMiss();
         $own = $this->minn->reader->userId === $id;
-        if ($facts['level'] < Profiles::LISTED_LEVEL && !$own) {
-            throw new RouteMiss();
-        }
-        // A suspended player's page is gone for everyone (the owner can't sign in to play either).
-        if (AdminConsole::banned($db, $id) !== null) {
-            throw new RouteMiss();
-        }
         $name = (string) ($character['name'] ?? '');
         $who = [
             'id' => $id,
@@ -571,6 +563,47 @@ final readonly class PlayerPages
         }
         $who['buddy'] = $this->buddyButton($id, $name, $who['base'], $tab, (string) ($request->query('buddy') ?? ''));
         return $who;
+    }
+
+    /**
+     * The profile's rule, read by its pages (who()) and by the game's question (listing()): what a
+     * character's save says about them (Profiles::fromSave), or null when their page is not the
+     * reader's to see. Below the listed level the page is the owner's alone; a suspended player's
+     * page is gone for everyone (the owner can't sign in to play either). A retired character has
+     * no path at all (Profiles::slugs), so neither caller gets this far for one.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function shown(\Minn\Db $db, int $id, int $reader): ?array
+    {
+        $facts = Profiles::fromSave($db, $id);
+        if ($facts['level'] < Profiles::LISTED_LEVEL && $reader !== $id) {
+            return null;
+        }
+        if (AdminConsole::banned($db, $id) !== null) {
+            return null;
+        }
+        return $facts;
+    }
+
+    /**
+     * G1326 (Austin 2026-11-26): whether a character's page opens for the reader, and its own
+     * address, so the game's Open Profile Page row asks this rather than fetching the page, whose
+     * 404 for every player below level 5 put an error in the console on each street:
+     * {listed: true, url: "/players/<slug>/"} or {listed: false}, always 200 (a missing, retired,
+     * suspended or not-yet-public character are told apart by nothing). Public and read-only,
+     * under the page's own rule (shown()). Kept by nobody but the reader: the owner's answer
+     * differs from everyone else's.
+     */
+    #[Route(Method::Get, '/groddle/v1/players/{id:[1-9][0-9]{0,18}}/page', policy: new Policy(Access::Public))]
+    public function listing(Request $request, string $id): Response
+    {
+        $n = (int) $id;
+        $db = $this->minn->db;
+        $slug = Profiles::slugs($db)[$n] ?? null;
+        $listed = $slug !== null && self::shown($db, $n, $this->minn->reader->userId) !== null;
+        return Response::json($listed ? ['listed' => true, 'url' => "/players/{$slug}/"] : ['listed' => false])
+            ->withHeader('Cache-Control', 'private, no-store');
     }
 
     /** The game's street index (tsid => row), or empty: a Snap's street name. */

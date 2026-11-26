@@ -57,6 +57,7 @@ All under `/wp-json/groddle/v1/`. The ones for signed-in players check the REST 
 | `GET save`, `PUT save` | The multiplayer character's save, with a version check so two windows never overwrite each other |
 | `GET backups`, `GET/PUT/DELETE backups/{slot}` | Three slots to back up a solo save to the account |
 | `POST realtime` | A ticket for the realtime server |
+| `GET players/{id}/page` | Whether that character's page opens for you, and its address: `{listed, url}`, always 200, under the page's own rule (from level 5, or your own; never a suspended or retired one). The game's Open Profile Page asks this rather than fetching the page |
 | `GET/POST buddies`, `DELETE buddies/{id}` | Your buddies (online through the realtime server), who added you, and adding or removing one (1,000 at most, one Buddies group, as in the original) |
 | `POST buddies/ignores`, `DELETE buddies/ignores/{id}` | Blocking a player and un-blocking them |
 | `POST players/{id}/report` | Reporting another player (G872), with an optional note: a ticket in the reporter's Reports and the console's Reports tab, marked Player report, carrying the public chat the reporter could see in the last 30 minutes, asked of the realtime server (`report_lines`): street, Global, Live Help, Trade and party lines, never IMs or group chat (`groddle_player_reports`). 5 a day from one login, one report of the same player an hour, and the bug reports' limits |
