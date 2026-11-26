@@ -162,11 +162,14 @@ final class Contribute
         return $n . (($tens >= 11 && $tens <= 13) ? 'th' : (['th', 'st', 'nd', 'rd'][$n % 10] ?? 'th'));
     }
 
-    /** One picture on the street: its place and width in design pixels (the --x, --b, --w the styles scale). */
+    /** One picture on the street: its place and width in design pixels (the --x, --b, --w the styles scale).
+     * A sprite also names its 3x copy (every sprite here has one beside its 1x file), so a sharp screen
+     * draws the tree and the mailbox sharp; the decos are already drawn from 2x art. */
     private static function art(array $a): string
     {
         [$src, $x, $b, $w, $cls] = $a;
-        return '<img class="ct-art' . ($cls === '' ? '' : ' ' . $cls) . '" src="' . Html::attr($src) . '" alt="" loading="lazy" style="--x:' . $x . ';--b:' . $b . ';--w:' . $w . '" />';
+        $set = str_starts_with($src, '/assets/sprites/') ? ' srcset="' . Html::attr(substr($src, 0, -5) . '@3x.webp') . ' 3x"' : '';
+        return '<img class="ct-art' . ($cls === '' ? '' : ' ' . $cls) . '" src="' . Html::attr($src) . '"' . $set . ' alt="" loading="lazy" style="--x:' . $x . ';--b:' . $b . ';--w:' . $w . '" />';
     }
 
     /** The street with the shrine, and the verb menu its script opens over it. */
