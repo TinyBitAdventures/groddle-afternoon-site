@@ -141,7 +141,9 @@
       "PRIMARY KEY  (trade_id)",
       "KEY a_id (a_id)",
       "KEY b_id (b_id)",
-      "KEY created_at (created_at)"
+      "KEY created_at (created_at)",
+      "KEY a_applied (a_id,a_applied_at)",
+      "KEY b_applied (b_id,b_applied_at)"
     ],
     "groddle_ledger_log": [
       "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",

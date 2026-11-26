@@ -580,20 +580,28 @@ final readonly class Ledger
     /**
      * A copy the player keeps over one saved elsewhere (MultiplayerSave takeover): every
      * settled trade the other copy applied since this copy was last saved ($since, the
-     * server's time of that save; never more than PENDING_FOR back) and this copy does not
-     * list is applied to it, as a boot read applies what nobody has. So a gift, sale, pickup
-     * or swap the other window took in counts once, and what it gave away does not come back.
+     * server's time of that save, however long ago: G1320) and this copy does not list is
+     * applied to it, as a boot read applies what nobody has. So a gift, sale, pickup, swap or
+     * Still put back that the other window or the site took in counts once, and what it gave
+     * away does not come back. A trade applied before $since is in this copy already (it was
+     * saved after), even when its id has left the copy's short applied list, so it never
+     * counts twice. With no time for the copy (0) it goes PENDING_FOR back, as before.
      * Trades not applied anywhere yet stay pending for the write's own check.
+     *
+     * The cost is this character's trades applied since then, read through the
+     * (a_id, a_applied_at) and (b_id, b_applied_at) keys (minn.json), never the whole table.
      */
     public function reapply(int $user, array $entries, int $since, int $now): array
     {
         $this->lock($user, $now);
-        $from = gmdate('Y-m-d H:i:s', max($since - 2, $now - self::PENDING_FOR));
+        $from = gmdate('Y-m-d H:i:s', $since > 0 ? min($since, $now) - 2 : $now - self::PENDING_FOR);
         $t = $this->db->table(self::TRADES);
-        $rows = $this->db->rows("SELECT trade_id, a_id, b_id, a_gave, b_gave FROM {$t} WHERE status = 'settled' AND ((a_id = ? AND a_applied_at >= ?) OR (b_id = ? AND b_applied_at >= ?)) ORDER BY created_at, trade_id", [$user, $from, $user, $from]);
+        $cols = 'trade_id, a_id, b_id, a_gave, b_gave, created_at';
+        $rows = $this->db->rows("SELECT {$cols} FROM {$t} WHERE a_id = ? AND a_applied_at >= ? AND status = 'settled' UNION SELECT {$cols} FROM {$t} WHERE b_id = ? AND b_applied_at >= ? AND status = 'settled' ORDER BY created_at, trade_id", [$user, $from, $user, $from]);
+        $listed = array_flip(LedgerMath::applied($entries));
         foreach ($rows as $r) {
             $id = (string) $r['trade_id'];
-            if (in_array($id, LedgerMath::applied($entries), true)) {
+            if (isset($listed[$id])) {
                 continue;
             }
             $gaveA = LedgerMath::goods(json_decode((string) $r['a_gave'], true));
