@@ -39,8 +39,13 @@ use Minn\RestError;
  * choice. The player's "keep this window's game" is a takeover write: it
  * claims the save back, after the settled trades this copy has not applied
  * since it was last saved are applied to it (Ledger::reapply), so nothing
- * a trade, gift, sale or pickup moved is kept twice. ?peek=1 reads without
- * claiming or catching up (the phone companion).
+ * a trade, gift, sale or pickup moved is kept twice. When that changed the
+ * copy, the answer says "reload": true (G1329, report #670): what came in is
+ * in the stored save only, and the page's next write of its own copy would
+ * silently take it out again (a Still put back on its owner's floor, a gift,
+ * a put-back), so the page reloads the stored save and writes nothing more
+ * (js/save-store.js). ?peek=1 reads without claiming or catching up (the
+ * phone companion).
  *
  * Builds (G737): a save names the game build that wrote it (SaveShape build). A write from a
  * different build older than the stored one (a tab left open across a release) is refused with
@@ -185,6 +190,8 @@ final readonly class MultiplayerSave
                 // The client names when this copy was last saved; never later than the stored copy's own save.
                 $entries = $ledger->reapply($user, $entries, Ledger::takeoverSince(is_int($since) ? $since : 0, $row === null ? null : (string) $row['updated_at']), time());
             }
+            // G1329: what reapply added is in the stored copy only; the page must load it before it writes again.
+            $reload = $did === 'takeover' && $entries !== $save['entries'];
             $checked = $ledger->write($user, $entries, time());
             $json = SaveShape::encode(['entries' => $checked['entries']] + $save);
             $written = $held === null
@@ -193,7 +200,7 @@ final readonly class MultiplayerSave
             if ($written === 0) {
                 throw self::refusal('conflict', $db->row("SELECT version, writer, seq, updated_at, data FROM {$table} WHERE user_id = ?", [$user]));
             }
-            return ['json' => $json, 'checked' => $checked, 'version' => ($held ?? 0) + 1, 'took' => $did === 'takeover'];
+            return ['json' => $json, 'checked' => $checked, 'version' => ($held ?? 0) + 1, 'took' => $did === 'takeover', 'reload' => $reload];
         });
         if (isset($out['superseded'])) {
             return Response::json(['version' => $out['version'], 'updatedAt' => SaveShape::time($out['updated_at']), 'superseded' => true]);
@@ -202,6 +209,9 @@ final readonly class MultiplayerSave
         $answer = ['version' => $out['version'], 'updatedAt' => SaveShape::time($now), 'size' => strlen($out['json'])];
         if ($out['took']) {
             $answer['took'] = true;
+        }
+        if ($out['reload']) {
+            $answer['reload'] = true;
         }
         if (!LedgerMath::nothing($checked['clamped'])) {
             $answer['ledger'] = ['corrected' => ['items' => (object) $checked['clamped']['items'], 'currants' => $checked['clamped']['currants']], 'text' => $checked['text']];
