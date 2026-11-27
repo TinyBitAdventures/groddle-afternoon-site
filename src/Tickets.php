@@ -49,7 +49,8 @@ use Minn\RestError;
  *            while the player wrote last and no administrator has opened it since, and whenever an
  *            administrator wrote last (Read by the team, Austin 2026-11-12; TicketStore::readByTeamAt)
  *   Message: {"id","author":"player"|"admin","body","at","edited":time|null,"pictures":[{"url","width","height"}],
- *             "picture":{"url","width","height"}|null}
+ *             "picture":{"url","width","height"}|null,"files":[{"url","name","bytes"}]}
+ *            files: text files the player added on the website (ReportFile, /report-files/{ticket}/{message}/{n})
  *            who wrote is a role, never a name; pictures: the message's own, in order (/report-pictures/{ticket}/
  *            {message}/{n}; a new report's own picture is the thread's "picture", not in its first message's list);
  *            picture: the first of them again for older readers (G791, /report-pictures/{ticket}/{message})
@@ -64,7 +65,10 @@ use Minn\RestError;
  * in WINDOW seconds and REPLY_PER_DAY a day, the same length. Every other
  * picture (a reply's, G791, and a new report's after its first) counts against
  * PICTURES_PER_WINDOW and PICTURES_PER_DAY, and has a new report's picture's
- * size and type. An edit has
+ * size and type. Text files (from the website only, ReportFile) count against
+ * FILES_PER_WINDOW and FILES_PER_DAY. The website's Support pages
+ * (SupportPages) write through openFor, replyFor, closeFor and reopenFor, so a
+ * report or reply sent there meets every rule the game's does. An edit has
  * the length limit and cleaning of a new message (ticket 49, 2026-11-02).
  */
 final readonly class Tickets
@@ -78,6 +82,9 @@ final readonly class Tickets
      */
     public const PICTURES_PER_WINDOW = 20;
     public const PICTURES_PER_DAY = 60;
+    /** Text files kept with messages (the website's, ReportFile), in WINDOW seconds and a day: at most 2.5 MB in ten minutes. */
+    public const FILES_PER_WINDOW = 10;
+    public const FILES_PER_DAY = 30;
 
     public function __construct(private Seams $minn)
     {
@@ -117,7 +124,24 @@ final readonly class Tickets
     {
         $me = $this->me();
         $body = $request->json();
-        $message = BugReports::message($body['message'] ?? null, BugReports::MAX_MESSAGE, 'groddle_feedback_long');
+        $context = BugReports::context(is_array($body['context'] ?? null) ? $body['context'] : []);
+        $id = $this->openFor($me, $body['message'] ?? null, $context, static fn (): array => ReportPicture::fromBody($body));
+        return Response::json(['status' => 'sent', 'id' => $id, 'ticket' => TicketStore::summary((array) $this->store()->find($id), TicketStore::PLAYER)], 201);
+    }
+
+    /**
+     * A new report by $me (the game's POST tickets, the website's New report): the message's rules,
+     * the report limits, then the pictures and files ($pictures, $files: called only after the limits
+     * passed, each a checked list) with their own limits. The new id; a RestError for any refusal,
+     * and nothing is kept then.
+     *
+     * @param array<string, mixed> $context BugReports::context
+     * @param \Closure(): list<array{bytes: string, width: int, height: int}> $pictures the first is the report's own
+     * @param (\Closure(): list<array{name: string, text: string, bytes: int}>)|null $files
+     */
+    public function openFor(UserRecord $me, mixed $raw, array $context, \Closure $pictures, ?\Closure $files = null): int
+    {
+        $message = BugReports::message($raw, BugReports::MAX_MESSAGE, 'groddle_feedback_long');
         if ($message === '') {
             throw new RestError('groddle_feedback_empty', 'Please describe the problem you are having.', 400);
         }
@@ -126,14 +150,14 @@ final readonly class Tickets
         if ($store->openedSince($me->id, BugReports::WINDOW, $now) >= BugReports::PER_WINDOW || $store->openedSince($me->id, 86400, $now) >= BugReports::PER_DAY) {
             throw new RestError('groddle_feedback_slow', 'Thanks! You have sent a few reports just now. Try again in a little while.', 429);
         }
-        $context = BugReports::context(is_array($body['context'] ?? null) ? $body['context'] : []);
         // The pictures (the game's own and any the player added): checked after the limits, the first the report's own.
-        $pictures = $this->pictures($store, $me->id, $body, $now, 1);
-        $id = $store->open($me->id, $message, $context, $now, null, $pictures[0] ?? null, array_slice($pictures, 1));
+        $list = $this->picturesWithin($store, $me->id, $pictures(), $now, 1);
+        $texts = $this->filesWithin($store, $me->id, $files === null ? [] : $files(), $now);
+        $id = $store->open($me->id, $message, $context, $now, null, $list[0] ?? null, array_slice($list, 1), $texts);
         if ($id <= 0) {
             throw new RestError('groddle_feedback_failed', 'That didn\'t send. Try again in a moment.', 500);
         }
-        return Response::json(['status' => 'sent', 'id' => $id, 'ticket' => TicketStore::summary((array) $store->find($id), TicketStore::PLAYER)], 201);
+        return $id;
     }
 
     #[Route(Method::Post, '/groddle/v1/tickets/{id:\d+}/messages', policy: new Policy(Access::SignedIn))]
@@ -142,7 +166,23 @@ final readonly class Tickets
         $me = $this->me();
         $row = $this->mine($me, (int) $id);
         $body = $request->json();
-        $message = BugReports::message($body['message'] ?? null, TicketStore::MAX_MESSAGE, 'groddle_ticket_long');
+        $this->replyFor($me, (int) $row['id'], $body['message'] ?? null, static fn (): array => ReportPicture::fromBody($body));
+        return $this->thread((int) $row['id'], $me->id);
+    }
+
+    /**
+     * A reply by $me in one of their reports (the game's POST tickets/{id}/messages, the website's
+     * reply box): the report must be theirs (else 404), the message's rules, the reply limits, then
+     * the pictures and files (called only after the limits) with their own. Opens a closed report
+     * again (TicketStore::add). The report's id.
+     *
+     * @param \Closure(): list<array{bytes: string, width: int, height: int}> $pictures
+     * @param (\Closure(): list<array{name: string, text: string, bytes: int}>)|null $files
+     */
+    public function replyFor(UserRecord $me, int $id, mixed $raw, \Closure $pictures, ?\Closure $files = null): int
+    {
+        $row = $this->mine($me, $id);
+        $message = BugReports::message($raw, TicketStore::MAX_MESSAGE, 'groddle_ticket_long');
         if ($message === '') {
             throw new RestError('groddle_ticket_empty', 'Write your reply first.', 400);
         }
@@ -152,9 +192,10 @@ final readonly class Tickets
             throw new RestError('groddle_ticket_slow', 'You have sent a lot of replies just now. Try again in a little while.', 429);
         }
         // G791: pictures with the reply, checked after the reply's limits, with a limit of their own.
-        $pictures = $this->pictures($store, $me->id, $body, $now, 0);
-        $store->add((int) $row['id'], $me->id, TicketStore::PLAYER, $message, $now, $pictures);
-        return $this->thread((int) $row['id'], $me->id);
+        $list = $this->picturesWithin($store, $me->id, $pictures(), $now, 0);
+        $texts = $this->filesWithin($store, $me->id, $files === null ? [] : $files(), $now);
+        $store->add((int) $row['id'], $me->id, TicketStore::PLAYER, $message, $now, $list, $texts);
+        return (int) $row['id'];
     }
 
     #[Route(Method::Post, '/groddle/v1/tickets/{id:\d+}/close', policy: new Policy(Access::SignedIn))]
@@ -162,10 +203,33 @@ final readonly class Tickets
     {
         $me = $this->me();
         $row = $this->mine($me, (int) $id);
+        return $this->thread($this->closeFor($me, (int) $row['id']), $me->id);
+    }
+
+    /** $me withdraws one of their reports: closed, closed_by player, and read. The report's id. */
+    public function closeFor(UserRecord $me, int $id): int
+    {
+        $row = $this->mine($me, $id);
         $store = $this->store();
         $store->setStatus((int) $row['id'], TicketStore::CLOSED, time(), TicketStore::PLAYER);
         $store->markRead((int) $row['id'], TicketStore::PLAYER, time());
-        return $this->thread((int) $row['id'], $me->id);
+        return (int) $row['id'];
+    }
+
+    /**
+     * $me opens one of their closed reports again, as the console's Reopen does: open, or answered
+     * when an administrator wrote last; who closed it is cleared. A report that is not closed is
+     * left as it is (Working on it stays the administrators' mark). The report's id.
+     */
+    public function reopenFor(UserRecord $me, int $id): int
+    {
+        $row = $this->mine($me, $id);
+        if ((string) $row['status'] === TicketStore::CLOSED) {
+            $store = $this->store();
+            $store->setStatus((int) $row['id'], TicketStore::statusAfter((string) $row['last_author_role']), time());
+            $store->markRead((int) $row['id'], TicketStore::PLAYER, time());
+        }
+        return (int) $row['id'];
     }
 
     /** New words for the report's first message, until an administrator has read it (ticket 49). */
@@ -220,20 +284,46 @@ final readonly class Tickets
     }
 
     /**
-     * A message's pictures (ReportPicture::fromBody): none kept unless every one passes. The ones the
-     * picture limit counts ($free: a new report's own picture has the report's limits) must fit in
-     * what PICTURES_PER_WINDOW and PICTURES_PER_DAY leave.
+     * A message's pictures (already checked: ReportPicture::fromBody or acceptUpload): none kept
+     * unless every one passes. At most ReportPicture::MAX_PER_MESSAGE; the ones the picture limit
+     * counts ($free: a new report's own picture has the report's limits) must fit in what
+     * PICTURES_PER_WINDOW and PICTURES_PER_DAY leave.
      *
+     * @param list<array{bytes: string, width: int, height: int}> $pictures
      * @return list<array{bytes: string, width: int, height: int}>
      */
-    private function pictures(TicketStore $store, int $player, array $body, int $now, int $free): array
+    private function picturesWithin(TicketStore $store, int $player, array $pictures, int $now, int $free): array
     {
-        $pictures = ReportPicture::fromBody($body);
+        if (count($pictures) > ReportPicture::MAX_PER_MESSAGE) {
+            throw new RestError(ReportPicture::CODE . '_count', 'A message carries at most ' . ReportPicture::MAX_PER_MESSAGE . ' pictures.', 400);
+        }
         $counted = max(0, count($pictures) - $free);
         if ($counted > 0 && !self::picturesFit($counted, $store->picturesSince($player, BugReports::WINDOW, $now), $store->picturesSince($player, 86400, $now))) {
             throw new RestError(ReportPicture::CODE . '_slow', 'You have sent a lot of pictures just now. Try again in a little while.', 429);
         }
         return $pictures;
+    }
+
+    /**
+     * A message's text files (already checked, ReportFile::accept): at most ReportFile::MAX_PER_MESSAGE,
+     * and within what FILES_PER_WINDOW and FILES_PER_DAY leave.
+     *
+     * @param list<array{name: string, text: string, bytes: int}> $files
+     * @return list<array{name: string, text: string, bytes: int}>
+     */
+    private function filesWithin(TicketStore $store, int $player, array $files, int $now): array
+    {
+        if ($files === []) {
+            return [];
+        }
+        if (count($files) > ReportFile::MAX_PER_MESSAGE) {
+            throw new RestError(ReportFile::CODE . '_count', 'A message carries at most ' . ReportFile::MAX_PER_MESSAGE . ' text files.', 400);
+        }
+        $n = count($files);
+        if ($store->filesSince($player, BugReports::WINDOW, $now) + $n > self::FILES_PER_WINDOW || $store->filesSince($player, 86400, $now) + $n > self::FILES_PER_DAY) {
+            throw new RestError(ReportFile::CODE . '_slow', 'You have sent a lot of files just now. Try again in a little while.', 429);
+        }
+        return $files;
     }
 
     /** PURE: whether $adding more pictures fit the limits, with $window sent in WINDOW seconds and $day in a day. */
@@ -248,7 +338,7 @@ final readonly class Tickets
         $row = (array) $store->find($id);
         return Response::json([
             'ticket' => TicketStore::summary($row, TicketStore::PLAYER),
-            'messages' => (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id)), $player),
+            'messages' => (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id), $store->messageFiles($id)), $player),
             'picture' => $store->pictureOut($id),
             'editable' => TicketStore::editable($row, $store->first($id), $player),
         ])->withHeader('Cache-Control', 'no-store');

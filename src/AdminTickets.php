@@ -51,7 +51,8 @@ use Minn\RestError;
  *                                "pictures" the message's own pictures in order ([{"url","width","height"}], up to four;
  *                                a new report's own picture is the thread's "picture"), and "picture" the first of them
  *                                for older readers (G791), or null; "reactions" as Tickets' Message, "you" the
- *                                administrator asking
+ *                                administrator asking; "files" the text files the player added on the website
+ *                                ([{"url","name","bytes"}], /report-files/{ticket}/{message}/{n}, TicketFiles)
  *   A player's report of another player (PlayerReports, G872) also has "playerReport" in its thread:
  *                                  {"reported":{"id","name"},"linesStatus":"ok"|"off"|"down","windowMinutes":30,
  *                                  "lines":[{"at","kind":"local"|"channel"|"party","place","id","name","text","shown","deleted","reported"}]}
@@ -251,7 +252,7 @@ final readonly class AdminTickets
         $report = PlayerReports::forTicket($this->minn->db, $id, $this->streetIndex());
         return Response::json($extra + [
             'ticket' => $this->row($row, $names, $report === null ? [] : [$id => $report['reported']], Team::of($this->minn->db, [(int) $row['player_user_id']])),
-            'messages' => (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), $store->revisions($id), $store->messagePictures($id)), (int) ($this->minn->user()?->id ?? 0)),
+            'messages' => (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), $store->revisions($id), $store->messagePictures($id), $store->messageFiles($id)), (int) ($this->minn->user()?->id ?? 0)),
             'context' => (object) TicketStore::contextOf($row),
             'picture' => $store->pictureOut($id),
             'playerReport' => $report,

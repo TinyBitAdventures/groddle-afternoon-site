@@ -148,6 +148,21 @@ export function messagePictures(m) {
   return list.filter((p) => pictureSrc(p));
 }
 
+/**
+ * A message's text files from the website (Support, 2026-11-27; src/TicketFiles.php): {url, name, bytes}, only
+ * the ones at a file address. Each is a download, served as plain text to the player and administrators.
+ */
+export function messageFiles(m) {
+  const list = Array.isArray(m?.files) ? m.files : [];
+  return list.filter((f) => typeof f?.url === 'string' && /^\/report-files\/\d{1,12}\/\d{1,12}\/[1-9]$/.test(f.url))
+    .map((f) => ({ url: f.url, name: typeof f.name === 'string' && f.name ? f.name : 'file.txt', bytes: Math.max(0, Number(f.bytes) || 0) }));
+}
+
+/** A file's size as the list shows it: 12 KB, 1 KB for anything under one. */
+export function fileSize(bytes) {
+  return `${Math.max(1, Math.round((Number(bytes) || 0) / 1024))} KB`;
+}
+
 /** A ticket's status in words (src/TicketStore.php STATUSES). */
 /** The kinds of change a report can lead to, with their points (src/ReportCredits.php KINDS, KIND_WORDS, CAP). */
 export const CREDIT_KINDS = Object.freeze({ safety_fix: 5, bug_fixed: 3, improvement_shipped: 2, partial_or_clue: 1, none: 0 });
@@ -302,7 +317,7 @@ export function messageWhen(m, when) {
 }
 
 /** What the game knew, in the order and words the old Bug report posts used (src/BugReports.php CONTEXT). */
-export const CONTEXT_LABELS = Object.freeze([['streetName', 'Street'], ['street', 'Street id'], ['x', 'x'], ['y', 'y'], ['build', 'Build'], ['page', 'Page'], ['agent', 'Browser'], ['screen', 'Screen'], ['panels', 'Open windows'], ['adblock', 'Ad blocker'], ['marks', 'Extension marks'], ['extensions', 'Extensions (player)']]);
+export const CONTEXT_LABELS = Object.freeze([['from', 'Sent from'], ['streetName', 'Street'], ['street', 'Street id'], ['x', 'x'], ['y', 'y'], ['build', 'Build'], ['page', 'Page'], ['agent', 'Browser'], ['screen', 'Screen'], ['panels', 'Open windows'], ['adblock', 'Ad blocker'], ['marks', 'Extension marks'], ['extensions', 'Extensions (player)']]);
 
 /** A report's context as [label, value] rows, errors last, empty ones left out. */
 export function contextRows(ctx) {
@@ -1747,6 +1762,7 @@ function boot() {
       el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${messageWhen(m, when)}`, title: m.edited ? `Edited ${when(m.edited)}` : null })),
       linkedBody(m.body),
       replyPictures(m),
+      replyFiles(m),
       messageHistory(m, when),
       reactionRow(t.id, m))));
     const msgs = $('[data-console-messages]');
@@ -1791,6 +1807,14 @@ function boot() {
       });
       return a;
     }));
+  }
+  /** The text files a player added on the website (Support), as downloads under the words. */
+  function replyFiles(m) {
+    const list = messageFiles(m);
+    if (!list.length) return null;
+    return el('ul', { class: 'console-msg-files' }, ...list.map((f) => el('li', {},
+      el('a', { href: f.url, download: f.name, 'data-console-msg-file': '' }, f.name),
+      el('span', { class: 'console-sub', text: ` ${fileSize(f.bytes)}` }))));
   }
   // == Reactions on a message (Austin 2026-11-18): the chat's set, the boards' chips and reactPicker ==
   const reactions = reactionSet(root.dataset.reactions);

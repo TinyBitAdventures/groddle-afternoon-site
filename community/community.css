@@ -512,3 +512,48 @@ button.cquoting-off { padding: 0; border: 0; background: none; font: inherit; fo
 @media (max-width: 440px) {
   .site-nav-app .site-nav-bell-btn, .site-nav-app[data-menu] .site-nav-menu { width: 32px; height: 32px; }
 }
+
+/* Support (/chat/support/, src/SupportPages.php, Austin 2026-11-27): a player's own bug reports in the app's
+   frame. The list's status filters are the app's chips, a report's messages the boards' posts, the reply box
+   the drawer's input with a file field. Colours are the page's tokens only, so both themes follow. */
+.csupport-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 4px; }
+.csupport-filter[aria-current] { border-color: var(--accent); background: var(--cx-soft); }
+.csupport-n { margin-left: 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.csupport-list .cx-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.csupport-row.is-unread .cx-label { font-weight: 800; }
+.cx .ctag-new { border-color: var(--accent); background: var(--accent); color: var(--bg); }
+.cx .csupport-status { white-space: nowrap; }
+.cx .csupport-status[data-status="answered"] { border-color: var(--accent); }
+.cx .csupport-status[data-status="working"] { border-color: var(--sun); }
+.cx .csupport-status[data-status="closed"] { color: var(--muted); }
+.cx .csupport-read { border-color: var(--moss); }
+.csupport-said { margin: 10px 12px 0; padding: 8px 12px; border: 1px solid var(--moss); border-radius: 12px; background: var(--surface); color: var(--fg); }
+.csupport-context { margin: 10px 12px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.csupport-context summary { cursor: pointer; color: var(--muted); font-weight: 700; }
+.csupport-context dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 8px 0 0; font-size: 13px; }
+.csupport-context dt { color: var(--muted); }
+.csupport-context dd { margin: 0; overflow-wrap: anywhere; }
+.csupport-msg[data-author="admin"] .cpost-initial { background: var(--accent); color: var(--bg); }
+.csupport-body p { margin: 0; overflow-wrap: anywhere; }
+.csupport-pics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.csupport-pic { display: block; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; cursor: zoom-in; }
+.csupport-pic img { display: block; width: auto; max-width: min(100%, 220px); height: auto; max-height: 150px; }
+.csupport-files { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; }
+.csupport-file { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
+.csupport-form { display: grid; gap: 6px; }
+.csupport-label { color: var(--muted); font-size: 13px; font-weight: 700; }
+.csupport .csupport-subject, .csupport .csupport-text { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 14px; border: 1px solid var(--cx-strong); border-radius: 14px; background: var(--bg); color: var(--fg); font: inherit; font-size: 15px; }
+.csupport .csupport-text { resize: vertical; min-height: 72px; }
+.csupport-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.csupport-attach { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 100%; color: var(--muted); font-size: 13px; font-weight: 700; }
+.csupport-attach input { max-width: 100%; color: var(--fg); font: inherit; font-size: 13px; }
+.csupport-act { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
+.csupport-act .chint { flex: 1 1 200px; margin: 0; }
+.csupport-new-log { padding: 12px; }
+.csupport-new-log .cform { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 14px 16px; }
+.csupport-signin { margin: 16px 12px; }
+.csupport-signin p { margin: 0 0 10px; color: var(--lead); }
+@media (max-width: 440px) {
+  .csupport-filters { padding: 8px 8px 2px; }
+  .csupport-row .cbutton { flex: 1 1 100%; }
+}

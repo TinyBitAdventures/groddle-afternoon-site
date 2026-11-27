@@ -252,6 +252,9 @@ a.console-hint { color: var(--fg); }
 .console-picture { margin: 0 0 10px; display: grid; gap: 4px; justify-items: start; }
 /* G791: a player's reply's picture, under its words. */
 .console-msg-pictures { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* Text files from the website (Support): downloads under the words. */
+.console-msg-files { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; }
+.console-msg-files a { color: var(--accent); font-weight: 700; }
 .console-msg-picture { display: block; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; cursor: zoom-in; }
 .console-msg-picture:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .console-msg-picture img { display: block; max-width: 100%; width: auto; height: auto; max-height: 140px; }

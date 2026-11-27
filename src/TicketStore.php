@@ -58,6 +58,12 @@ use Minn\Db;
  * NULL, or older than the message as it now stands). The edit is stored in
  * place, the message marked edited_at, the subject taken again from it.
  *
+ * Text files (Support, /chat/support/, Austin 2026-11-27): a message written
+ * on the website may carry up to ReportFile::MAX_PER_MESSAGE .txt or .log
+ * files, kept as text in FILES, written with the message (open, add), each at
+ * /report-files/<ticket>/<message>/<position + 1> (TicketFiles), to the same two
+ * people as the pictures. Both sides' threads list them as a message's "files".
+ *
  * Bodies are plain text (BugReports::clean: no control characters, newlines
  * kept, at most MAX_MESSAGE characters). They are stored as text and set as
  * text by every reader (the game, the console), and escaped in the email.
@@ -72,6 +78,8 @@ final readonly class TicketStore
     public const PICTURES = 'groddle_ticket_pictures';
     /** A message's pictures, up to ReportPicture::MAX_PER_MESSAGE, by position (ReportPicture, served by TicketPictures). */
     public const MESSAGE_PICTURES = 'groddle_message_pictures';
+    /** A message's plain-text files from the website (ReportFile, served by TicketFiles), by position. */
+    public const FILES = 'groddle_ticket_files';
     /** G791's one picture a reply (2026-11-15, never released): its rows are copied by adoptOldPictures(). */
     public const OLD_MESSAGE_PICTURES = 'groddle_ticket_message_pictures';
 
@@ -184,10 +192,11 @@ final readonly class TicketStore
      * @param array<string, mixed> $context BugReports::context
      * @param array{bytes: string, width: int, height: int}|null $picture ReportPicture::accept, the report's own
      * @param list<array{bytes: string, width: int, height: int}> $more the report's other pictures (its first message's)
+     * @param list<array{name: string, text: string, bytes: int}> $files its first message's text files (ReportFile::accept)
      */
-    public function open(int $player, string $message, array $context, int $now, ?int $legacyPost = null, ?array $picture = null, array $more = []): int
+    public function open(int $player, string $message, array $context, int $now, ?int $legacyPost = null, ?array $picture = null, array $more = [], array $files = []): int
     {
-        return Ledger::atomically($this->db, function () use ($player, $message, $context, $now, $legacyPost, $picture, $more): int {
+        return Ledger::atomically($this->db, function () use ($player, $message, $context, $now, $legacyPost, $picture, $more, $files): int {
             $at = self::stamp($now);
             $sql = 'INSERT ' . ($legacyPost !== null ? 'IGNORE ' : '') . 'INTO ' . $this->db->table(self::TABLE)
                 . ' (player_user_id, status, subject, created_at, updated_at, last_message_at, last_author_role, player_read_at, admin_read_at, context, legacy_post_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)';
@@ -200,6 +209,7 @@ final readonly class TicketStore
             $first = $this->db->insertId();
             if ($first > 0) {
                 $this->writePictures($id, $first, $player, $more, $at);
+                $this->writeFiles($id, $first, $player, $files, $at);
             }
             if ($picture !== null) {
                 // Binary goes in as base64 and FROM_BASE64, as Profiles writes its pictures (raw bytes are not a valid string to bind).
@@ -214,15 +224,17 @@ final readonly class TicketStore
      * A player's reply may carry pictures (G791; several since 2026-11-15), written with the message.
      *
      * @param list<array{bytes: string, width: int, height: int}> $pictures ReportPicture::fromBody
+     * @param list<array{name: string, text: string, bytes: int}> $files ReportFile::accept (a player's, from the website)
      */
-    public function add(int $ticket, int $author, string $role, string $body, int $now, array $pictures = []): int
+    public function add(int $ticket, int $author, string $role, string $body, int $now, array $pictures = [], array $files = []): int
     {
-        return Ledger::atomically($this->db, function () use ($ticket, $author, $role, $body, $now, $pictures): int {
+        return Ledger::atomically($this->db, function () use ($ticket, $author, $role, $body, $now, $pictures, $files): int {
             $at = self::stamp($now);
             $this->db->execute('INSERT INTO ' . $this->db->table(self::MESSAGES) . ' (ticket_id, author_user_id, author_role, body, created_at) VALUES (?, ?, ?, ?, ?)', [$ticket, $author, $role, $body, $at]);
             $id = $this->db->insertId();
             if ($id > 0) {
                 $this->writePictures($ticket, $id, $author, $pictures, $at);
+                $this->writeFiles($ticket, $id, $author, $files, $at);
             }
             $read = $role === self::ADMIN ? 'admin_read_at' : 'player_read_at';
             $current = (string) ($this->db->value('SELECT status FROM ' . $this->db->table(self::TABLE) . ' WHERE id = ? FOR UPDATE', [$ticket]) ?? '');
@@ -348,6 +360,66 @@ final readonly class TicketStore
     }
 
     /**
+     * A message's text files, in order from position 0, written in the message's transaction (open, add).
+     *
+     * @param list<array{name: string, text: string, bytes: int}> $files
+     */
+    private function writeFiles(int $ticket, int $message, int $player, array $files, string $at): void
+    {
+        foreach (array_values($files) as $i => $f) {
+            if ($i >= ReportFile::MAX_PER_MESSAGE) {
+                break;
+            }
+            $this->db->execute('INSERT INTO ' . $this->db->table(self::FILES) . ' (message_id, position, ticket_id, player_user_id, name, body, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [$message, $i, $ticket, $player, $f['name'], $f['text'], strlen($f['text']), $at]);
+        }
+    }
+
+    /** One of a message's text files (with its words and its player), or null: only when the message is in that ticket. $n counts from 1. */
+    public function messageFile(int $ticket, int $message, int $n): ?array
+    {
+        if ($ticket <= 0 || $message <= 0 || $n < 1 || $n > ReportFile::MAX_PER_MESSAGE) {
+            return null;
+        }
+        return $this->db->row('SELECT message_id, position, ticket_id, player_user_id, name, body, bytes FROM ' . $this->db->table(self::FILES) . ' WHERE message_id = ? AND position = ? AND ticket_id = ?', [$message, $n - 1, $ticket]);
+    }
+
+    /**
+     * A thread's text files by message id, in order: {url, name, bytes} (filesOut).
+     * @return array<int, list<array{url: string, name: string, bytes: int}>>
+     */
+    public function messageFiles(int $ticket): array
+    {
+        if ($ticket <= 0) {
+            return [];
+        }
+        return self::filesOut($ticket, $this->db->rows('SELECT message_id, position, name, bytes FROM ' . $this->db->table(self::FILES) . ' WHERE ticket_id = ? ORDER BY message_id ASC, position ASC', [$ticket]));
+    }
+
+    /**
+     * PURE: file rows (message_id, position, name, bytes) as each message's list, in order: {url, name, bytes},
+     * the url /report-files/<ticket>/<message>/<n> (n = position + 1).
+     * @return array<int, list<array{url: string, name: string, bytes: int}>>
+     */
+    public static function filesOut(int $ticket, array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            $n = (int) ($r['position'] ?? 0) + 1;
+            if ($n < 1 || $n > ReportFile::MAX_PER_MESSAGE) {
+                continue;
+            }
+            $out[(int) $r['message_id']][] = ['url' => TicketFiles::url($ticket, (int) $r['message_id'], $n), 'name' => (string) $r['name'], 'bytes' => (int) $r['bytes']];
+        }
+        return $out;
+    }
+
+    /** Text files a player added in the last $seconds (Tickets FILES_PER_WINDOW, FILES_PER_DAY). */
+    public function filesSince(int $player, int $seconds, int $now): int
+    {
+        return (int) $this->db->value('SELECT COUNT(*) FROM ' . $this->db->table(self::FILES) . ' WHERE player_user_id = ? AND created_at >= ?', [$player, self::stamp($now - $seconds)]);
+    }
+
+    /**
      * One of a message's pictures (with its bytes and its player), or null: only when the message is
      * in that ticket. $n counts from 1 (its address); G791's /<ticket>/<message> is $n 1.
      */
@@ -451,6 +523,41 @@ final readonly class TicketStore
         $unread = "(last_author_role = 'admin' AND (player_read_at IS NULL OR player_read_at < last_message_at))";
         $rows = $this->db->rows('SELECT *, ' . $unread . ' AS player_unread, ' . $this->adminRepliedSql() . ' AS admin_replied FROM ' . $this->db->table(self::TABLE) . " WHERE player_user_id = ? ORDER BY player_unread DESC, FIELD(status, 'answered', 'open', 'working', 'closed'), updated_at DESC, id DESC LIMIT " . (self::LIST_MAX + 1) . ' OFFSET ' . $offset, [$player]);
         return ['rows' => array_slice($rows, 0, self::LIST_MAX), 'more' => count($rows) > self::LIST_MAX];
+    }
+
+    /**
+     * A page of a player's tickets as the website's Support list shows them (SupportPages, Austin
+     * 2026-11-27): the newest activity first (last_message_at, then the newest), $status one of
+     * STATUSES or null for all; $page from 1, $per a page. total: every one for $status.
+     * @return array{rows: list<array<string, mixed>>, total: int}
+     */
+    public function pageFor(int $player, ?string $status, int $page, int $per): array
+    {
+        $t = $this->db->table(self::TABLE);
+        $where = 'player_user_id = ?';
+        $args = [$player];
+        if ($status !== null && in_array($status, self::STATUSES, true)) {
+            $where .= ' AND status = ?';
+            $args[] = $status;
+        }
+        $per = max(1, $per);
+        $offset = (max(1, $page) - 1) * $per;
+        $rows = $this->db->rows('SELECT *, ' . $this->adminRepliedSql() . " AS admin_replied FROM {$t} WHERE {$where} ORDER BY last_message_at DESC, id DESC LIMIT {$per} OFFSET {$offset}", $args);
+        return ['rows' => $rows, 'total' => (int) $this->db->value("SELECT COUNT(*) FROM {$t} WHERE {$where}", $args)];
+    }
+
+    /** A player's tickets by status, all of them, and how many hold a reply they have not read. @return array<string, int> */
+    public function countsFor(int $player): array
+    {
+        $out = ['all' => 0, self::OPEN => 0, self::ANSWERED => 0, self::WORKING => 0, self::CLOSED => 0];
+        foreach ($this->db->rows('SELECT status, COUNT(*) AS n FROM ' . $this->db->table(self::TABLE) . ' WHERE player_user_id = ? GROUP BY status', [$player]) as $r) {
+            $out['all'] += (int) $r['n'];
+            if (isset($out[(string) $r['status']])) {
+                $out[(string) $r['status']] = (int) $r['n'];
+            }
+        }
+        $out['unread'] = $this->unreadCount($player);
+        return $out;
     }
 
     /** How many of a player's tickets have an administrator's reply they have not read. */
@@ -653,10 +760,10 @@ final readonly class TicketStore
      * A thread's messages as either side reads them: who wrote is a role, never a username.
      * $pictures: messagePictures(); each message carries its pictures (a list, maybe empty) and,
      * for older readers (G791's games, the console before 2026-11-15), "picture": the first of
-     * them at G791's address /report-pictures/<ticket>/<message>, or null.
+     * them at G791's address /report-pictures/<ticket>/<message>, or null. $files: messageFiles().
      * @return list<array<string, mixed>>
      */
-    public static function messagesOut(array $rows, ?array $revisions = null, array $pictures = []): array
+    public static function messagesOut(array $rows, ?array $revisions = null, array $pictures = [], array $files = []): array
     {
         $out = [];
         foreach ($rows as $m) {
@@ -670,6 +777,8 @@ final readonly class TicketStore
                 // Up to four pictures ({url, width, height}) in order; the first again as "picture" (G791), or null.
                 'pictures' => $pictures[(int) $m['id']] ?? [],
                 'picture' => self::firstPicture($pictures[(int) $m['id']] ?? []),
+                // Text files added on the website ({url, name, bytes}, messageFiles), in order; empty for most.
+                'files' => $files[(int) $m['id']] ?? [],
             ];
             // Administrators: each earlier text, oldest first ($revisions from revisions(); null for the player).
             if ($revisions !== null) {

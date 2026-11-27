@@ -24,6 +24,7 @@ use Minn\RestError;
  *   /chat/<board>/                 a board's threads, pinned first, then newest activity (?page=)
  *   /chat/<board>/new/             start a thread (signed-in players; Announcements: the team only)
  *   /chat/<board>/<id>-<slug>/     a thread's posts, oldest first, with the reply box (?page=)
+ *   /chat/support/...              a signed-in player's own bug reports (SupportPages; never a board)
  *
  * Posting works without JavaScript too: the forms post to /chat/<board>/new/
  * and /chat/<board>/<id>-<slug>/reply/ with the page's REST nonce (as
@@ -80,7 +81,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-17';
+    public const ASSET_KEY = 'community-18';
 
     /** The words the pages share. */
     public const COPY = [
@@ -266,6 +267,9 @@ final readonly class CommunityPages
     #[Route(Method::Get, '/chat/{board:[a-z-]+}/{thread:\d+(?:-[a-z0-9-]+)?}', policy: new Policy(Access::Public))]
     public function bareThread(Request $request, string $board, string $thread): Response
     {
+        if ($board === SupportPages::SLUG) {
+            throw new RouteMiss();
+        }
         return Response::redirect("/chat/{$board}/{$thread}/" . self::query($request), 301);
     }
 
@@ -273,6 +277,10 @@ final readonly class CommunityPages
     #[Route(Method::Get, '/chat/{board:[a-z-]+}/{thread:\d+(?:-[a-z0-9-]+)?}/', policy: new Policy(Access::Public))]
     public function thread(Request $request, string $board, string $thread): Response
     {
+        // /chat/support/<id>/ is a player's own report (SupportPages): one that is not theirs is missing, never a board's thread.
+        if ($board === SupportPages::SLUG) {
+            throw new RouteMiss();
+        }
         $page = $request->query('page');
         return $this->threadPage($request, $board, $thread, $page === null ? 1 : (int) $page, [], '');
     }
@@ -281,6 +289,9 @@ final readonly class CommunityPages
     #[Route(Method::Post, '/chat/{board:[a-z-]+}/{thread:\d+(?:-[a-z0-9-]+)?}/reply/', policy: new Policy(Access::Public))]
     public function reply(Request $request, string $board, string $thread): Response
     {
+        if ($board === SupportPages::SLUG) {
+            throw new RouteMiss();
+        }
         $form = $request->json();
         $community = new Community($this->minn);
         $viewer = $community->viewer();
@@ -579,7 +590,7 @@ final readonly class CommunityPages
     }
 
     /** The bar over a conversation: back to the list (phones), its avatar ($face, else $name's) and name, a note, its buttons. */
-    private static function head(string $name, string $note, string $id, string $actions, bool $back, string $about = '', string $backTo = '/chat/', string $extra = '', string $face = ''): string
+    public static function head(string $name, string $note, string $id, string $actions, bool $back, string $about = '', string $backTo = '/chat/', string $extra = '', string $face = ''): string
     {
         return '<header class="cx-head">'
             . ($back ? '<a class="cx-back" href="' . Html::attr($backTo) . '" data-cx-back>' . self::ICON_BACK . '<span>Chats</span></a>' : '')
@@ -595,7 +606,7 @@ final readonly class CommunityPages
      * The whole app: the rail (Channels and Chats for a signed-in player, the Boards for everyone,
      * then a signed-in player's Buddies), the conversation, and for a signed-in player the thread panel
      * and Who's around.
-     * $active: what the rail marks (chan, boards, board:<slug>); $view: what a phone shows (list|main);
+     * $active: what the rail marks (chan, boards, board:<slug>, support); $view: what a phone shows (list|main);
      * $channel: the channel asked for (?c=), marked when it is one the reader may read, else the first.
      *
      * @param array<string, mixed> $viewer
@@ -628,6 +639,10 @@ final readonly class CommunityPages
         }
         $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-boards"><h2 class="cx-sec-title" id="cx-sec-boards">Boards</h2><ul class="cx-list">' . $boards . '</ul></section>';
         if ($signed) {
+            // Support (Austin 2026-11-27): the player's own bug reports and the team's replies (SupportPages), with how many have a reply they have not read.
+            $rail .= SupportPages::railSection((new TicketStore($this->minn->db))->unreadCount((int) $viewer['id']), $active === SupportPages::ACTIVE);
+        }
+        if ($signed) {
             // Buddies last: the list grows with every buddy, and the six boards should not sit under it.
             $rail .= '<section class="cx-sec" aria-labelledby="cx-sec-buddies"><h2 class="cx-sec-title" id="cx-sec-buddies">Buddies</h2><ul class="cx-list cx-people" data-cx-buddies><li class="cx-empty">Loading your buddies…</li></ul></section>';
         }
@@ -653,6 +668,17 @@ final readonly class CommunityPages
             . '</main>';
     }
 
+    /**
+     * A page of another part of the app (SupportPages, /chat/support/): $main in the app's frame and rail with
+     * $active marked, never indexed, never stored by a cache.
+     *
+     * @param array<string, mixed> $viewer
+     */
+    public function appPage(Community $community, array $viewer, string $active, string $main, string $title, string $description, int $status = 200): Response
+    {
+        return $this->page($title, $description, $this->shell($community, $viewer, $active, $main, 'main'), $viewer, null, $status, false)->withHeader('Cache-Control', 'private, no-store');
+    }
+
     // —— Pieces ——
 
     /** @param list<array{0: string, 1: string}> $crumbs */
@@ -672,7 +698,7 @@ final readonly class CommunityPages
     }
 
     /** The links for signing in or making a character (the game's gate), and the sign-in form community.js shows. */
-    private static function signInLinks(): string
+    public static function signInLinks(): string
     {
         return '<p class="csignin" data-community-signin><a class="cbutton" href="/play/online/">Sign in</a> <a class="cbutton cbutton-quiet" href="/play/online/#new">New player</a></p>';
     }
@@ -709,12 +735,12 @@ final readonly class CommunityPages
     }
 
     /** "2 hours ago" with the exact time for a hover and for machines. */
-    private static function time(int $at, int $now): string
+    public static function time(int $at, int $now): string
     {
         return '<time datetime="' . gmdate('Y-m-d\TH:i:s\Z', $at) . '" title="' . Html::attr(gmdate('M j, Y H:i', $at) . ' UTC') . '">' . Html::esc(CommunityText::ago($at, $now)) . '</time>';
     }
 
-    private static function pager(int $page, int $pages, \Closure $link): string
+    public static function pager(int $page, int $pages, \Closure $link): string
     {
         if ($pages < 2) {
             return '';
@@ -732,7 +758,7 @@ final readonly class CommunityPages
     }
 
     /** Why a form post is refused before it is read: signed out, or a nonce that is not this reader's. @param array<string, mixed> $form @param array<string, mixed> $viewer */
-    private function nonceRefusal(array $form, array $viewer): ?string
+    public function nonceRefusal(array $form, array $viewer): ?string
     {
         if ($viewer['id'] <= 0) {
             return 'groddle_community_signed_out';

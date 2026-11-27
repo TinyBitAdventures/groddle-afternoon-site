@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.61",
+  "version": "0.5.62",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -755,6 +755,21 @@
       "picture mediumblob NOT NULL",
       "width smallint(5) unsigned NOT NULL DEFAULT 0",
       "height smallint(5) unsigned NOT NULL DEFAULT 0",
+      "bytes int(10) unsigned NOT NULL DEFAULT 0",
+      "created_at datetime NOT NULL",
+      "PRIMARY KEY  (id)",
+      "UNIQUE KEY message_position (message_id,position)",
+      "KEY ticket_id (ticket_id,message_id,position)",
+      "KEY player_created (player_user_id,created_at)"
+    ],
+    "groddle_ticket_files": [
+      "id bigint(20) unsigned NOT NULL AUTO_INCREMENT",
+      "message_id bigint(20) unsigned NOT NULL",
+      "position tinyint(3) unsigned NOT NULL DEFAULT 0",
+      "ticket_id bigint(20) unsigned NOT NULL",
+      "player_user_id bigint(20) unsigned NOT NULL",
+      "name varchar(100) NOT NULL DEFAULT ''",
+      "body mediumtext NOT NULL",
       "bytes int(10) unsigned NOT NULL DEFAULT 0",
       "created_at datetime NOT NULL",
       "PRIMARY KEY  (id)",
