@@ -581,6 +581,7 @@ button.cquoting-off { padding: 0; border: 0; background: none; font: inherit; fo
 .csupport-chosen-size { color: var(--muted); font-size: 12px; }
 .cx .csupport-chosen-remove { flex: none; min-height: 32px; padding: 0 10px; font-size: 13px; }
 .csupport-drop-said { margin: 0; }
+.csupport-form[data-drop-busy] .csupport-drop-zone, .csupport-form[data-drop-busy] button[type="submit"] { cursor: progress; }
 /* On a phone a report reads as one page: the reply form follows the messages instead of holding half the screen. */
 @media (max-width: 640px) {
   .csupport-report { overflow-y: auto; overscroll-behavior: contain; }

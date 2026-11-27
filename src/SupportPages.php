@@ -84,10 +84,12 @@ final readonly class SupportPages
         'drop' => 'Drop pictures or a text file here, or',
         'dropChoose' => 'choose files',
         'dropTap' => 'Tap to add pictures or a text file',
-        'uploads' => 'Up to 4 pictures (JPEG, PNG or WebP) and 2 text files (.txt or .log, up to 256 KB) a message. Only you and the team can see them.',
+        'uploads' => 'Up to 4 pictures (JPEG, PNG or WebP, up to %s each) and 2 text files (.txt or .log, up to %s) a message. Only you and the team can see them.',
+        'uploadsShrink' => 'Up to 4 pictures and 2 text files (.txt or .log, up to %s) a message. Big pictures are made smaller before they go. Only you and the team can see them.',
         'closed' => 'This report is closed. A reply opens it again, or open it again without one.',
         'closeHint' => 'Close it when the problem is gone. You can open it again.',
-        'tooBig' => 'Those files are too large to send at once. Send fewer or smaller ones.',
+        'tooBig' => 'Those files were too big to send together. Send fewer at a time.',
+        'wordsLost' => 'Your words weren\'t kept.',
         'again' => 'Add your files again before you send.',
         'sent' => 'Thanks! Your report was sent.',
         'replied' => 'Reply sent.',
@@ -216,13 +218,13 @@ final readonly class SupportPages
         }
         $subject = is_string($form['subject'] ?? null) ? $form['subject'] : '';
         $words = is_string($form['message'] ?? null) ? $form['message'] : '';
-        $box = '    <form class="cform csupport-form" method="post" action="' . self::BASE . 'new/" enctype="multipart/form-data" data-support-new="">' . "\n"
+        $box = '    <form class="cform csupport-form" method="post" action="' . self::BASE . 'new/" enctype="multipart/form-data" data-support-new=""' . self::limitData() . '>' . "\n"
             . self::nonceField($viewer)
             . '      <label class="csupport-label" for="csupport-subject">Subject</label>' . "\n"
             . '      <input class="cinput csupport-subject" id="csupport-subject" name="subject" type="text" required maxlength="' . TicketStore::SUBJECT_MAX . '" autocomplete="off" placeholder="In a few words, what is wrong?" value="' . Html::attr($subject) . "\" />\n"
             . '      <label class="csupport-label" for="csupport-message">What happened?</label>' . "\n"
             . '      <textarea class="ctext cinput csupport-text" id="csupport-message" name="message" rows="6" required maxlength="' . (BugReports::MAX_MESSAGE - TicketStore::SUBJECT_MAX - 2) . '" placeholder="Where you were, what you did, and what you expected to happen.">' . Html::esc($words) . "</textarea>\n"
-            . self::uploadRow('Send report')
+            . self::uploadRow('Send report', self::limits())
             . self::saidLine($error)
             . "    </form>\n";
         $main = '<section class="cx-conv csupport csupport-new" aria-labelledby="cx-conv-title">'
@@ -413,11 +415,11 @@ final readonly class SupportPages
             . ($hint === '' ? '' : '<p class="chint">' . Html::esc($hint) . '</p>')
             . '<button class="cbutton cbutton-quiet" type="submit">' . Html::esc($label) . "</button></form>\n";
         return ($closed ? $act('reopen', 'Open it again', self::COPY['closed']) : '')
-            . '    <form class="cform csupport-form" method="post" action="' . self::BASE . $id . '/reply/" enctype="multipart/form-data" data-support-reply="' . $id . '">' . "\n"
+            . '    <form class="cform csupport-form" method="post" action="' . self::BASE . $id . '/reply/" enctype="multipart/form-data" data-support-reply="' . $id . '"' . self::limitData() . '>' . "\n"
             . self::nonceField($viewer)
             . '      <label class="visually-hidden" for="csupport-message">Your reply</label>' . "\n"
             . '      <textarea class="ctext cinput csupport-text" id="csupport-message" name="message" rows="3" required maxlength="' . TicketStore::MAX_MESSAGE . '" placeholder="Write a reply">' . Html::esc($text) . "</textarea>\n"
-            . self::uploadRow('Send reply')
+            . self::uploadRow('Send reply', self::limits())
             . self::saidLine($error)
             . "    </form>\n"
             . ($closed ? '' : $act('close', 'Close report', self::COPY['closeHint']));
@@ -431,7 +433,15 @@ final readonly class SupportPages
      * click or tap to choose them (Austin 2026-11-27: "a drag and drop zone for photos/files"), the
      * files chosen under it, and a line for what could not be added.
      */
-    private static function uploadRow(string $send): string
+    /** The form's data for community/support-files.js: the server's real limits in bytes (self::limits; post 0 is none). */
+    private static function limitData(): string
+    {
+        $l = self::limits();
+        return ' data-file-max="' . $l['file'] . '" data-text-max="' . $l['text'] . '" data-post-max="' . $l['post'] . '"';
+    }
+
+    /** @param array{file: int, text: int, post: int} $limits self::limits() */
+    private static function uploadRow(string $send, array $limits): string
     {
         return '      <div class="csupport-drop" data-drop="" hidden>'
             . '<button class="csupport-drop-zone" type="button" data-drop-zone="">'
@@ -443,7 +453,8 @@ final readonly class SupportPages
             . '      <div class="csupport-row"><label class="csupport-attach"><span>Add pictures or a text file</span>'
             . '<input type="file" name="files[]" multiple accept="' . self::ACCEPT . '" /></label>'
             . '<button class="cbutton" type="submit">' . Html::esc($send) . "</button></div>\n"
-            . '      <p class="chint">' . Html::esc(self::COPY['uploads']) . "</p>\n";
+            . '      <p class="chint" data-drop-hint="' . Html::attr(sprintf(self::COPY['uploadsShrink'], self::sizeWords($limits['text']))) . '">'
+            . Html::esc(sprintf(self::COPY['uploads'], self::sizeWords($limits['file']), self::sizeWords($limits['text']))) . "</p>\n";
     }
 
     private static function saidLine(string $error): string
@@ -476,7 +487,7 @@ final readonly class SupportPages
         $words = match ($e->errorCode) {
             'groddle_community_signed_out' => self::COPY['signedOut'],
             'groddle_community_nonce' => CommunityText::said('groddle_community_nonce'),
-            'groddle_support_too_big' => self::COPY['tooBig'],
+            'groddle_support_too_big' => self::COPY['tooBig'] . (trim((string) ($request->json()['message'] ?? '')) === '' ? ' ' . self::COPY['wordsLost'] : ''),
             default => $e->getMessage(),
         };
         return $words . (self::sentFiles($request) ? ' ' . self::COPY['again'] : '');
@@ -501,7 +512,10 @@ final readonly class SupportPages
      */
     private function writer(Request $request, array $form): UserRecord
     {
-        if ($form === [] && $request->files === [] && (int) ($request->header('content-length') ?? '0') > 0) {
+        // PHP drops a whole POST over post_max_size: no fields, no files, no nonce. The length is the
+        // server's CONTENT_LENGTH (a CGI variable, not an HTTP_ header, so Request::header misses it there).
+        $length = (int) ($request->header('content-length') ?? ($_SERVER['CONTENT_LENGTH'] ?? '0'));
+        if (self::droppedPost($form, $request->files, $length, self::limits()['post'])) {
             throw new RestError('groddle_support_too_big', self::COPY['tooBig'], 413);
         }
         $user = $this->minn->user();
@@ -562,9 +576,10 @@ final readonly class SupportPages
         if (count($files) > ReportFile::MAX_PER_MESSAGE) {
             throw new RestError(ReportFile::CODE . '_count', 'A message carries at most ' . ReportFile::MAX_PER_MESSAGE . ' text files.', 400);
         }
+        $limits = self::limits();
         return [
-            array_map(static fn (array $u): array => ReportPicture::acceptUpload(self::read($u, ReportPicture::UPLOAD_MAX_BYTES, ReportPicture::CODE, 'That picture is larger than 10 MB.')), $pictures),
-            array_map(static fn (array $u): array => ReportFile::accept($u['name'], self::read($u, ReportFile::MAX_BYTES, ReportFile::CODE, 'That text file is larger than 256 KB. Send the part around the problem.')), $files),
+            array_map(static fn (array $u): array => ReportPicture::acceptUpload(self::read($u, $limits['file'], ReportPicture::CODE, 'That picture is larger than ' . self::sizeWords($limits['file']) . '.')), $pictures),
+            array_map(static fn (array $u): array => ReportFile::accept($u['name'], self::read($u, $limits['text'], ReportFile::CODE, 'That text file is larger than ' . self::sizeWords($limits['text']) . '. Send the part around the problem.')), $files),
         ];
     }
 
@@ -583,6 +598,58 @@ final readonly class SupportPages
             throw new RestError($code . '_too_large', $tooLarge, 413);
         }
         return (string) file_get_contents($u['tmp']);
+    }
+
+    /**
+     * PURE: a php.ini size ("8M", "2M", "512K", "1G", "1048576") in bytes; 0 for no limit ("-1", "0", empty).
+     */
+    public static function iniBytes(string|false|null $value): int
+    {
+        $v = strtolower(trim((string) $value));
+        if (!preg_match('/^(\d+)\s*([kmg]?)/', $v, $m) || (int) $m[1] <= 0) {
+            return 0;
+        }
+        return (int) $m[1] * match ($m[2]) {
+            'k' => 1024,
+            'm' => 1_048_576,
+            'g' => 1_073_741_824,
+            default => 1,
+        };
+    }
+
+    /**
+     * What this server really takes (Kinsta's PHP has upload_max_filesize 2M and post_max_size 8M while
+     * ReportPicture allows 10 MB): a picture and a text file each at most our limit or the server's per-file
+     * limit, whichever is smaller; the whole request at most post_max_size (0: no limit). The form carries
+     * them for community/support-files.js, and the limits line names them.
+     *
+     * @return array{file: int, text: int, post: int}
+     */
+    public static function limits(string|false|null $uploadMax = null, string|false|null $postMax = null): array
+    {
+        $upload = self::iniBytes($uploadMax ?? ini_get('upload_max_filesize'));
+        $cap = static fn (int $ours): int => $upload > 0 ? min($ours, $upload) : $ours;
+        return ['file' => $cap(ReportPicture::UPLOAD_MAX_BYTES), 'text' => $cap(ReportFile::MAX_BYTES), 'post' => self::iniBytes($postMax ?? ini_get('post_max_size'))];
+    }
+
+    /**
+     * PURE: whether PHP dropped this POST for being over post_max_size: no fields and no files arrived
+     * but the request had a body over the limit (any body at all when there is no limit to compare).
+     *
+     * @param array<string, mixed> $form @param array<string, mixed> $files
+     */
+    public static function droppedPost(array $form, array $files, int $length, int $postMax): bool
+    {
+        return $form === [] && $files === [] && $length > 0 && ($postMax <= 0 || $length > $postMax);
+    }
+
+    /** PURE: a limit as the limits line says it: "2 MB", "1.5 MB", "256 KB". */
+    public static function sizeWords(int $bytes): string
+    {
+        if ($bytes >= 1_048_576) {
+            return rtrim(rtrim(number_format(floor($bytes / 104_857.6) / 10, 1, '.', ''), '0'), '.') . ' MB';
+        }
+        return max(1, (int) floor($bytes / 1024)) . ' KB';
     }
 
     /**
