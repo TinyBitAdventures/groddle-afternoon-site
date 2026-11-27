@@ -64,6 +64,12 @@ use Minn\RestError;
  *   are its inner walls (the house's side walls 76 px inside each end
  *   segment, a Tower floor's 130 to 1102: the game's home-decor
  *   interiorBounds, data "rooms").
+ * - The owner slides a placed machine along its floor of the house or the
+ *   Tower (#730, G1333; Austin 2026-11-27: "slide them as Glitch: drag to
+ *   move, no 200 px rule on a move"): verb "move" with the new rx, kept
+ *   between the room's inner walls, its job and tank untouched. Glitch's
+ *   move was itemstackModify (main.js doModifyItem 4852-4867: only "at
+ *   home", no canDrop) where the owner could decorate (WorldModel.as 59).
  * - Only a machine on the home street pays the owner's pool: the house is not
  *   public (inc_cultivation.js:170) and the Magic Rock reads only the home
  *   street's rewards (players/inc_houses.js 1706-1709), so a Tower's were
@@ -101,7 +107,7 @@ use Minn\RestError;
  * taken).
  *
  *   POST groddle/v1/homes/machines   (the realtime server, signed; home_machines.go)
- *        {"op":"hm-<16 hex>","owner":7,"actor":9,"place":"street|house|house:<1..2>|tower:<0..8>","verb":"place|take|use|collect|refuel|music|check",
+ *        {"op":"hm-<16 hex>","owner":7,"actor":9,"place":"street|house|house:<1..2>|tower:<0..8>","verb":"place|take|use|collect|refuel|music|check|move",
  *         "id":"hm-…","class":"fuelmaker","rx":120,"from":{"rx":340,"dy":0},"fuel":50,"key":"fuel_cell","qty":2,"all":true,"force":true,"on":true}
  *        200 {"status":"settled","machine":{…}|null,"gone":"hm-…"?,"receipt":{"op","gave"|"got"}?,"taken":{"class","fuel"}?,"paid":[…],"now":ms}
  *        | 409 {"status":"refused","why":"…","text":"…","machine":{…}|null,"now":ms}
@@ -117,7 +123,7 @@ final readonly class HomeMachines
     public const ROUTE = '/groddle/v1/homes/machines';
     public const SLICE = 'home-machines';
     public const STREET = 'RH_HOME_EXT';
-    public const VERBS = ['place', 'take', 'use', 'collect', 'refuel', 'music', 'check'];
+    public const VERBS = ['place', 'take', 'use', 'collect', 'refuel', 'music', 'check', 'move'];
     public const PLACE_STREET = 'street';
     public const PLACE_HOUSE = 'house';
     /** The machine rooms' places (the game's js/home-machines.js MACHINE_ROOM_PLACES). */
@@ -149,6 +155,8 @@ final readonly class HomeMachines
     public const TEXT_RECIPE = "This machine doesn't make that.";
     public const TEXT_QTY = "That's more than it can make at once.";
     public const TEXT_OWN = 'Only the owner can set a machine down here.';
+    /** #730 (G1333): ours. Glitch's move (main.js doModifyItem 4853) said "You are not at home". */
+    public const TEXT_MOVE = 'Only the owner can move a machine.';
     public const TEXT_BLOCKED = 'You can\'t do that here.';
 
     public function __construct(private Seams $minn)
@@ -284,6 +292,24 @@ final readonly class HomeMachines
             }
             $db->execute("UPDATE {$t} SET status = 'taken', taken_op = ?, taker_id = ?, job = NULL, contents = '{}', updated_at = ? WHERE id = ?", [$op, $actor, gmdate('Y-m-d H:i:s'), $id]);
             return $answer('settled', ['gone' => $id, 'taken' => ['op' => $op, 'class' => $row['class'], 'fuel' => $row['fuel']]]);
+        }
+
+        if ($verb === 'move') {
+            // #730 (G1333, Austin 2026-11-27: "slide them as Glitch: drag to move, no 200 px rule on a move"):
+            // the owner slides it along its floor (the realtime server names the floor, so it stays on it),
+            // job and tank untouched. Glitch's move was itemstackModify (main.js doModifyItem 4852-4867: at
+            // home, then put there; no canDrop) on a floor of the house or the Tower (can_decorate).
+            if ($actor !== $owner) {
+                return $refuse('own', self::TEXT_MOVE, $row);
+            }
+            $span = self::isRoom($row['place']) || $row['place'] === self::PLACE_STREET ? false : self::span($rules, $row['place'], Neighbours::state($db, $owner));
+            $rx = $b['rx'] ?? null;
+            if (self::moveWhy($span, $rx) !== null) {
+                return $refuse('here', sprintf(self::TEXT_HERE, $label), $row);
+            }
+            $db->execute("UPDATE {$t} SET rx = ?, updated_at = ? WHERE id = ?", [$rx, gmdate('Y-m-d H:i:s'), $id]);
+            $row['rx'] = $rx;
+            return $answer('settled', ['machine' => self::view($row)]);
         }
 
         if ($verb === 'music') {
@@ -584,6 +610,22 @@ final readonly class HomeMachines
             if (hypot($x - $px, $dy) < (int) $rules['spacing']) {
                 return 'near';
             }
+        }
+        return null;
+    }
+
+    /**
+     * #730: why a slide may not end at rx, or null. Only a floor of the house or the Tower slides (a span:
+     * Glitch's can_decorate, WorldModel.as 59, location.js 2699-2706), and the machine stays between the
+     * inner walls (HandOfDecorator.as checkXIsInBounds). No 200 px and no 70 px edge: those were canDrop's,
+     * for a stand out of the pack (machine_stand.js 770-794); the game's js/home-machines.js moveCheck.
+     *
+     * @param array{0: int, 1: int}|false|null $span
+     */
+    public static function moveWhy(array|false|null $span, mixed $rx): ?string
+    {
+        if (!is_array($span) || !is_int($rx) || $rx < $span[0] || $rx > $span[1]) {
+            return 'here';
         }
         return null;
     }
