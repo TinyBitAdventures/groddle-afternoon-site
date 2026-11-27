@@ -356,11 +356,11 @@ button.cchip:hover { border-color: var(--muted); }
 .cpost:not(:hover):not(:focus-within) .cpost-actions .cact { color: color-mix(in srgb, var(--muted) 80%, transparent); }
 
 /* The reaction picker community.js places under React */
-.cpicker { position: absolute; z-index: 30; display: flex; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
+.cpicker { position: absolute; z-index: 30; display: grid; grid-template-columns: repeat(8, auto); gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
 .cpicker[hidden] { display: none; }
 .cpicker button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; font-size: 20px; cursor: pointer; }
 .cpicker button:hover, .cpicker button[aria-pressed="true"] { background: var(--track); }
-/* Eight in a row are 330 px with the 8 px community.js keeps to each side of the window: a narrower phone gets closer, smaller buttons (280 px). */
+/* Two rows of eight (the game's js/chat-reactions.js PICKER_COLUMNS; the arrow keys follow the grid): a row is 330 px with the 8 px community.js keeps to each side of the window, so a 390 px phone fits it; a narrower one gets closer, smaller buttons (280 px). */
 @media (max-width: 345px) {
   .cpicker { gap: 2px; padding: 4px; }
   .cpicker button { width: 32px; height: 32px; }

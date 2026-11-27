@@ -520,6 +520,29 @@ async function react(li, key, on) {
   li.querySelector('[data-reactions]')?.replaceWith(box);
 }
 
+/** How many of the picker's buttons share the first row (community.css lays them out in a grid). */
+function gridColumns(items) {
+  const top = items[0]?.offsetTop ?? 0;
+  return Math.max(1, items.filter((b) => b.offsetTop === top).length);
+}
+
+/**
+ * The picker's next button for a key, as the game's js/chat-reactions.js pickerMove: Left and Right
+ * step through the set (on to the next row, wrapping), Up and Down move a row in the same column
+ * (wrapping to its other end), Home and End go to the first and last; -1 for another key.
+ */
+function gridStep(at, key, n, cols) {
+  const i = Math.max(0, Math.min(n - 1, at));
+  const c = Math.max(1, Math.min(n, cols));
+  if (key === 'ArrowRight') return (i + 1) % n;
+  if (key === 'ArrowLeft') return (i - 1 + n) % n;
+  if (key === 'ArrowDown') return i + c < n ? i + c : i % c;
+  if (key === 'ArrowUp') return i - c >= 0 ? i - c : (i % c) + c * Math.floor((n - 1 - (i % c)) / c);
+  if (key === 'Home') return 0;
+  if (key === 'End') return n - 1;
+  return -1;
+}
+
 function openPicker(li, opener) {
   if (!picker) {
     picker = document.createElement('div');
@@ -552,9 +575,9 @@ function openPicker(li, opener) {
     picker.addEventListener('keydown', (e) => {
       const items = [...picker.querySelectorAll('button')];
       const at = items.indexOf(document.activeElement);
-      if (e.key === 'Escape') { e.preventDefault(); closePicker(true); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); items[(at + 1) % items.length].focus(); }
-      else if (e.key === 'ArrowLeft') { e.preventDefault(); items[(at - 1 + items.length) % items.length].focus(); }
+      if (e.key === 'Escape') { e.preventDefault(); closePicker(true); return; }
+      const to = gridStep(at, e.key, items.length, gridColumns(items));
+      if (to >= 0) { e.preventDefault(); items[to].focus(); }
     });
     document.addEventListener('pointerdown', (e) => {
       if (picker.hidden || picker.contains(e.target) || e.target.closest?.('[data-react-open]')) return;

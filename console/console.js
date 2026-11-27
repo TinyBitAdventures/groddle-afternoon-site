@@ -289,6 +289,24 @@ export function reactionSet(json) {
   return raw.filter((r) => r && typeof r.key === 'string' && /^[a-z]{1,12}$/.test(r.key)).map((r) => ({ key: r.key, glyph: String(r.glyph || ''), label: String(r.label || r.key), art: String(r.art || '') }));
 }
 
+/**
+ * The reaction picker's next button for a key, in its grid of `cols` a row (community.css .cpicker),
+ * as the game's js/chat-reactions.js pickerMove and community.js gridStep: Left and Right step through
+ * the set (on to the next row, wrapping), Up and Down move a row in the same column (wrapping to its
+ * other end), Home and End go to the first and last; -1 for another key.
+ */
+export function pickerStep(at, key, n, cols) {
+  const i = Math.max(0, Math.min(n - 1, at));
+  const c = Math.max(1, Math.min(n, cols));
+  if (key === 'ArrowRight') return (i + 1) % n;
+  if (key === 'ArrowLeft') return (i - 1 + n) % n;
+  if (key === 'ArrowDown') return i + c < n ? i + c : i % c;
+  if (key === 'ArrowUp') return i - c >= 0 ? i - c : (i % c) + c * Math.floor((n - 1 - (i % c)) / c);
+  if (key === 'Home') return 0;
+  if (key === 'End') return n - 1;
+  return -1;
+}
+
 /** How many names a reaction's tip lists before "and N others" (the chat's NAMES_SHOWN). */
 export const REACTION_NAMES = 8;
 
@@ -1889,9 +1907,11 @@ function boot() {
       reactPicker.addEventListener('keydown', (e) => {
         const items = [...reactPicker.querySelectorAll('button')];
         const at = items.indexOf(document.activeElement);
-        if (e.key === 'Escape') { e.preventDefault(); closePicker(true); }
-        else if (e.key === 'ArrowRight') { e.preventDefault(); items[(at + 1) % items.length].focus(); }
-        else if (e.key === 'ArrowLeft') { e.preventDefault(); items[(at - 1 + items.length) % items.length].focus(); }
+        if (e.key === 'Escape') { e.preventDefault(); closePicker(true); return; }
+        // The boards' grid (community.css .cpicker): Up and Down move a row, as the game's picker.
+        const top = items[0]?.offsetTop ?? 0;
+        const to = pickerStep(at, e.key, items.length, items.filter((b) => b.offsetTop === top).length);
+        if (to >= 0) { e.preventDefault(); items[to].focus(); }
       });
       document.addEventListener('pointerdown', (e) => {
         if (reactPicker.hidden || reactPicker.contains(e.target) || e.target.closest?.('[data-console-react-open]')) return;
