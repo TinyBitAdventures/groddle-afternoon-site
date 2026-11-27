@@ -317,6 +317,13 @@ export function messageWhen(m, when) {
 }
 
 /** What the game knew, in the order and words the old Bug report posts used (src/BugReports.php CONTEXT). */
+/** The words under a report's first picture: the game's own capture, or a picture the player added on the website. */
+export const PICTURE_HINT = Object.freeze({
+  game: 'The game when they reported it. Click it to see it full size.',
+  web: 'The picture they added on the website. Click it to see it full size.',
+  gameAlt: 'The game when the player reported it',
+  webAlt: 'The picture the player added',
+});
 export const CONTEXT_LABELS = Object.freeze([['from', 'Sent from'], ['streetName', 'Street'], ['street', 'Street id'], ['x', 'x'], ['y', 'y'], ['build', 'Build'], ['page', 'Page'], ['agent', 'Browser'], ['screen', 'Screen'], ['panels', 'Open windows'], ['adblock', 'Ad blocker'], ['marks', 'Extension marks'], ['extensions', 'Extensions (player)']]);
 
 /** A report's context as [label, value] rows, errors last, empty ones left out. */
@@ -1758,6 +1765,10 @@ function boot() {
       img.width = Number(r.picture.width) || 0;
       img.height = Number(r.picture.height) || 0;
     } else img.removeAttribute('src');
+    // A report sent from the website (Support) carries the player's own picture, not the game at that moment.
+    const fromWeb = r.context?.from === 'website';
+    $('.console-picture-hint').textContent = fromWeb ? PICTURE_HINT.web : PICTURE_HINT.game;
+    img.alt = fromWeb ? PICTURE_HINT.webAlt : PICTURE_HINT.gameAlt;
     $('[data-console-messages]').replaceChildren(...(r.messages || []).map((m) => el('li', { class: `console-msg console-msg-${m.author}` },
       el('p', { class: 'console-msg-who' }, el('b', { text: m.author === 'admin' ? 'Administrator' : t.player.name }), el('time', { datetime: m.at, text: ` ${messageWhen(m, when)}`, title: m.edited ? `Edited ${when(m.edited)}` : null })),
       linkedBody(m.body),
