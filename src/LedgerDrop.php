@@ -102,6 +102,14 @@ use Minn\RestError;
  *   stack in the house, merging onto a like one): it stays on the ground for everyone, recorded once per
  *   move op on the row.
  *
+ *   POST groddle/v1/ledger/drop/shift (signed) {"op":"shift-<16 hex>","id":<owner>,"streets":["HOUSE-7","HOUSE-7-1","HOUSE-7-2"],"from":1750,"dx":-150}
+ *        200 {"status":"settled","moved":[{"id":"drop-…","x":1600}]} | 409 {"status":"refused","why":"place"}
+ *   G1327: the owner un-expanded their house (or a Tower floor). homes_unexpand (GameServerJS
+ *   locations/inc_homes.js 154-183) moved every item in the last 300 px 150 px left (166-172), ground
+ *   stacks too; drops.go (drops_shift.go) sends the shift and this moves every stack on the ground on those
+ *   floors at x >= from by dx in one transaction, recorded once per op (groddle_ledger_credited kind
+ *   "shift"): asked again it moves nothing more and answers where the stacks it moved lie now.
+ *
  *   A merge raises a stack's count, which a part's id (<op>-t<from>) relied on never happening: each
  *   rise moves the stack's generation on, and a part of a grown stack is <op>-t<from>-g<gen>, so an id
  *   recorded before the rise is never answered "as recorded" for a new take (partId).
@@ -133,6 +141,11 @@ final readonly class LedgerDrop
     public const EAT = '/groddle/v1/ledger/drop/eat';
     public const PLACE = '/groddle/v1/ledger/drop/place';
     public const MOVE = '/groddle/v1/ledger/drop/move';
+    public const SHIFT = '/groddle/v1/ledger/drop/shift';
+
+    /** G1327: homes_unexpand's one shift (inc_homes.js:170, x - 150), and a room x no house reaches. */
+    public const SHIFT_DX = -150;
+    public const SHIFT_FROM_MAX = 100000;
 
     /** Stacks one list carries (drops.go holds 60 a street; a house or Tower floor any number, G1224). */
     public const LIST_MAX = 50000;
@@ -187,6 +200,20 @@ final readonly class LedgerDrop
         }
         $db = $this->minn->db;
         $out = Ledger::atomically($db, fn () => self::moveStack($db, Ledger::fromSeams($this->minn), $m, time()));
+        return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
+    }
+
+    #[Route(Method::Post, self::SHIFT, policy: new Policy(Access::Public))]
+    public function shift(Request $request): Response
+    {
+        $this->signed($request, self::SHIFT);
+        $body = json_decode($request->body, true);
+        $s = is_array($body) ? self::shiftCall($body) : null;
+        if ($s === null) {
+            throw new RestError('groddle_ledger_invalid', 'Not a shift.', 400);
+        }
+        $db = $this->minn->db;
+        $out = Ledger::atomically($db, fn () => self::shiftStacks($db, Ledger::fromSeams($this->minn), $s, time()));
         return Response::json($out, $out['status'] === 'refused' ? 409 : 200);
     }
 
@@ -534,6 +561,67 @@ final readonly class LedgerDrop
         }
         $ledger->log($m['id'], 'move', ['drop' => $m['drop'], 'move' => $m['op'], 'street' => $m['street'], 'x' => $m['x'], 'y' => $m['y']] + ($joined > 0 ? ['into' => $m['into'], 'joined' => $joined] : []), $now);
         return $out;
+    }
+
+    /**
+     * G1327: a shift as the realtime server sends it, checked: null when it is not one. Every street is a
+     * floor of the owner's own house or Tower (floorOwner), named once.
+     *
+     * @return array{op: string, id: int, streets: list<string>, from: int, dx: int}|null
+     */
+    public static function shiftCall(array $body): ?array
+    {
+        $op = $body['op'] ?? null;
+        $id = $body['id'] ?? null;
+        $streets = $body['streets'] ?? null;
+        $from = $body['from'] ?? null;
+        $dx = $body['dx'] ?? null;
+        if (!is_string($op) || preg_match('/^shift-[0-9a-f]{16}$/', $op) !== 1 || !is_int($id) || $id <= 0 || !is_array($streets) || !array_is_list($streets)
+            || $streets === [] || count($streets) > 3 || !is_int($from) || $from < 0 || $from > self::SHIFT_FROM_MAX || $dx !== self::SHIFT_DX) {
+            return null;
+        }
+        foreach ($streets as $street) {
+            if (!is_string($street) || self::floorOwner($street) === 0) {
+                return null;
+            }
+        }
+        if (count(array_unique($streets)) !== count($streets)) {
+            return null;
+        }
+        return ['op' => $op, 'id' => $id, 'streets' => $streets, 'from' => $from, 'dx' => $dx];
+    }
+
+    /**
+     * G1327: the owner's un-expand moves every stack on the ground on those floors at x >= from by dx, all in
+     * this transaction (the caller's, Ledger::atomically), once per op. Only the owner's own floors (the
+     * realtime server checks who stands there; this checks whose floors they are). Asked again: nothing more
+     * moves, and the answer is where the stacks this op moved lie now (one taken since is left out).
+     *
+     * @param array{op: string, id: int, streets: list<string>, from: int, dx: int} $s
+     * @return array{status: string, why?: string, moved?: list<array{id: string, x: int}>}
+     */
+    public static function shiftStacks(Db $db, Ledger $ledger, array $s, int $now): array
+    {
+        foreach ($s['streets'] as $street) {
+            if (self::floorOwner($street) !== $s['id']) {
+                return ['status' => 'refused', 'why' => 'place'];
+            }
+        }
+        $drops = $db->table(self::TABLE);
+        $credited = $db->table(Ledger::CREDITED);
+        $in = implode(', ', array_fill(0, count($s['streets']), '?'));
+        $recorded = $db->row("SELECT n FROM {$credited} WHERE user_id = ? AND kind = 'shift' AND ref = ? FOR UPDATE", [$s['id'], $s['op']]) !== null;
+        if (!$recorded) {
+            // Every row moved is locked first, in one order, so a take or a move at the same time waits on it.
+            $ids = array_map(static fn (array $r): string => (string) $r['id'], $db->rows("SELECT id FROM {$drops} WHERE status = 'ground' AND street IN ({$in}) AND x >= ? ORDER BY id FOR UPDATE", [...$s['streets'], $s['from']]));
+            if ($ids !== []) {
+                $db->execute("UPDATE {$drops} SET x = x + ?, moved_op = ? WHERE id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ')', [$s['dx'], $s['op'], ...$ids]);
+            }
+            $db->execute("INSERT INTO {$credited} (user_id, kind, ref, n, at) VALUES (?, 'shift', ?, ?, ?)", [$s['id'], $s['op'], count($ids), gmdate('Y-m-d H:i:s', $now)]);
+            $ledger->log($s['id'], 'shift', ['shift' => $s['op'], 'streets' => $s['streets'], 'from' => $s['from'], 'dx' => $s['dx'], 'moved' => $ids], $now);
+        }
+        $rows = $db->rows("SELECT id, x FROM {$drops} WHERE status = 'ground' AND street IN ({$in}) AND moved_op = ? ORDER BY id", [...$s['streets'], $s['op']]);
+        return ['status' => 'settled', 'moved' => array_map(static fn (array $r): array => ['id' => (string) $r['id'], 'x' => (int) $r['x']], $rows)];
     }
 
     /** A move as the realtime server sends it, checked: null when it is not one. */
