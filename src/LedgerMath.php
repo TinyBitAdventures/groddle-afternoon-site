@@ -882,6 +882,20 @@ final class LedgerMath
             $credits['rows'] = array_merge($credits['rows'], $kit['rows']);
             $credits['detail']['homeKit'] = (object) $kitIn['items'];
         }
+        // G1334: what building a house's wall segments or a machine took, given back when it comes apart
+        // (built: never more than was spent on it).
+        $built = self::built($view, $holdings, $entries, $credited);
+        $builtIn = self::covered($view, $holdings, $built['goods']);
+        $owed = self::add($owed, $builtIn);
+        foreach ($builtIn['items'] as $c => $n) {
+            $view['items'][$c] = ($view['items'][$c] ?? 0) + $n;
+            $credits['goods']['items'][$c] = ($credits['goods']['items'][$c] ?? 0) + $n;
+        }
+        ksort($credits['goods']['items']);
+        $credits['rows'] = array_merge($credits['rows'], $built['rows']);
+        if ($built['detail'] !== []) {
+            $credits['detail']['built'] = $built['detail'];
+        }
         // G905: the tutorial's and the practice streets' gifts, once per character, by the save's record.
         $tut = self::tutorial($entries, $credited, $economy);
         $tutIn = self::covered($view, $holdings, $tut['goods']);
@@ -2187,6 +2201,243 @@ final class LedgerMath
             }
         }
         return true;
+    }
+
+    // —— Built things (G1334) ——
+
+    /**
+     * G1334: what a player spent building something comes back when they take it apart, as much as
+     * they spent and never more (Austin 2026-11-27: "refund only what the player spent"; root R4).
+     *
+     * Two things the ledger saw spent are taken apart again in a later save write:
+     *  - a house's wall segments. Expanding takes Wall Segments (and Urth Blocks and Girders on two
+     *    or three floors: the game's js/home-floors.js wallExpandItems, homes_get_expand_costs
+     *    2511-2560), un-expanding gives back what that expansion took (the game's home-decor.js
+     *    unexpandRefund and its `paid` record). Glitch refunded a fixed set of parts on every
+     *    un-expand (inc_homes.js 2611-2630), from below the starting width too, worth about 820
+     *    more than the Wall Segment it took: ours, so an expand / un-expand loop never pays.
+     *  - a machine (Woodworker, Fuelmaker, Metalmaker, Blockmaker). Assembling takes the Machine
+     *    Stand and three parts (js/machines.js MACHINE_ASSEMBLIES, data/home-machines.json parts),
+     *    taking it apart gives them back (finishDisassembly). The machine itself is no ledger class,
+     *    so nothing offset the parts: the budget paid for them, or they were taken back.
+     *
+     * The ledger keeps a bank per thing (credited kind BUILT, ref "<thing>|<class>", n): a write
+     * that shows more of the thing than the last one (BUILT_COUNT, ref the thing, n how many) banks
+     * what building it costs, as far as the write's own losses of those classes go (nothing is
+     * banked from nothing); a write that shows fewer lets the banked classes stand as far as the
+     * write's gains show them (a machine: at most its parts for each one fewer), outside the
+     * budget, and takes them out of the bank. A write that shows fewer and gains nothing (a machine
+     * set down on a street) leaves the bank as it was. So what comes back never passes what was
+     * spent on that thing and not yet given back, whatever the save says. The things:
+     *  - "house": the ground floor's wall segments (homes.decor.wallSegments; a Tower never shrinks).
+     *  - "m:<machine>": the machines of that class in the pack, and the one being assembled or taken
+     *    apart (supply's work: its parts already gone, or not yet back).
+     *
+     * The first write after this (ref BUILT_BASE) starts the counts from the stored save and banks
+     * what that save had already built: one Wall Segment for each segment past the starting seven
+     * (the least an expansion ever cost; the game refunds the same for a segment it has no record
+     * of) and each machine's parts. A character with no stored save starts its counts from the
+     * write, banking nothing.
+     */
+    public const BUILT = 'built';
+    public const BUILT_COUNT = 'builtn';
+    public const BUILT_BASE = 'base';
+    public const BUILT_HOUSE = 'house';
+
+    /** js/machines.js MACHINE_IDS. */
+    public const BUILT_MACHINES = ['blockmaker', 'fuelmaker', 'metalmaker', 'woodworker'];
+
+    /** data/home-machines.json (the game's tools/build-home-machines.mjs): rooms.startSegments and each machine's parts. */
+    private static ?array $machines = null;
+
+    private static function machineData(): array
+    {
+        if (self::$machines === null) {
+            $file = dirname(__DIR__) . '/data/home-machines.json';
+            $data = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+            self::$machines = is_array($data) ? $data : [];
+        }
+        return self::$machines;
+    }
+
+    /**
+     * js/home-floors.js wallExpandItems (homes_get_expand_costs): one more segment on $floors
+     * floors, $inner the segments between the end caps before it.
+     *
+     * @return array<string,int>
+     */
+    public static function wallCost(int $floors, int $inner): array
+    {
+        $items = ['wall_segment' => $floors];
+        $next = $inner + 1;
+        if ($floors === 2) {
+            $items['grade_aa_earth_block'] = 1;
+            if ($next % 4 === 0) {
+                $items['girder'] = 1;
+            }
+        }
+        if ($floors === 3) {
+            $items['grade_aa_earth_block'] = 3;
+            if ($next % 4 === 0) {
+                $items['girder'] = 2;
+            }
+            if ($next % 8 === 0) {
+                $items['girder'] = 3;
+            }
+        }
+        return $items;
+    }
+
+    /** @return array<string,int> what assembling one machine of the class takes: the stand and the parts */
+    public static function machineParts(string $machine): array
+    {
+        $parts = self::machineData()['machines'][$machine]['parts'] ?? [];
+        return is_array($parts) ? array_map('intval', $parts) : [];
+    }
+
+    /**
+     * The things a save shows built (thing -> how many) and the house's floors (for its cost).
+     *
+     * @return array{counts: array<string,int>, floors: int}
+     */
+    public static function builtCounts(array $entries): array
+    {
+        $state = self::decode($entries['playerState'] ?? null);
+        $out = [];
+        $floors = 1;
+        if (!is_array($state)) {
+            return ['counts' => $out, 'floors' => $floors];
+        }
+        $homes = $state['systems']['features']['homes'] ?? null;
+        $decor = is_array($homes) ? ($homes['decor'] ?? null) : null;
+        if (is_array($decor) && ($decor['layout'] ?? 'house') !== 'tower' && is_numeric($decor['wallSegments'] ?? null)) {
+            $out[self::BUILT_HOUSE] = max(0, (int) floor((float) $decor['wallSegments']));
+            $floors = 1 + (is_array($homes['floors']['upper'] ?? null) ? count($homes['floors']['upper']) : 0);
+        }
+        $inv = is_array($state['inventory'] ?? null) ? $state['inventory'] : [];
+        $work = $state['systems']['features']['supply']['work'] ?? null;
+        foreach (self::BUILT_MACHINES as $m) {
+            $n = self::count($inv[$m] ?? 0);
+            if (is_array($work) && ($work['machine'] ?? null) === $m && in_array($work['kind'] ?? null, ['assemble', 'disassemble'], true)) {
+                $n += 1;
+            }
+            $out['m:' . $m] = $n;
+        }
+        return ['counts' => $out, 'floors' => min(3, max(1, $floors))];
+    }
+
+    /**
+     * The rows that start a character's built things: the counts the stored save shows (else this
+     * write's) and, from a stored save, what it had already built (see BUILT).
+     *
+     * @return list<array{0: string, 1: string, 2: int}>
+     */
+    public static function builtBaseline(?array $stored, array $entries): array
+    {
+        $c = self::builtCounts($stored ?? $entries)['counts'];
+        $rows = [[self::BUILT_COUNT, self::BUILT_BASE, 1]];
+        $start = (int) (self::machineData()['rooms']['startSegments'] ?? 7);
+        foreach ($c as $thing => $n) {
+            $rows[] = [self::BUILT_COUNT, $thing, $n];
+            if ($stored === null || $n <= 0) {
+                continue;
+            }
+            if ($thing === self::BUILT_HOUSE) {
+                if ($n > $start) {
+                    $rows[] = [self::BUILT, $thing . '|wall_segment', $n - $start];
+                }
+                continue;
+            }
+            foreach (self::machineParts(substr($thing, 2)) as $cls => $k) {
+                $rows[] = [self::BUILT, $thing . '|' . $cls, $k * $n];
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * A write against the bank (see BUILT): what of its gains stands as given back (goods), the bank
+     * and count rows after it, and what it gave back and banked (detail, for the log).
+     *
+     * @return array{goods: array{items: array<string,int>, currants: int}, rows: list<array{0: string, 1: string, 2: int}>, detail: array}
+     */
+    public static function built(array $view, array $holdings, array $entries, array $credited): array
+    {
+        $now = self::builtCounts($entries);
+        $had = (array) ($credited[self::BUILT_COUNT] ?? []);
+        $bank = (array) ($credited[self::BUILT] ?? []);
+        $goods = ['items' => [], 'currants' => 0];
+        $rows = [];
+        $detail = [];
+        $loss = [];
+        $gain = [];
+        foreach (array_unique(array_merge(array_keys($view['items']), array_keys($holdings['items']))) as $c) {
+            $d = (int) ($holdings['items'][$c] ?? 0) - (int) ($view['items'][$c] ?? 0);
+            if ($d < 0) {
+                $loss[(string) $c] = -$d;
+            } elseif ($d > 0) {
+                $gain[(string) $c] = $d;
+            }
+        }
+        foreach ($now['counts'] as $thing => $n) {
+            // Not counted yet (builtBaseline counts every one it sees): a house is first seen as it
+            // stands, a machine from none.
+            $known = array_key_exists($thing, $had);
+            $was = $known ? (int) $had[$thing] : ($thing === self::BUILT_HOUSE ? $n : 0);
+            if ($n !== $was || (!$known && $n > 0)) {
+                $rows[] = [self::BUILT_COUNT, $thing, $n];
+            }
+            if ($n > $was) {
+                // Built: bank what it took, as far as the write's own losses go.
+                $cost = [];
+                if ($thing === self::BUILT_HOUSE) {
+                    for ($w = $was; $w < $n; $w++) {
+                        foreach (self::wallCost($now['floors'], $w - 2) as $c => $k) {
+                            $cost[$c] = ($cost[$c] ?? 0) + $k;
+                        }
+                    }
+                } else {
+                    foreach (self::machineParts(substr($thing, 2)) as $c => $k) {
+                        $cost[$c] = $k * ($n - $was);
+                    }
+                }
+                foreach ($cost as $c => $k) {
+                    $put = min($k, $loss[$c] ?? 0);
+                    if ($put > 0) {
+                        $loss[$c] -= $put;
+                        $ref = $thing . '|' . $c;
+                        $bank[$ref] = (int) ($bank[$ref] ?? 0) + $put;
+                        $rows[] = [self::BUILT, $ref, $bank[$ref]];
+                        $detail['banked'][$ref] = $put;
+                    }
+                }
+            } elseif ($n < $was) {
+                // Taken apart: what was banked for it stands as far as the write's gains show it.
+                $most = null;
+                if ($thing !== self::BUILT_HOUSE) {
+                    $most = [];
+                    foreach (self::machineParts(substr($thing, 2)) as $c => $k) {
+                        $most[$c] = $k * ($was - $n);
+                    }
+                }
+                foreach ($bank as $ref => $k) {
+                    [$t, $c] = array_pad(explode('|', (string) $ref, 2), 2, '');
+                    if ($t !== $thing || (int) $k <= 0) {
+                        continue;
+                    }
+                    $back = min((int) $k, $gain[$c] ?? 0, $most === null ? PHP_INT_MAX : ($most[$c] ?? 0));
+                    if ($back > 0) {
+                        $gain[$c] -= $back;
+                        $goods['items'][$c] = ($goods['items'][$c] ?? 0) + $back;
+                        $bank[$ref] = (int) $k - $back;
+                        $rows[] = [self::BUILT, (string) $ref, $bank[$ref]];
+                        $detail['given back'][$ref] = $back;
+                    }
+                }
+            }
+        }
+        ksort($goods['items']);
+        return ['goods' => $goods, 'rows' => $rows, 'detail' => $detail];
     }
 
     // —— Words ——

@@ -451,6 +451,15 @@ final readonly class Ledger
             ), $day, $now);
             $credited = $this->credited($user, $day);
         }
+        // G1334: what the character has built is counted from the stored save once (LedgerMath::builtBaseline);
+        // a character named to start empty banks nothing from it (its save's machines came with a kit).
+        if (!isset($credited[LedgerMath::BUILT_COUNT][LedgerMath::BUILT_BASE])) {
+            $empty = $state['seeded'] === 'zeroing' || in_array($user, $this->startEmpty, true);
+            $stored = $empty ? null : $this->db->value('SELECT data FROM ' . $this->db->table(MultiplayerSave::TABLE) . ' WHERE user_id = ?', [$user]);
+            $was = is_string($stored) ? json_decode($stored, true) : null;
+            $this->credit($user, LedgerMath::builtBaseline(is_array($was['entries'] ?? null) ? array_filter($was['entries'], 'is_string') : null, $entries), $day, $now);
+            $credited = $this->credited($user, $day);
+        }
         $pending = $this->pending($user, LedgerMath::applied($entries), $now);
         // A character named to start empty: its first write after the reset gets no budget, so the save's old goods go.
         $zeroing = $state['seeded'] === 'zeroing';
