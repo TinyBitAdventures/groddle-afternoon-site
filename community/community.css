@@ -554,6 +554,33 @@ button.cquoting-off { padding: 0; border: 0; background: none; font: inherit; fo
 .csupport-new-log .cform { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 14px 16px; }
 .csupport-signin { margin: 16px 12px; }
 .csupport-signin p { margin: 0 0 10px; color: var(--lead); }
+/* The drop zone (community/support-files.js; hidden without it, and the plain file field stays): a dashed box to
+   drop pictures or a text file on, or to click or tap; it lights up while files are dragged over the pane. The
+   files chosen are listed under it, each with a Remove button. The plain field is kept for the form's POST. */
+.csupport-form[data-drop-ready] .csupport-attach { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.csupport-form[data-drop-ready] .csupport-row { justify-content: flex-end; }
+.csupport-drop { display: grid; gap: 6px; }
+.csupport-drop-zone { display: block; box-sizing: border-box; width: 100%; min-height: 52px; padding: 12px 14px; border: 2px dashed var(--cx-strong); border-radius: 14px; background: var(--bg); color: var(--muted); font-size: 14px; font-weight: 700; line-height: 1.35; text-align: center; cursor: pointer; transition: border-color 120ms, background-color 120ms; }
+.csupport-drop[data-over] .csupport-drop-zone { border-color: var(--accent); background: var(--cx-soft); color: var(--fg); }
+@media (hover: hover) { .csupport-drop-zone:hover { border-color: var(--accent); background: var(--cx-soft); color: var(--fg); } }
+.csupport-drop[data-over] .csupport-drop-zone { border-style: solid; }
+.cx .csupport-drop-zone:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.csupport-drop-choose { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.csupport-drop-touch { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .csupport-drop-mouse { display: none; }
+  .csupport-drop-touch { display: inline; color: var(--accent); }
+}
+/* Side by side where there is room, so six files never squeeze the conversation away. */
+.csupport-chosen { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.csupport-chosen-item { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.csupport-chosen-thumb { flex: none; width: 40px; height: 40px; border: 1px solid var(--border); border-radius: 8px; object-fit: cover; background: var(--bg); }
+.csupport-chosen-ext { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
+.csupport-chosen-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+.csupport-chosen-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-size: 14px; }
+.csupport-chosen-size { color: var(--muted); font-size: 12px; }
+.cx .csupport-chosen-remove { flex: none; min-height: 32px; padding: 0 10px; font-size: 13px; }
+.csupport-drop-said { margin: 0; }
 /* On a phone a report reads as one page: the reply form follows the messages instead of holding half the screen. */
 @media (max-width: 640px) {
   .csupport-report { overflow-y: auto; overscroll-behavior: contain; }

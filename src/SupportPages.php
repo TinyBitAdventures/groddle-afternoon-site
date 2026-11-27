@@ -81,6 +81,9 @@ final readonly class SupportPages
         'none' => 'You have not sent us a report yet. Start one here, or with the bug button in the game.',
         'noneHere' => 'None of your reports have this status right now.',
         'rail' => 'Your reports and our replies',
+        'drop' => 'Drop pictures or a text file here, or',
+        'dropChoose' => 'choose files',
+        'dropTap' => 'Tap to add pictures or a text file',
         'uploads' => 'Up to 4 pictures (JPEG, PNG or WebP) and 2 text files (.txt or .log, up to 256 KB) a message. Only you and the team can see them.',
         'closed' => 'This report is closed. A reply opens it again, or open it again without one.',
         'closeHint' => 'Close it when the problem is gone. You can open it again.',
@@ -422,9 +425,22 @@ final readonly class SupportPages
 
     // Pieces
 
+    /**
+     * The file field and the send button, and the drop zone community/support-files.js shows (hidden
+     * without it, so the plain field stays as it is): a box to drop pictures or a text file on, or to
+     * click or tap to choose them (Austin 2026-11-27: "a drag and drop zone for photos/files"), the
+     * files chosen under it, and a line for what could not be added.
+     */
     private static function uploadRow(string $send): string
     {
-        return '      <div class="csupport-row"><label class="csupport-attach"><span>Add pictures or a text file</span>'
+        return '      <div class="csupport-drop" data-drop="" hidden>'
+            . '<button class="csupport-drop-zone" type="button" data-drop-zone="">'
+            . '<span class="csupport-drop-mouse">' . Html::esc(self::COPY['drop']) . ' <span class="csupport-drop-choose">' . Html::esc(self::COPY['dropChoose']) . '</span></span>'
+            . '<span class="csupport-drop-touch">' . Html::esc(self::COPY['dropTap']) . '</span></button>'
+            . '<ul class="csupport-chosen" data-chosen="" aria-label="Files to send" hidden></ul>'
+            . '<p class="csaid csupport-drop-said" role="status" aria-live="polite" data-drop-said=""></p>'
+            . "</div>\n"
+            . '      <div class="csupport-row"><label class="csupport-attach"><span>Add pictures or a text file</span>'
             . '<input type="file" name="files[]" multiple accept="' . self::ACCEPT . '" /></label>'
             . '<button class="cbutton" type="submit">' . Html::esc($send) . "</button></div>\n"
             . '      <p class="chint">' . Html::esc(self::COPY['uploads']) . "</p>\n";

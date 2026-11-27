@@ -14,6 +14,8 @@
  * - moving around /chat/ never reloads (chat-nav.js): a board, a topic or a conversation comes in
  *   place with pushState, so the forms and the topic's poll below are wired again for each view
  *   (wirePage), and the chat app's live socket stays connected.
+ * - Support's forms (/chat/support/) get a drop zone for pictures and text files, and a pasted
+ *   screenshot is added (support-files.js); the form still posts as it does without this.
  *
  * The REST nonce is the one the page drew (main[data-nonce]); a stale one is swapped for a fresh one
  * from admin-ajax.php?action=rest-nonce, as players/buddy.js does.
@@ -341,6 +343,18 @@ function wirePage() {
       button.disabled = false;
       say(note, r.data?.message || SAID.failed, true);
     });
+  }
+
+  // —— Support's forms (src/SupportPages.php): the drop zone for pictures and text files (support-files.js) ——
+
+  const supportForm = document.querySelector('form[data-support-reply], form[data-support-new]');
+  if (supportForm) {
+    let stopFiles = null;
+    let gone = false;
+    import(`./support-files.js${v}`)
+      .then((m) => { if (!gone) stopFiles = m.wireSupportFiles(supportForm, { area: supportForm.closest('.cx-conv') || supportForm }); })
+      .catch((e) => console.warn('support files', e));
+    stops.push(() => { gone = true; stopFiles?.(); });
   }
 
   // —— A thread ——
