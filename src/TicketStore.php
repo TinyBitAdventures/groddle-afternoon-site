@@ -440,13 +440,17 @@ final readonly class TicketStore
      * A player's tickets as their Reports list orders them (ticket 115, Friendly 2026-11-06), the
      * administrators' list turned to the player's side (listAll): a reply they have not read first,
      * then answered, open, working, closed, the newest news first in each. The game sorts the same
-     * way (js/reports.js sortReports), so the LIST_MAX cut keeps the ones that need them.
-     * @return list<array<string, mixed>>
+     * way (js/reports.js sortReports), so the first page keeps the ones that need them.
+     * A page of LIST_MAX from $offset (#744: the game's Older reports asks with the rows it
+     * has, as the console's Show older does); more: a later page holds some.
+     * @return array{rows: list<array<string, mixed>>, more: bool}
      */
-    public function listFor(int $player): array
+    public function listFor(int $player, int $offset = 0): array
     {
+        $offset = max(0, $offset);
         $unread = "(last_author_role = 'admin' AND (player_read_at IS NULL OR player_read_at < last_message_at))";
-        return $this->db->rows('SELECT *, ' . $unread . ' AS player_unread, ' . $this->adminRepliedSql() . ' AS admin_replied FROM ' . $this->db->table(self::TABLE) . " WHERE player_user_id = ? ORDER BY player_unread DESC, FIELD(status, 'answered', 'open', 'working', 'closed'), updated_at DESC, id DESC LIMIT " . self::LIST_MAX, [$player]);
+        $rows = $this->db->rows('SELECT *, ' . $unread . ' AS player_unread, ' . $this->adminRepliedSql() . ' AS admin_replied FROM ' . $this->db->table(self::TABLE) . " WHERE player_user_id = ? ORDER BY player_unread DESC, FIELD(status, 'answered', 'open', 'working', 'closed'), updated_at DESC, id DESC LIMIT " . (self::LIST_MAX + 1) . ' OFFSET ' . $offset, [$player]);
+        return ['rows' => array_slice($rows, 0, self::LIST_MAX), 'more' => count($rows) > self::LIST_MAX];
     }
 
     /** How many of a player's tickets have an administrator's reply they have not read. */

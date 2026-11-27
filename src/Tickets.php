@@ -21,7 +21,10 @@ use Minn\RestError;
  * through TicketStore::mine, and anyone else's answers 404 as a missing one
  * would.
  *
- *   GET  tickets                 {"tickets":[Summary],"unread":n}      yours, the newest news first
+ *   GET  tickets?offset=n        {"tickets":[Summary],"unread":n,"more":bool}   yours, the newest news first: a page of
+ *                                TicketStore::LIST_MAX from offset (0 when left out; digits only, else 400
+ *                                groddle_ticket_offset), the same order on every page; more: a later page holds
+ *                                some (#744, the game's Older reports); unread: every report's, not the page's
  *   GET  tickets/unread          {"unread":n}                          the bug icon's badge (polled)
  *   GET  tickets/{id}            {"ticket":Summary,"messages":[Message],"picture":{"url","width","height"}|null,"editable":bool}  and marks it read
  *   POST tickets                 {"message","context","pictures"?,"picture"?} 201 {"status":"sent","id","ticket"}   a new report;
@@ -83,11 +86,15 @@ final readonly class Tickets
     #[Route(Method::Get, '/groddle/v1/tickets', policy: new Policy(Access::SignedIn))]
     public function index(Request $request): Response
     {
+        $offset = (string) ($request->query('offset') ?? '0');
+        if (!ctype_digit($offset) || strlen($offset) > 9) {
+            throw new RestError('groddle_ticket_offset', 'The offset is a whole number, 0 or more.', 400);
+        }
         $me = $this->me();
         $store = $this->store();
-        $list = array_map(static fn (array $r): array => TicketStore::summary($r, TicketStore::PLAYER), $store->listFor($me->id));
-        $unread = count(array_filter($list, static fn (array $t): bool => $t['unread']));
-        return Response::json(['tickets' => $list, 'unread' => $unread])->withHeader('Cache-Control', 'no-store');
+        $page = $store->listFor($me->id, (int) $offset);
+        $list = array_map(static fn (array $r): array => TicketStore::summary($r, TicketStore::PLAYER), $page['rows']);
+        return Response::json(['tickets' => $list, 'unread' => $store->unreadCount($me->id), 'more' => $page['more']])->withHeader('Cache-Control', 'no-store');
     }
 
     #[Route(Method::Get, '/groddle/v1/tickets/unread', policy: new Policy(Access::SignedIn))]
