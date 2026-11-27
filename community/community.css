@@ -536,8 +536,9 @@ button.cquoting-off { padding: 0; border: 0; background: none; font: inherit; fo
 .csupport-msg[data-author="admin"] .cpost-initial { background: var(--accent); color: var(--bg); }
 .csupport-body p { margin: 0; overflow-wrap: anywhere; }
 .csupport-pics { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.csupport-pic { display: block; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; cursor: zoom-in; }
-.csupport-pic img { display: block; width: auto; max-width: min(100%, 220px); height: auto; max-height: 150px; }
+/* The frame hugs its picture: a percentage max-width inside a shrink-to-fit frame left an empty strip beside it. */
+.csupport-pic { display: block; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; cursor: zoom-in; }
+.csupport-pic img { display: block; width: auto; max-width: 220px; height: auto; max-height: 150px; }
 .csupport-files { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; }
 .csupport-file { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
 .csupport-form { display: grid; gap: 6px; }
@@ -553,6 +554,12 @@ button.cquoting-off { padding: 0; border: 0; background: none; font: inherit; fo
 .csupport-new-log .cform { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: 14px 16px; }
 .csupport-signin { margin: 16px 12px; }
 .csupport-signin p { margin: 0 0 10px; color: var(--lead); }
+/* On a phone a report reads as one page: the reply form follows the messages instead of holding half the screen. */
+@media (max-width: 640px) {
+  .csupport-report { overflow-y: auto; overscroll-behavior: contain; }
+  .csupport-report .cx-log { flex: none; overflow: visible; }
+  .csupport-report .cx-compose { flex: none; }
+}
 @media (max-width: 440px) {
   .csupport-filters { padding: 8px 8px 2px; }
   .csupport-row .cbutton { flex: 1 1 100%; }
