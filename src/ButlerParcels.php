@@ -186,7 +186,9 @@ final readonly class ButlerParcels
             foreach ($gave['items'] as $c => $n) {
                 if (($mine['items'][$c] ?? 0) < $n) {
                     $db->execute("INSERT INTO {$trades} (trade_id, status, a_id, b_id, a_gave, b_gave, b_applied_at, created_at) VALUES (?, 'void', ?, 0, ?, '{\"items\":[],\"currants\":0}', ?, ?)", [$op, $from, self::goodsJson($gave), $stamp, $stamp]);
-                    return $refuse('short', self::TEXT_SHORT);
+                    // #754 (as #691): past today's limit, not yet in the ledger (Ledger::waitingFor), says so.
+                    $waiting = $ledger->waitingFor($from, ['items' => $gave['items'], 'currants' => 0], 'leave', $now);
+                    return $waiting !== null ? $refuse('waiting', $waiting['text']) : $refuse('short', self::TEXT_SHORT);
                 }
             }
             foreach ($gave['items'] as $c => $n) {

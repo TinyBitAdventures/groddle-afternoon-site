@@ -414,7 +414,9 @@ final readonly class LedgerBoxes
         $from = $kind === 'take' ? $owner : $actor;
         $to = $kind === 'take' ? $actor : $owner;
         if ((int) ($states[$from]['items'][$class] ?? 0) < $n) {
-            return $refuse($kind === 'take' ? 'gone' : 'short', self::TEXT_SHORT);
+            // #754 (as #691): a put of items past today's limit, not yet in the ledger, says so.
+            $waiting = $kind === 'put' ? $ledger->waitingFor($actor, ['items' => [$class => $n], 'currants' => 0], 'put', $now) : null;
+            return $waiting !== null ? $refuse('waiting', $waiting['text']) : $refuse($kind === 'take' ? 'gone' : 'short', self::TEXT_SHORT);
         }
         $fItems = $states[$from]['items'];
         $fItems[$class] -= $n;
