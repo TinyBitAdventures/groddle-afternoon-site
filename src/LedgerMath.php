@@ -412,6 +412,11 @@ final class LedgerMath
             foreach ((array) ($features['home-street-mp']['poles'] ?? []) as $row) {
                 if (is_array($row)) {
                     $add('note_pole', 1);
+                    // G1334: the note posted on it, back in the pack when the pole is picked up (pickUpPole;
+                    // note_pole.js post 117-171 took it out of the pack).
+                    if (is_array($row['note'] ?? null)) {
+                        $add('note', 1);
+                    }
                 }
             }
             foreach ((array) ($features['seasons']['placed'] ?? []) as $row) {
