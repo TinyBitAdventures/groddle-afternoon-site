@@ -31,7 +31,10 @@ use Minn\RestError;
  *   /chat/support/new/             a new report: a subject, your words, pictures and text files
  *   /chat/support/<id>/            one report: the whole conversation, the pictures (thumbnails that open full
  *                                  size), the text files, what the game sent with it, a reply box with
- *                                  uploads, Close and Reopen; opening it reads it (as the game's)
+ *                                  uploads, Close and Reopen; opening it reads it (as the game's); each
+ *                                  message's reactions as chips, and React (with JavaScript) to add one
+ *                                  through the game's own route (Austin 2026-11-27: "Can we add emoji
+ *                                  reacts to the new bug support section?"; reactionsHtml)
  *   POST <id>/reply/, <id>/close/, <id>/reopen/, new/   the forms (multipart), back to the report (303)
  *
  * The same data and rules as the game's Reports list: every write goes
@@ -310,7 +313,8 @@ final readonly class SupportPages
         $store->markRead($id, TicketStore::PLAYER, time());
         $row = (array) $store->find($id);
         $now = time();
-        $messages = TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id), $store->messageFiles($id));
+        // Each message with its reactions (the game's Reports window and the console read the same rows).
+        $messages = (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id), $store->messageFiles($id)), (int) $viewer['id']);
         $own = $store->pictureOut($id);
         $items = '';
         $count = count($messages);
@@ -339,7 +343,8 @@ final readonly class SupportPages
 
     /**
      * One message: who wrote it (You, or Administrator: a role, never a name), when, its words
-     * (escaped, links by the chat's rule), its pictures as thumbnails that open full size, its files.
+     * (escaped, links by the chat's rule), its pictures as thumbnails that open full size, its files,
+     * its reactions (reactionsHtml) and React, hidden until community/support-reactions.js shows it.
      *
      * @param array<string, mixed> $m TicketStore::messagesOut
      */
@@ -370,9 +375,63 @@ final readonly class SupportPages
         }
         $main = $head . $body
             . ($pics === '' ? '' : '<div class="csupport-pics">' . $pics . '</div>')
-            . ($files === '' ? '' : '<ul class="csupport-files">' . $files . '</ul>');
+            . ($files === '' ? '' : '<ul class="csupport-files">' . $files . '</ul>')
+            . self::reactionsHtml((int) $m['id'], (array) ($m['reactions'] ?? []))
+            // Adding one needs community/support-reactions.js: hidden until it shows it.
+            . '<div class="cpost-actions csupport-react" data-react-row="" hidden><button type="button" class="cact" data-react-open aria-haspopup="true" aria-expanded="false" aria-label="'
+            . ($admin ? 'React to the team\'s message' : 'React to your message') . '">React</button></div>';
         return '<li class="cpost csupport-msg" id="' . ($latest ? 'latest' : 'm' . (int) $m['id']) . '" data-author="' . ($admin ? 'admin' : 'player') . '" data-message="' . (int) $m['id'] . '">'
             . '<div class="cpost-face">' . $face . '</div><div class="cpost-main">' . $main . '</div></li>';
+    }
+
+    /**
+     * A message's reactions as chips (TicketReactions::out, the same rows the game's Reports window and
+     * the console read): each mark with how many, pressed when one is yours, and who in its tip, by
+     * reactionNames. Buttons, as the boards' are for a signed-in reader (community/support-reactions.js
+     * toggles them through the game's own route); drawn here so they read without JavaScript.
+     *
+     * @param list<array<string, mixed>> $reactions
+     */
+    public static function reactionsHtml(int $message, array $reactions): string
+    {
+        $chips = '';
+        foreach ($reactions as $r) {
+            $key = is_array($r) ? (string) ($r['e'] ?? '') : '';
+            if (!CommunityText::isReaction($key)) {
+                continue;
+            }
+            $by = array_values(array_filter((array) ($r['by'] ?? []), 'is_array'));
+            $label = CommunityText::reactionLabel($key, self::reactionNames($by));
+            $chips .= '<button type="button" class="cchip" data-react="' . Html::attr($key) . '" aria-pressed="' . (!empty($r['mine']) ? 'true' : 'false') . '" title="' . Html::attr($label) . '" aria-label="' . Html::attr($label) . '">'
+                . CommunityPages::glyph($key) . '<span>' . count($by) . '</span></button>';
+        }
+        return '<div class="cpost-reactions" data-reactions="' . $message . '"' . ($chips === '' ? ' data-empty=""' : '') . '>' . $chips . '</div>';
+    }
+
+    /**
+     * PURE: who reacted, as a report names them: only the player and the team ever see a report, so
+     * never a name. You first; anyone else reacted from the console: "Administrator", or "the team"
+     * when more than one of them did. (community/support-reactions.js whoNames says the same.)
+     *
+     * @param list<array<string, mixed>> $by TicketReactions::out's "by"
+     * @return list<string>
+     */
+    public static function reactionNames(array $by): array
+    {
+        $you = false;
+        $team = 0;
+        foreach ($by as $b) {
+            if (!empty($b['you'])) {
+                $you = true;
+            } else {
+                $team++;
+            }
+        }
+        $names = $you ? ['You'] : [];
+        if ($team > 0) {
+            $names[] = $team > 1 ? ($you ? 'the team' : 'The team') : 'Administrator';
+        }
+        return $names;
     }
 
     /** What the game (or the website) sent with the report, plainly: where, which build, which device. @param array<string, mixed> $ctx */

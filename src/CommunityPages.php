@@ -81,7 +81,7 @@ final readonly class CommunityPages
     public const CHANNEL_LINES = 40;
 
     /** Bumped when community.js or community.css changes. */
-    public const ASSET_KEY = 'community-22';
+    public const ASSET_KEY = 'community-23';
 
     /** The words the pages share. */
     public const COPY = [

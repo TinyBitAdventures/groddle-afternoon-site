@@ -540,6 +540,10 @@ button.cquoting-off { padding: 0; border: 0; background: none; font: inherit; fo
 .csupport-pic { display: block; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; line-height: 0; cursor: zoom-in; }
 .csupport-pic img { display: block; width: auto; max-width: 220px; height: auto; max-height: 150px; }
 .csupport-files { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; }
+/* A message's reactions are the boards' chips; React is hidden until community/support-reactions.js shows it,
+   and stays in sight on a touch screen, where there is no hover to bring it up. */
+.csupport-msg .csupport-react[hidden] { display: none; }
+@media (hover: none) { .cx .cpost.csupport-msg .cpost-actions.csupport-react { opacity: 1; } }
 .csupport-file { color: var(--accent); font-weight: 700; overflow-wrap: anywhere; }
 .csupport-form { display: grid; gap: 6px; }
 .csupport-label { color: var(--muted); font-size: 13px; font-weight: 700; }

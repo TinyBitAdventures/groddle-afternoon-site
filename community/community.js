@@ -16,6 +16,8 @@
  *   (wirePage), and the chat app's live socket stays connected.
  * - Support's forms (/chat/support/) get a drop zone for pictures and text files, and a pasted
  *   screenshot is added (support-files.js); the form still posts as it does without this.
+ * - a Support report's messages take reactions: React opens the same picker, through the game's own
+ *   report route (support-reactions.js).
  *
  * The REST nonce is the one the page drew (main[data-nonce]); a stale one is swapped for a fresh one
  * from admin-ajax.php?action=rest-nonce, as players/buddy.js does.
@@ -357,6 +359,22 @@ function wirePage() {
     stops.push(() => { gone = true; stopFiles?.(); });
   }
 
+  // —— A Support report's messages: their reactions through the game's report route (support-reactions.js) ——
+
+  const supportReport = document.querySelector('[data-support-report]');
+  const supportList = supportReport?.querySelector('.csupport-messages');
+  if (supportList) {
+    let stopReact = null;
+    let gone = false;
+    import(`./support-reactions.js${v}`)
+      .then((m) => {
+        if (gone) return;
+        stopReact = m.wireSupportReactions(supportList, { ticket: Number(supportReport.dataset.supportReport), call, REACTIONS, togglePicker, closePicker, showLine, hook: messageReact, failed: SAID.failed });
+      })
+      .catch((e) => console.warn('support reactions', e));
+    stops.push(() => { gone = true; stopReact?.(); });
+  }
+
   // —— A thread ——
 
   const list = document.querySelector('[data-community-posts]');
@@ -450,7 +468,7 @@ function wirePage() {
       const chip = e.target.closest('button[data-react]');
       if (chip) return void react(li, chip.dataset.react, chip.getAttribute('aria-pressed') !== 'true');
       const open = e.target.closest('[data-react-open]');
-      if (open) return void (pickerFor === li && !picker?.hidden ? closePicker() : openPicker(li, open));
+      if (open) return void togglePicker(li, open);
       if (e.target.closest('[data-edit]')) return void editPost(li);
       if (e.target.closest('[data-delete]')) return void deletePost(li);
       if (e.target.closest('[data-report]')) return void reportPost(li);
@@ -521,8 +539,11 @@ function closePicker(back = false) {
 
 /** chat-app.js: a chat line's reactions go over the socket (lineReact.fn), a post's through the site. */
 export const lineReact = { fn: null };
+/** support-reactions.js: a Support report message's go through the game's report route. */
+const messageReact = { fn: null };
 
 async function react(li, key, on) {
+  if (li.dataset.message) return void messageReact.fn?.(li, key, on);
   if (!li.dataset.post) return void lineReact.fn?.(li, key, on);
   const id = Number(li.dataset.post);
   const r = await call(`community/posts/${id}/reactions`, { method: 'POST', body: { e: key, on } });
@@ -555,6 +576,12 @@ function gridStep(at, key, n, cols) {
   if (key === 'Home') return 0;
   if (key === 'End') return n - 1;
   return -1;
+}
+
+/** React again on the same post (or message) closes the picker; otherwise it opens there. */
+function togglePicker(li, opener) {
+  if (pickerFor === li && !picker?.hidden) closePicker();
+  else openPicker(li, opener);
 }
 
 function openPicker(li, opener) {
