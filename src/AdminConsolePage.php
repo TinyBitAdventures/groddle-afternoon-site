@@ -84,7 +84,7 @@ final readonly class AdminConsolePage
     public const ASSET_KEY = 'skin-16';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its own content key: Extension::importMap). */
-    public const SERVER_ASSET_KEY = 'server-4';
+    public const SERVER_ASSET_KEY = 'server-5';
 
     /** Bumped when console/analytics.js or console/analytics.css changes. */
     public const ANALYTICS_ASSET_KEY = 'analytics-4';

@@ -4,8 +4,9 @@
    --accent --track --row-line --chip-solid --play-*) are set to the drawer's Warm paper palette, copied
    from the game's design tokens (--surface-bright, --surface-card, --surface-parchment, --border,
    --border-strong, --text, --text-muted, --accent, --accent-soft and the avatar hues), with a dark twin
-   for data-theme="dark". Keep the two in step when the drawer's look changes. The type is the game's own
-   Nunito (SIL OFL 1.1, assets/fonts/nunito/, the same files the game serves). */
+   for data-theme="dark" and for System on a dark device. Keep the two in step when the drawer's look
+   changes. The type is the game's own Nunito (SIL OFL 1.1, assets/fonts/nunito/, the same files the
+   game serves). */
 
 @font-face { font-family: Nunito; font-style: normal; font-weight: 200 1000; font-display: swap; src: url("/assets/fonts/nunito/nunito-roman-latin.woff2") format("woff2"); }
 
@@ -16,6 +17,15 @@
   --track: #f4e9d6; --row-line: #efe4cf; --chip-solid: #fffdf8; --play-bg: #6b4c9e; --play-fg: #fffdf8; --play-hover: #5b3f8a; --sun: #d39a26; --moss: #276b2c;
   --cx-parchment: #f4e9d6; --cx-strong: #cdb792; --cx-soft: #eee6f8; --cx-good: #276b2c; --cx-danger: #bf3127; --cx-inverse: #fffdf8;
   --cx-hue-0: #5b4f6b; --cx-hue-1: #2e5a20; --cx-hue-2: #9b1c1f; --cx-hue-3: #175070; --cx-hue-4: #674879; --cx-hue-5: #664d37; --cx-hue-6: #19587e; --cx-hue-7: #6a4f17;
+}
+/* The dark twin twice, as restoration.css draws its tokens: for System on a dark device (theme.js leaves
+   data-theme off for System) and for the Dark choice. Keep the two in step. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .community-page, :root:not([data-theme="light"]) .console-page, :root:not([data-theme="light"]) .cx {
+    --bg: #1d1813; --surface: #231d17; --fg: #f1e7d8; --muted: #b8a48c; --lead: #d9ccb8; --border: #3e3328; --accent: #b49ae0;
+    --track: #2e261e; --row-line: #2a231c; --chip-solid: #2a231c; --play-bg: #b49ae0; --play-fg: #1b1426; --play-hover: #c6b0ec; --sun: #e3b04a; --moss: #6cc070;
+    --cx-parchment: #2e261e; --cx-strong: #5a4a38; --cx-soft: #352b45; --cx-good: #6cc070; --cx-danger: #e8776c; --cx-inverse: #fffdf8;
+  }
 }
 :root[data-theme="dark"] .community-page, :root[data-theme="dark"] .console-page, :root[data-theme="dark"] .cx {
   --bg: #1d1813; --surface: #231d17; --fg: #f1e7d8; --muted: #b8a48c; --lead: #d9ccb8; --border: #3e3328; --accent: #b49ae0;

@@ -6,6 +6,7 @@
    Text stays in the page's text colours; a coloured key beside it carries identity. */
 
 .console-page { --hz-1: #2a78d6; --hz-2: #eb6834; --hz-3: #1baf7a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .console-page { --hz-1: #3987e5; --hz-2: #d95926; --hz-3: #199e70; } }
 :root[data-theme="dark"] .console-page { --hz-1: #3987e5; --hz-2: #d95926; --hz-3: #199e70; }
 
 .console-tabs [data-console-tab="server"] { --tab-hue: var(--cx-hue-6); --tab-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fffdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h4l2.5-6 4 12 2.5-6H21'/%3E%3C/svg%3E"); }
