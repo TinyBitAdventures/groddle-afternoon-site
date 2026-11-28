@@ -316,14 +316,20 @@ final readonly class SupportPages
         // Each message with its reactions (the game's Reports window and the console read the same rows).
         $messages = (new TicketReactions($this->minn->db))->attach($id, TicketStore::messagesOut($store->messages($id), null, $store->messagePictures($id), $store->messageFiles($id)), (int) $viewer['id']);
         $own = $store->pictureOut($id);
+        // The report's own picture (the game's view when it was sent) goes with its first message.
+        if ($own !== null && $messages !== []) {
+            array_unshift($messages[0]['pictures'], $own);
+        }
         $items = '';
         $count = count($messages);
+        // Every picture in the report, in order, for the pop-up's Previous and Next (pictureDialog).
+        $shown = 0;
+        $first = null;
         foreach ($messages as $i => $m) {
-            // The report's own picture (the game's view when it was sent) goes with its first message.
-            if ($i === 0 && $own !== null) {
-                array_unshift($m['pictures'], $own);
-            }
-            $items .= "\n      " . self::messageHtml($m, (string) $viewer['name'], $now, $i === $count - 1);
+            $items .= "\n      " . self::messageHtml($m, (string) $viewer['name'], $now, $i === $count - 1, $id, $shown);
+            $pics = self::shownPictures($m);
+            $first ??= $pics === [] ? null : [$pics[0], $m];
+            $shown += count($pics);
         }
         $closedBy = TicketStore::closedBy($row);
         $meta = 'Report #' . $id . ' · sent ' . CommunityPages::time(Community::unix((string) $row['created_at']), $now) . ' · ' . self::statusTag((string) $row['status'])
@@ -337,7 +343,9 @@ final readonly class SupportPages
             . "<ol class=\"cposts csupport-messages\">{$items}\n    </ol>"
             . '</div><div class="cx-compose">'
             . $this->composeHtml($row, $viewer, is_string($form['message'] ?? null) ? $form['message'] : '', $error)
-            . '</div></section>';
+            . '</div>'
+            . ($first === null ? '' : self::pictureDialog($id, $first[0], $first[1], $shown, $now))
+            . '</section>';
         return $this->page('#' . $id . ' ' . (string) $row['subject'] . ' – Support', $community, $viewer, $main, $status);
     }
 
@@ -345,10 +353,12 @@ final readonly class SupportPages
      * One message: who wrote it (You, or Administrator: a role, never a name), when, its words
      * (escaped, links by the chat's rule), its pictures as thumbnails that open full size, its files,
      * its reactions (reactionsHtml) and React, hidden until community/support-reactions.js shows it.
+     * With the report's id, each thumbnail also opens the report's picture pop-up (pictureDialog):
+     * its line and its download name, `$before` being how many pictures came before it in the report.
      *
      * @param array<string, mixed> $m TicketStore::messagesOut
      */
-    public static function messageHtml(array $m, string $you, int $now, bool $latest = false): string
+    public static function messageHtml(array $m, string $you, int $now, bool $latest = false, int $ticket = 0, int $before = 0): string
     {
         $admin = $m['author'] === TicketStore::ADMIN;
         $name = $admin ? 'Administrator' : 'You';
@@ -360,11 +370,13 @@ final readonly class SupportPages
         $lines = array_map(static fn (string $l): string => CommunityText::lineHtml($l, CommunityText::HOME_HOSTS), explode("\n", (string) $m['body']));
         $body = '<div class="cpost-body csupport-body"><p>' . implode('<br />', $lines) . '</p></div>';
         $pics = '';
-        $list = array_values(array_filter((array) ($m['pictures'] ?? []), static fn (mixed $p): bool => is_array($p) && preg_match('#^/report-pictures/\d+(?:/\d+(?:/[1-9])?)?$#', (string) ($p['url'] ?? '')) === 1));
+        $list = self::shownPictures($m);
         foreach ($list as $i => $p) {
             $n = $i + 1;
-            $pics .= '<a class="csupport-pic" href="' . Html::attr((string) $p['url']) . '" target="_blank" rel="noopener" aria-label="' . Html::attr("Open picture {$n} of " . count($list) . ' full size') . '">'
-                . '<img src="' . Html::attr((string) $p['url']) . '" width="' . (int) $p['width'] . '" height="' . (int) $p['height'] . '" alt="' . Html::attr(($admin ? 'A picture from the team' : 'A picture you sent') . " ({$n})") . '" loading="lazy" decoding="async" /></a>';
+            // Without the script (or with Cmd, Ctrl, Shift, Alt or a middle click) the link opens the picture itself, in a new tab.
+            $hooks = $ticket > 0 ? ' data-snap-open="" data-snap-line="' . Html::attr(self::pictureLine($m, $now)) . '" data-snap-name="' . Html::attr(self::pictureName($ticket, $before + $n)) . '"' : '';
+            $pics .= '<a class="csupport-pic" href="' . Html::attr((string) $p['url']) . '" target="_blank" rel="noopener" aria-label="' . Html::attr("Open picture {$n} of " . count($list) . ' full size') . '"' . $hooks . '>'
+                . '<img src="' . Html::attr((string) $p['url']) . '" width="' . (int) $p['width'] . '" height="' . (int) $p['height'] . '" alt="' . Html::attr(self::pictureAlt($admin, $n)) . '" loading="lazy" decoding="async" /></a>';
         }
         $files = '';
         foreach ((array) ($m['files'] ?? []) as $f) {
@@ -382,6 +394,64 @@ final readonly class SupportPages
             . ($admin ? 'React to the team\'s message' : 'React to your message') . '">React</button></div>';
         return '<li class="cpost csupport-msg" id="' . ($latest ? 'latest' : 'm' . (int) $m['id']) . '" data-author="' . ($admin ? 'admin' : 'player') . '" data-message="' . (int) $m['id'] . '">'
             . '<div class="cpost-face">' . $face . '</div><div class="cpost-main">' . $main . '</div></li>';
+    }
+
+    /**
+     * A message's pictures that are shown: the ticket picture routes' addresses only (TicketPictures).
+     *
+     * @param array<string, mixed> $m
+     * @return list<array<string, mixed>>
+     */
+    private static function shownPictures(array $m): array
+    {
+        return array_values(array_filter((array) ($m['pictures'] ?? []), static fn (mixed $p): bool => is_array($p) && preg_match('#^/report-pictures/\d+(?:/\d+(?:/[1-9])?)?$#', (string) ($p['url'] ?? '')) === 1));
+    }
+
+    /** A thumbnail's words for a screen reader: whose it is and its place in its message. */
+    private static function pictureAlt(bool $admin, int $n): string
+    {
+        return ($admin ? 'A picture from the team' : 'A picture you sent') . " ({$n})";
+    }
+
+    /** The pop-up's line under a picture: who sent it and when (the message's). @param array<string, mixed> $m */
+    public static function pictureLine(array $m, int $now): string
+    {
+        $who = $m['author'] === TicketStore::ADMIN ? 'Sent by the team' : 'Sent by you';
+        return $who . ' · ' . CommunityText::ago((int) strtotime((string) $m['at']), $now);
+    }
+
+    /** A picture's name when it is downloaded: the report and its place among the report's pictures (from 1). */
+    public static function pictureName(int $ticket, int $n): string
+    {
+        return "report-{$ticket}-picture-{$n}.jpg";
+    }
+
+    /**
+     * The report's picture pop-up (ours, as a Snap's page has: community/picture-dialog.js opens it
+     * when a thumbnail is clicked, and community.js wires it for each view): the picture fitted to the
+     * screen, which of the report's pictures it is, who sent it and when, Previous and Next when there
+     * are more, a Download (the picture itself, named by pictureName) and Close. Drawn closed with the
+     * report's first picture; the script fills in the one clicked. Its look is style.css's .snap-modal.
+     *
+     * @param array<string, mixed> $p the first picture
+     * @param array<string, mixed> $m its message
+     */
+    private static function pictureDialog(int $ticket, array $p, array $m, int $total, int $now): string
+    {
+        $url = (string) $p['url'];
+        $alt = self::pictureAlt($m['author'] === TicketStore::ADMIN, 1);
+        $count = 'Picture 1 of ' . $total;
+        return '<dialog class="snap-modal csupport-modal" data-snap-modal="" aria-label="' . Html::attr($total > 1 ? $count : $alt) . '">'
+            . '<div class="snap-modal-inner">'
+            . '<img class="snap-modal-img" data-snap-img="" src="' . Html::attr($url) . '" width="' . (int) $p['width'] . '" height="' . (int) $p['height'] . '" alt="' . Html::attr($alt) . '" decoding="async" />'
+            . '<div class="snap-modal-foot"><div class="snap-modal-words">'
+            . ($total > 1 ? '<p class="snap-modal-caption" data-snap-count="">' . Html::esc($count) . '</p>' : '')
+            . '<p class="snap-modal-meta" data-snap-meta="">' . Html::esc(self::pictureLine($m, $now)) . '</p>'
+            . '</div><div class="snap-modal-actions">'
+            . ($total > 1 ? '<span class="snap-modal-steps"><button type="button" class="snap-modal-step" data-snap-prev="">Previous</button><button type="button" class="snap-modal-step" data-snap-next="">Next</button></span>' : '')
+            . '<a class="snap-modal-download" data-snap-download="" href="' . Html::attr($url) . '" download="' . Html::attr(self::pictureName($ticket, 1)) . '">Download</a>'
+            . '<button type="button" class="snap-modal-close" data-snap-close="">Close</button>'
+            . '</div></div></div></dialog>';
     }
 
     /**

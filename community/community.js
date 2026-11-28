@@ -18,6 +18,8 @@
  *   screenshot is added (support-files.js); the form still posts as it does without this.
  * - a Support report's messages take reactions: React opens the same picker, through the game's own
  *   report route (support-reactions.js).
+ * - a Support report's pictures open in the site's picture pop-up, with Previous and Next between
+ *   them (picture-dialog.js, a Snap's page's too); a modifier click still opens the picture itself.
  *
  * The REST nonce is the one the page drew (main[data-nonce]); a stale one is swapped for a fresh one
  * from admin-ajax.php?action=rest-nonce, as players/buddy.js does.
@@ -373,6 +375,18 @@ function wirePage() {
       })
       .catch((e) => console.warn('support reactions', e));
     stops.push(() => { gone = true; stopReact?.(); });
+  }
+
+  // —— A Support report's pictures: the site's picture pop-up (picture-dialog.js, by its content key from the import map) ——
+
+  const supportPictures = supportReport?.querySelector('[data-snap-modal]') ? supportReport : null;
+  if (supportPictures) {
+    let stopPictures = null;
+    let gone = false;
+    import('/wp-content/themes/groddle/community/picture-dialog.js')
+      .then((m) => { if (!gone) stopPictures = m.wirePictureDialog(supportPictures); })
+      .catch((e) => console.warn('support pictures', e));
+    stops.push(() => { gone = true; stopPictures?.(); });
   }
 
   // —— A thread ——

@@ -3,8 +3,7 @@
  * script: every sort, filter, view and page is a link or a GET form the server draws. With it, a
  * filter applies as soon as it is ticked (no Show button), and the list swaps in place (the
  * same page fetched from the server) instead of a whole reload, with the address and Back kept.
- * "Visit a neighbour" is left a plain link (the server picks the house). A Snap's page loads it
- * too, for the larger view of its picture (the second part below).
+ * "Visit a neighbour" is left a plain link (the server picks the house).
  */
 (() => {
   const SEL = '[data-players-list]';
@@ -68,50 +67,5 @@
 
   window.addEventListener('popstate', () => {
     if (location.pathname === '/players/') show(location.pathname + location.search, false);
-  });
-})();
-
-/**
- * A Snap's page (/players/{slug}/snaps/{n}/, src/PlayerPages.php snapPage; ours): a plain left
- * click (or Enter) on the picture opens it larger in a dialog over the page, with a Download and
- * a Close. Escape, a click on the dimmed page around it and Close shut it, and the focus goes back
- * to the picture. A middle click or a click with Ctrl, Cmd, Shift or Alt still opens the picture's
- * own address, and without this script (or without dialogs) the link does just that.
- */
-(() => {
-  const link = document.querySelector('[data-snap-open]');
-  const dialog = document.querySelector('[data-snap-modal]');
-  if (!link || !dialog || typeof dialog.showModal !== 'function') return;
-  const root = document.documentElement;
-  let downOnBackdrop = false;
-
-  function open() {
-    if (dialog.open) return;
-    root.classList.add('snap-modal-open');
-    dialog.showModal();
-    dialog.querySelector('[data-snap-close]')?.focus();
-  }
-
-  link.addEventListener('click', (e) => {
-    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    e.preventDefault();
-    open();
-  });
-
-  dialog.querySelector('[data-snap-close]')?.addEventListener('click', () => dialog.close());
-  dialog.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    e.preventDefault();
-    dialog.close();
-  });
-  // Only a click that starts and ends on the backdrop (the dialog box itself has no padding of its own) closes it, so a drag out of the caption does not.
-  dialog.addEventListener('pointerdown', (e) => { downOnBackdrop = e.target === dialog; });
-  dialog.addEventListener('click', (e) => {
-    if (e.target === dialog && downOnBackdrop) dialog.close();
-    downOnBackdrop = false;
-  });
-  dialog.addEventListener('close', () => {
-    root.classList.remove('snap-modal-open');
-    link.focus();
   });
 })();

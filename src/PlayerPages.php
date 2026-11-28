@@ -133,6 +133,9 @@ final readonly class PlayerPages
     /** G1298: the Players page's script (swaps the list in place; keyed by its content, AssetKeys). */
     public const PLAYERS_JS = '/wp-content/themes/groddle/players/players.js';
 
+    /** The site's picture pop-up (a Snap's page and a Support report share it; keyed by its content, AssetKeys). */
+    public const PICTURE_DIALOG_JS = '/wp-content/themes/groddle/community/picture-dialog.js';
+
     /** The buddy button's labels, glitch.com's (the archived profile's buddyadd and buddyremove). */
     public const BUDDY_LABELS = ['add' => 'Add to buddy list', 'remove' => 'Remove from buddy list'];
 
@@ -937,13 +940,13 @@ final readonly class PlayerPages
         } else {
             $head = "<meta name=\"robots\" content=\"noindex\" />\n";
         }
-        $script = '<script src="' . Html::attr(AssetKeys::url(self::PLAYERS_JS, dirname(__DIR__), 'players/players.js')) . "\" defer></script>\n";
+        $script = '<script type="module" src="' . Html::attr(AssetKeys::url(self::PICTURE_DIALOG_JS, dirname(__DIR__), 'community/picture-dialog.js')) . "\"></script>\n";
         return $this->page($title, $description, $body, $script, $head);
     }
 
     /**
-     * The Snap's page's larger view (ours; players/players.js opens it when the picture is
-     * clicked): the picture fitted to the screen, its caption and where and when, a Download
+     * The Snap's page's larger view (ours; community/picture-dialog.js, the site's picture pop-up,
+     * opens it when the picture is clicked): the picture fitted to the screen, its caption and where and when, a Download
      * and a Close. A closed dialog is never shown, so without the script the picture's link
      * opens the picture itself, as before.
      */

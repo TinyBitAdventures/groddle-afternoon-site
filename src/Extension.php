@@ -55,6 +55,8 @@ final class Extension implements MinnExtension
         '/js/chat-links.js',
         '/js/ui/context-menu.js',
         '/wp-content/themes/groddle/console/charts.js',
+        // The site's picture pop-up (a Support report's pictures; a Snap's page loads it itself).
+        '/wp-content/themes/groddle/community/picture-dialog.js',
     ];
 
     /** The built game's folder (StaticRoot), for the keys of the files head() links; set in register(). */
