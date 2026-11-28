@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Groddle\Minn;
 
+use Minn\Db;
 use Minn\Extension\Seams;
 use Minn\Http\Access;
 use Minn\Http\Method;
@@ -23,8 +24,9 @@ use Minn\RestError;
  * and giving it up puts it back on sale.
  *
  * The realtime server (groddle-afternoon-server quarter.go) decides who asked first and tells the
- * block; this keeps the claims (table groddle_quarter_lots: its primary key is the lot, so a lot
- * has one owner, and user_id is unique, so a player has one lot, however claims race):
+ * block; this keeps the claims (table groddle_quarter_lots: its primary key is the street and the
+ * lot, so a lot has one owner, and user_id is unique, so a player has one lot across every block,
+ * however claims race; lot numbers are "<x><y>##", so no two blocks share one either):
  *
  *   POST groddle/v1/ledger/quarter/lots     (the realtime server, signed: ServiceCall) {}
  *        200 {"lots":[Row]}: every claimed lot, for a server that has just started
@@ -37,10 +39,14 @@ use Minn\RestError;
  *   settled again (the server may ask twice after a lost answer).
  *
  *   GET  groddle/v1/quarter/{street}        (signed in) the block's claimed lots with each owner's
- *        house as they keep it on their home street (G796, Neighbours::homeHouse) and its style:
- *        {"street","lots":[{"lot","owner":{"id","name"},"house","style"}]}
+ *        house as they keep it on their home street (G796, Neighbours::homeHouse) and its style,
+ *        and the lot the caller holds on any block (null for none), so the game can say "one lot
+ *        each" before it asks:
+ *        {"street","lots":[{"lot","owner":{"id","name"},"house","style"}],"mine":{"street","lot"}|null}
  *
- * A block's lots are the game's own street JSON (assets/streets/<tsid>.json `quarter.lots`).
+ * A block's lots are the game's own street JSON (assets/streets/<tsid>.json `quarter.lots`): every
+ * block (1100, 1200, ...) is one street there, and nothing here names one, so a new block needs no
+ * change on the site. HomeStreet sends the owner's lot (held) for the home street's quarter arm.
  */
 final readonly class Quarter
 {
@@ -50,7 +56,7 @@ final readonly class Quarter
     public const CLAIM = '/groddle/v1/ledger/quarter/claim';
     public const RELEASE = '/groddle/v1/ledger/quarter/release';
 
-    /** Rows one answer carries at most (one block of ten today). */
+    /** Rows one answer carries at most (two blocks of ten today). */
     public const ROWS_MAX = 2000;
 
     public const TEXT_TAKEN = 'Someone else has just claimed that lot.'; // ours
@@ -122,7 +128,22 @@ final readonly class Quarter
             $state = Neighbours::state($db, $id);
             $lots[] = self::front((int) $r['lot'], $id, $names[$id], Neighbours::homeHouse($state), Neighbours::homeStyle($state));
         }
-        return Response::json(['street' => $street, 'lots' => $lots]);
+        return Response::json(['street' => $street, 'lots' => $lots, 'mine' => self::held($db, (int) $this->minn->reader->userId)]);
+    }
+
+    /**
+     * The lot a player holds on any block, or null (the home street's quarter arm, HomeStreet; and
+     * the game's "one lot each" before it asks, block).
+     *
+     * @return array{street: string, lot: int}|null
+     */
+    public static function held(Db $db, int $id): ?array
+    {
+        if ($id <= 0) {
+            return null;
+        }
+        $row = $db->row('SELECT street, lot FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ?', [$id]);
+        return $row === null ? null : ['street' => (string) $row['street'], 'lot' => (int) $row['lot']];
     }
 
     // —— Rules (pure: tests run them through php -r) ——

@@ -25,7 +25,7 @@ use Minn\RestError;
  *            "poles":[Pole],"sales":[{"op","uid","class","price"}],
  *            "boxes":[{"uid","class","price","stock"}],"key":true,
  *            "restores":[{"job","proto","yard","item","cycle","mult","token"}],
- *            "towers":[{"job","floor","token"}]}
+ *            "towers":[{"job","floor","token"}],"quarter":{"street","lot"}|null}
  *
  * - signpost: the arms of the owner's post (HomeSignpost).
  * - poles: Note Poles (items/note_pole.js) placed on the home street or in
@@ -54,6 +54,9 @@ use Minn\RestError;
  *   (tower.js tower_start_expand) was the owner's. got: what the owner had
  *   put in alone before it was shared, from the save (the server takes it
  *   once, when it makes the project, and checks it against the floor's needs).
+ *
+ * - quarter: the owner's lot in the Quarter (Quarter::held), for the home
+ *   street signpost's quarter arm (ours, Austin 2026-11-27), or null.
  *
  * Who may read it: the owner, or anyone Neighbours lets visit (not blocked,
  * neither in the tutorial, the owner has a home).
@@ -119,6 +122,7 @@ final readonly class HomeStreet
             'key' => $owner === $me || LedgerBoxes::hasKey($db, $owner, $me),
             'restores' => $this->restores($theirs, $me, $owner),
             'towers' => $this->towers($theirs, $me, $owner),
+            'quarter' => Quarter::held($db, $owner),
         ]);
     }
 
