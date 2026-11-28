@@ -348,6 +348,35 @@ svg.profile-mini-art { width: 82px; height: 118px; }
 .snap-page-meta { margin: 0 0 12px; color: var(--muted); }
 .snap-page-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; font-weight: 700; }
 .snap-page-links a { color: var(--fg); }
+/* The Snap's larger view (PlayerPages::snapModal, players/players.js; ours): the picture fitted to the window, never past its own size, the words and buttons under it. The box has no padding, so a click on it is a click on the backdrop. */
+html.snap-modal-open { overflow: hidden; }
+.snap-page-picture[data-snap-open] { cursor: zoom-in; }
+.snap-page-picture:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.snap-modal { width: fit-content; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); margin: auto; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--fg); box-shadow: 0 18px 48px var(--lift-shadow); overflow: auto; }
+.snap-modal::backdrop { background: color-mix(in srgb, var(--bg) 88%, transparent); }
+.snap-modal-inner { padding: 12px; }
+.snap-modal-img { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(100dvh - 150px); margin: 0 auto; border-radius: var(--radius); background: var(--track); object-fit: contain; }
+.snap-modal-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; width: 0; min-width: 100%; margin-top: 12px; }
+.snap-modal-words { flex: 1 1 14em; min-width: 0; }
+.snap-modal-caption { margin: 0 0 2px; font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.snap-modal-meta { margin: 0; color: var(--muted); font-size: 15px; }
+.snap-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.snap-modal-download, .snap-modal-close { display: inline-flex; align-items: center; min-height: 38px; padding: 0 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font: inherit; font-size: 15px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.snap-modal-download { border-color: var(--play-bg); background: var(--play-bg); color: var(--play-fg); }
+.snap-modal-download:hover { border-color: var(--play-hover); background: var(--play-hover); }
+.snap-modal-close:hover { border-color: var(--fg); }
+.snap-modal-download:focus-visible, .snap-modal-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .snap-modal { max-width: calc(100vw - 16px); }
+  .snap-modal-inner { padding: 8px; }
+  .snap-modal-img { max-height: calc(100dvh - 190px); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .snap-modal[open] { animation: snap-modal-in 0.18s ease-out; }
+  .snap-modal[open]::backdrop { animation: snap-modal-fade 0.18s ease-out; }
+}
+@keyframes snap-modal-in { from { opacity: 0; transform: scale(0.97); } }
+@keyframes snap-modal-fade { from { opacity: 0; } }
 /* G1283: the profile's way to its Tower's page (Glitch's profile-visit-home, button-tiny), and that page. */
 .profile-visit-home { display: flex; flex-wrap: wrap; gap: 8px 10px; margin: 14px 0 0; }
 .profile-visit-home .button-tiny, .place-links .place-zoom { display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); font-size: 15px; font-weight: 700; text-decoration: none; }

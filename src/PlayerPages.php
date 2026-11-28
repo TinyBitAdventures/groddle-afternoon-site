@@ -906,14 +906,17 @@ final readonly class PlayerPages
         $picture = Snaps::url($id, $sid);
         $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
         $alt = $caption !== '' ? $caption : "A snap by {$name}";
+        $meta = implode(' · ', array_filter([$where, $at ? gmdate('F j, Y', $at) : '', "by {$name}"]));
+        $download = Snaps::url($id, $sid, 'download');
         $main = ($public ? '' : "    <p class=\"profile-private\">Only you can see this snap. Make it public in the game's Snaps to share this page.</p>\n")
             . "    <figure class=\"snap-page\">\n"
-            . '      <a class="snap-page-picture" href="' . Html::attr($picture) . '"><img src="' . Html::attr($picture) . '"' . $size . ' alt="' . Html::attr($alt) . "\" decoding=\"async\" /></a>\n"
+            . '      <a class="snap-page-picture" href="' . Html::attr($picture) . '" data-snap-open=""><img src="' . Html::attr($picture) . '"' . $size . ' alt="' . Html::attr($alt) . "\" decoding=\"async\" /></a>\n"
             . "      <figcaption>\n"
             . ($caption !== '' ? '        <p class="snap-page-caption">' . Html::esc($caption) . "</p>\n" : '')
-            . '        <p class="snap-page-meta">' . Html::esc(implode(' · ', array_filter([$where, $at ? gmdate('F j, Y', $at) : '', "by {$name}"]))) . "</p>\n"
-            . '        <p class="snap-page-links"><a href="' . Html::attr(Snaps::url($id, $sid, 'download')) . '" download="">Download</a> <a href="' . Html::attr($who['base'] . 'snaps/') . '">All of ' . Html::esc($name) . "'s snaps</a></p>\n"
-            . "      </figcaption>\n    </figure>\n";
+            . '        <p class="snap-page-meta">' . Html::esc($meta) . "</p>\n"
+            . '        <p class="snap-page-links"><a href="' . Html::attr($download) . '" download="">Download</a> <a href="' . Html::attr($who['base'] . 'snaps/') . '">All of ' . Html::esc($name) . "'s snaps</a></p>\n"
+            . "      </figcaption>\n    </figure>\n"
+            . self::snapModal($picture, $size, $alt, $caption, $meta, $download);
         $body = self::masthead($who, 'snaps')
             . "<main class=\"band profile profile-page-snap\">\n  <div class=\"wrap\">\n" . $main . "  </div>\n</main>";
         $title = $caption !== '' ? "{$caption}: a snap by {$name}" : "A snap by {$name}";
@@ -934,7 +937,30 @@ final readonly class PlayerPages
         } else {
             $head = "<meta name=\"robots\" content=\"noindex\" />\n";
         }
-        return $this->page($title, $description, $body, '', $head);
+        $script = '<script src="' . Html::attr(AssetKeys::url(self::PLAYERS_JS, dirname(__DIR__), 'players/players.js')) . "\" defer></script>\n";
+        return $this->page($title, $description, $body, $script, $head);
+    }
+
+    /**
+     * The Snap's page's larger view (ours; players/players.js opens it when the picture is
+     * clicked): the picture fitted to the screen, its caption and where and when, a Download
+     * and a Close. A closed dialog is never shown, so without the script the picture's link
+     * opens the picture itself, as before.
+     */
+    private static function snapModal(string $picture, string $size, string $alt, string $caption, string $meta, string $download): string
+    {
+        return '    <dialog class="snap-modal" data-snap-modal="" aria-label="' . Html::attr($alt) . "\">\n"
+            . "      <div class=\"snap-modal-inner\">\n"
+            . '        <img class="snap-modal-img" src="' . Html::attr($picture) . '"' . $size . ' alt="' . Html::attr($alt) . "\" decoding=\"async\" />\n"
+            . "        <div class=\"snap-modal-foot\">\n"
+            . "          <div class=\"snap-modal-words\">\n"
+            . ($caption !== '' ? '            <p class="snap-modal-caption">' . Html::esc($caption) . "</p>\n" : '')
+            . '            <p class="snap-modal-meta">' . Html::esc($meta) . "</p>\n"
+            . "          </div>\n"
+            . "          <div class=\"snap-modal-actions\">\n"
+            . '            <a class="snap-modal-download" href="' . Html::attr($download) . "\" download=\"\">Download</a>\n"
+            . "            <button type=\"button\" class=\"snap-modal-close\" data-snap-close=\"\">Close</button>\n"
+            . "          </div>\n        </div>\n      </div>\n    </dialog>\n";
     }
 
     /**
