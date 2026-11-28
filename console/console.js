@@ -794,6 +794,8 @@ export function logWords(line) {
       if (line.delivery === 'down') return `tried to end the Rook attack on ${street}${how}`;
       return `ended the Rook attack on ${street}${typeof d.players === 'number' ? ` (${d.players === 1 ? '1 player' : `${d.players} players`} there)` : ''}`;
     }
+    // The Night sky panel (console/sky.js, src/AdminSky.php): a meteor shower or a lone shooting star for everyone online.
+    case 'meteor': return meteorLogWords(d, line.delivery);
     case 'board_remove': {
       const street = d.street?.label || d.street?.tsid || 'a board';
       const title = d.title ? `“${d.title}”` : 'a note';
@@ -813,6 +815,15 @@ export function logWords(line) {
     case 'migrate': return `brought in ${d.made ?? 0} old bug ${d.made === 1 ? 'report' : 'reports'} as tickets`;
     default: return `${line.kind} ${who}${how}`;
   }
+}
+
+/** PURE: a Night sky press in the activity log (kind meteor; detail op, lead, kind, players; delivery live | busy | none | down). */
+export function meteorLogWords(d = {}, delivery = 'live') {
+  const what = d.op === 'star' ? 'a lone shooting star' : d.op === 'stop' ? 'the sky show' : d.lead ? 'a meteor shower in 2 minutes, with the hint' : 'a meteor shower';
+  if (delivery === 'down') return `tried to start ${what} (realtime server not answering)`;
+  if (delivery === 'busy') return `tried to start ${what}, but the sky was busy`;
+  if (d.op === 'stop') return delivery === 'none' ? 'tried to stop the sky show, but nothing was on' : `stopped the sky show${typeof d.players === 'number' ? ` (${d.players === 1 ? '1 player' : `${d.players} players`} online)` : ''}`;
+  return `started ${what}${typeof d.players === 'number' ? ` (${d.players === 1 ? '1 player' : `${d.players} players`} online)` : ''}`;
 }
 
 /** The chat log's kinds in words (the server's local, channel, party). */

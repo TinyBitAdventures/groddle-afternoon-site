@@ -81,7 +81,7 @@ final readonly class AdminConsolePage
     private const ASSETS = '/wp-content/themes/groddle/console/';
 
     /** Bumped when console.js or console.css changes. */
-    public const ASSET_KEY = 'skin-15';
+    public const ASSET_KEY = 'skin-16';
 
     /** Bumped when console/server.js or console/server.css changes (console/charts.js has its own content key: Extension::importMap). */
     public const SERVER_ASSET_KEY = 'server-4';
@@ -91,6 +91,9 @@ final readonly class AdminConsolePage
 
     /** Bumped when console/ledger.js or console/ledger.css changes. */
     public const LEDGER_ASSET_KEY = 'ledger-3';
+
+    /** Bumped when console/sky.js changes (the Players tab's Night sky panel, AdminSky). */
+    public const SKY_ASSET_KEY = 'sky-1';
 
     public function __construct(private Seams $minn)
     {
@@ -200,6 +203,8 @@ final readonly class AdminConsolePage
             . "<link rel=\"stylesheet\" href=\"{$a}console.css?v={$v}\" />\n"
             . "<script type=\"module\" src=\"{$a}console.js?v={$v}\"></script>\n"
             . "<script type=\"module\" src=\"{$a}moderation.js?v={$v}\"></script>\n"
+            // The Players tab's Night sky panel (console/sky.js, AdminSky): meteor showers and lone shooting stars.
+            . "<script type=\"module\" src=\"{$a}sky.js?v=" . self::SKY_ASSET_KEY . "\"></script>\n"
             // The Server tab (console/server.js, AdminConsole::health): its own files and key, so a change there leaves console.js's cache alone.
             . "<link rel=\"stylesheet\" href=\"{$a}server.css?v=" . self::SERVER_ASSET_KEY . "\" />\n"
             . "<script type=\"module\" src=\"{$a}server.js?v=" . self::SERVER_ASSET_KEY . "\"></script>\n"

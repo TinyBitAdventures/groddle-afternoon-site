@@ -403,3 +403,7 @@ a.console-hint { color: var(--fg); }
   .console-body { overflow: visible; padding: 12px 10px 32px; }
 }
 
+
+/* The Players tab's Night sky panel (console/sky.js, src/AdminSky.php): its four buttons wrap on a narrow screen. */
+.console-sky-buttons { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.console-sky .console-quote { margin: 8px 0; }
