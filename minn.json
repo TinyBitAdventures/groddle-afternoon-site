@@ -1,6 +1,6 @@
 {
   "name": "Groddle Afternoon",
-  "version": "0.5.62",
+  "version": "0.5.63",
   "license": "MIT",
   "autoload": {
     "Groddle\\Minn\\": "src/"
@@ -668,6 +668,7 @@
       "bytes int(10) unsigned NOT NULL DEFAULT 0",
       "created_at datetime NOT NULL",
       "public tinyint(1) unsigned NOT NULL DEFAULT 0",
+      "meteor tinyint(1) unsigned NOT NULL DEFAULT 0",
       "PRIMARY KEY  (id)",
       "KEY user_id (user_id,created_at)",
       "KEY street (street)"

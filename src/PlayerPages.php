@@ -917,6 +917,7 @@ final readonly class PlayerPages
             . "      <figcaption>\n"
             . ($caption !== '' ? '        <p class="snap-page-caption">' . Html::esc($caption) . "</p>\n" : '')
             . '        <p class="snap-page-meta">' . Html::esc($meta) . "</p>\n"
+            . self::meteorTag($row)
             . '        <p class="snap-page-links"><a href="' . Html::attr($download) . '" download="">Download</a> <a href="' . Html::attr($who['base'] . 'snaps/') . '">All of ' . Html::esc($name) . "'s snaps</a></p>\n"
             . "      </figcaption>\n    </figure>\n"
             . self::snapModal($picture, $size, $alt, $caption, $meta, $download);
@@ -942,6 +943,15 @@ final readonly class PlayerPages
         }
         $script = '<script type="module" src="' . Html::attr(AssetKeys::url(self::PICTURE_DIALOG_JS, dirname(__DIR__), 'community/picture-dialog.js')) . "\"></script>\n";
         return $this->page($title, $description, $body, $script, $head);
+    }
+
+    /**
+     * A Snap that caught a shooting star in the sky (Snaps `meteor`; the game's js/meteor-shower.js,
+     * ours): a small "Shooting star" tag under where and when. Nothing for any other Snap.
+     */
+    public static function meteorTag(array $row): string
+    {
+        return (int) ($row['meteor'] ?? 0) === 1 ? "        <p class=\"snap-page-tags\"><span class=\"snap-tag snap-tag-meteor\">Shooting star</span></p>\n" : '';
     }
 
     /**

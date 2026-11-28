@@ -346,6 +346,10 @@ svg.profile-mini-art { width: 82px; height: 118px; }
 .snap-page figcaption { margin-top: 14px; }
 .snap-page-caption { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: var(--fg); overflow-wrap: anywhere; }
 .snap-page-meta { margin: 0 0 12px; color: var(--muted); }
+/* A Snap that caught a shooting star (PlayerPages::meteorTag; ours). */
+.snap-page-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.snap-tag { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--chip-bg); color: var(--fg); font-size: 14px; font-weight: 700; }
+.snap-tag-meteor::before { content: ''; width: 14px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent)); transform: rotate(-24deg); }
 .snap-page-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; font-weight: 700; }
 .snap-page-links a { color: var(--fg); }
 /* The site's picture pop-up (community/picture-dialog.js; ours), first the Snap's larger view (PlayerPages::snapModal), now a Support report's pictures too (SupportPages::pictureDialog, with Previous and Next): the picture fitted to the window, never past its own size, the words and buttons under it. The box has no padding, so a click on it is a click on the backdrop. */

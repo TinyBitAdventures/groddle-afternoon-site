@@ -115,7 +115,11 @@ final readonly class Snaps
         return Response::json($this->album($me));
     }
 
-    /** Saves a Snap: {image, caption, street, x, y, whole?} (whole: a whole-home Snap, G1284). */
+    /**
+     * Saves a Snap: {image, caption, street, x, y, whole?, meteor?} (whole: a whole-home Snap, G1284;
+     * meteor: a shooting star was in the sky as it was taken, the game's js/meteor-shower.js, ours:
+     * its page shows a "Shooting star" tag).
+     */
     #[Route(Method::Post, '/groddle/v1/snaps', policy: new Policy(Access::SignedIn))]
     public function save(Request $request): Response
     {
@@ -126,6 +130,7 @@ final readonly class Snaps
         $street = self::street($body['street'] ?? '');
         $x = self::coordinate($body['x'] ?? 0);
         $y = self::coordinate($body['y'] ?? 0);
+        $meteor = self::meteor($body['meteor'] ?? false);
         $this->mayStart($me);
         $this->withinLimits($me);
         // G1284: a whole-home Snap (every floor stacked) is taller; only a literal true asks for its limits.
@@ -150,8 +155,8 @@ final readonly class Snaps
         $db = $this->minn->db;
         // Private: `public` is left to its default, 0 (Austin 2026-11-24).
         $db->execute(
-            'INSERT INTO ' . $db->table(self::TABLE) . ' (user_id, file, street, x, y, caption, width, height, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [$me, $file, $street, $x, $y, $caption, $image['width'], $image['height'], strlen($image['bytes']), gmdate('Y-m-d H:i:s')]
+            'INSERT INTO ' . $db->table(self::TABLE) . ' (user_id, file, street, x, y, caption, width, height, bytes, created_at, meteor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [$me, $file, $street, $x, $y, $caption, $image['width'], $image['height'], strlen($image['bytes']), gmdate('Y-m-d H:i:s'), $meteor ? 1 : 0]
         );
         $id = $db->insertId();
         return Response::json($this->withSnap($me, $id), 201);
@@ -237,7 +242,7 @@ final readonly class Snaps
         }
         $offset = random_int(0, $count - 1);
         $row = $db->row(
-            "SELECT s.id, s.user_id, s.file, s.street, s.x, s.y, s.caption, s.width, s.height, s.created_at, s.public, p.name FROM {$snaps} s JOIN {$players} p ON p.user_id = s.user_id WHERE {$where} ORDER BY s.id LIMIT 1 OFFSET {$offset}",
+            "SELECT s.id, s.user_id, s.file, s.street, s.x, s.y, s.caption, s.width, s.height, s.created_at, s.public, s.meteor, p.name FROM {$snaps} s JOIN {$players} p ON p.user_id = s.user_id WHERE {$where} ORDER BY s.id LIMIT 1 OFFSET {$offset}",
             $params
         );
         if (!is_array($row)) {
@@ -252,7 +257,7 @@ final readonly class Snaps
     private function album(int $me): array
     {
         $db = $this->minn->db;
-        $rows = $db->rows('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? ORDER BY id DESC', [$me]);
+        $rows = $db->rows('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public, meteor FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? ORDER BY id DESC', [$me]);
         $slug = Profiles::slugs($db)[$me] ?? null;
         return [
             'snaps' => array_map(static fn (array $row): array => self::shape($row, $slug), $rows),
@@ -286,7 +291,17 @@ final readonly class Snaps
             'at' => SaveShape::time((string) $row['created_at']),
             'public' => $public,
             'page' => $public && $slug !== null ? self::page($slug, $id) : null,
+            'meteor' => (int) ($row['meteor'] ?? 0) === 1,
         ];
+    }
+
+    /**
+     * Whether a Snap caught a shooting star (the game's word as it took it; ours): only a literal true.
+     * Nothing rides on it but the tag on its page, so the game's word is taken as it is.
+     */
+    public static function meteor(mixed $v): bool
+    {
+        return $v === true;
     }
 
     /** Where a Snap's picture is served (PlayerPages::snapPicture): 'picture', 'small' or 'download'. */
@@ -385,7 +400,7 @@ final readonly class Snaps
      */
     public static function find(\Minn\Db $db, int $owner, int $id): ?array
     {
-        return $db->row('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public FROM ' . $db->table(self::TABLE) . ' WHERE id = ? AND user_id = ?', [$id, $owner]);
+        return $db->row('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public, meteor FROM ' . $db->table(self::TABLE) . ' WHERE id = ? AND user_id = ?', [$id, $owner]);
     }
 
     /**
@@ -434,7 +449,7 @@ final readonly class Snaps
         if (self::blocked($db, $reader, $owner)) {
             return [];
         }
-        return $db->rows('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? AND public = 1 ORDER BY id DESC', [$owner]);
+        return $db->rows('SELECT id, user_id, file, street, x, y, caption, width, height, created_at, public, meteor FROM ' . $db->table(self::TABLE) . ' WHERE user_id = ? AND public = 1 ORDER BY id DESC', [$owner]);
     }
 
     /**
