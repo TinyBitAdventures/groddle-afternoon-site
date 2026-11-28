@@ -25,8 +25,10 @@ use Minn\RestError;
  *
  * The realtime server (groddle-afternoon-server quarter.go) decides who asked first and tells the
  * block; this keeps the claims (table groddle_quarter_lots: its primary key is the street and the
- * lot, so a lot has one owner, and user_id is unique, so a player has one lot across every block,
- * however claims race; lot numbers are "<x><y>##", so no two blocks share one either):
+ * lot, so a lot has one owner, and user_id is unique, so a player has one lot across every block of
+ * every quarter, however claims race; lot numbers are "<x><y>##", so no two blocks of one quarter
+ * share one, but two quarters do: Marylpole Mount Quarter and Mien Evoke Quarter both have an 1105,
+ * told apart by the street):
  *
  *   POST groddle/v1/ledger/quarter/lots     (the realtime server, signed: ServiceCall) {}
  *        200 {"lots":[Row]}: every claimed lot, for a server that has just started
@@ -45,8 +47,8 @@ use Minn\RestError;
  *        {"street","lots":[{"lot","owner":{"id","name"},"house","style"}],"mine":{"street","lot"}|null}
  *
  * A block's lots are the game's own street JSON (assets/streets/<tsid>.json `quarter.lots`): every
- * block (1100, 1200, ...) is one street there, and nothing here names one, so a new block needs no
- * change on the site. HomeStreet sends the owner's lot (held) for the home street's quarter arm.
+ * block (1100, 1200, ...) of every quarter is one street there, and nothing here names one, so a
+ * new block or quarter needs no change on the site. HomeStreet sends the owner's lot (held) for the home street's quarter arm.
  */
 final readonly class Quarter
 {
