@@ -93,7 +93,7 @@ final readonly class AdminConsolePage
     public const LEDGER_ASSET_KEY = 'ledger-3';
 
     /** Bumped when console/sky.js changes (the Players tab's Night sky panel, AdminSky). */
-    public const SKY_ASSET_KEY = 'sky-1';
+    public const SKY_ASSET_KEY = 'sky-2';
 
     public function __construct(private Seams $minn)
     {

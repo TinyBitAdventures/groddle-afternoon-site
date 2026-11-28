@@ -121,7 +121,7 @@ function boot() {
   const section = el('section', { class: 'console-panel console-sky', 'aria-labelledby': 'console-sky-title', 'data-console-sky': '' },
     el('div', { class: 'console-panel-head' },
       el('h2', { id: 'console-sky-title' }, 'Night sky'),
-      el('p', { class: 'console-hint' }, 'A meteor shower (3 to 4 minutes, a streak every 6 to 12 seconds) or one shooting star, for everyone online at once. Players can snap them.')),
+      el('p', { class: 'console-hint' }, 'A meteor shower (3 to 4 minutes, a quick streak every few seconds, from one point in the sky) or one big, slow shooting star, for everyone online at once. Players can snap them.')),
     clock, sky, now, row, status);
   const cols = panel.querySelectorAll('.console-col');
   const col = cols[cols.length - 1] || panel;
