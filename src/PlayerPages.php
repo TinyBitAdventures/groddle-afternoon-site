@@ -133,7 +133,7 @@ final readonly class PlayerPages
     /** G1298: the Players page's script (swaps the list in place; keyed by its content, AssetKeys). */
     public const PLAYERS_JS = '/wp-content/themes/groddle/players/players.js';
 
-    /** The site's picture pop-up (a Snap's page and a Support report share it; keyed by its content, AssetKeys). */
+    /** The site's picture pop-up (a Snap's page, a profile's snaps grids and a Support report share it; keyed by its content, AssetKeys). */
     public const PICTURE_DIALOG_JS = '/wp-content/themes/groddle/community/picture-dialog.js';
 
     /** The buddy button's labels, glitch.com's (the archived profile's buddyadd and buddyremove). */
@@ -520,6 +520,10 @@ final readonly class PlayerPages
             . $private . $main
             . "  </div>\n</main>";
         $scripts = $who['buddy'] === '' ? '' : '<script src="' . self::BUDDY_JS . '?v=' . self::BUDDY_JS_KEY . "\" defer></script>\n";
+        // A snaps grid's pop-up (snapsDialog): the site's picture pop-up, keyed by its content.
+        if (str_contains($main, 'data-snap-modal')) {
+            $scripts .= '<script type="module" src="' . Html::attr(AssetKeys::url(self::PICTURE_DIALOG_JS, dirname(__DIR__), 'community/picture-dialog.js')) . "\"></script>\n";
+        }
         // A home street to pan along (HomeLayout version 2): its camera.
         if (str_contains($main, 'hd-pan')) {
             $scripts .= '<script type="module" src="' . self::HOME_PAN_JS . '?v=' . self::HOME_PAN_JS_KEY . "\"></script>\n";
@@ -846,10 +850,15 @@ final readonly class PlayerPages
         foreach ($shown as $row) {
             $out .= "\n        <li>" . self::snapCard($who, $row) . '</li>';
         }
-        return $out . "\n      </ul>\n    </section>\n";
+        return $out . "\n      </ul>\n" . self::snapsDialog($who, $shown) . "    </section>\n";
     }
 
-    /** One public Snap's card: the picture in its own shape, the caption, the street and the date, linking its page. */
+    /**
+     * One public Snap's card: the picture in its own shape, the caption, the street and the date,
+     * linking its page. A plain click opens it in the site's picture pop-up instead
+     * (community/picture-dialog.js, snapsDialog): the card carries its full picture, its download
+     * route, its caption and its line for it. A modifier click, or no script, opens its page.
+     */
     private static function snapCard(array $who, array $row): string
     {
         $id = (int) $row['id'];
@@ -862,11 +871,60 @@ final readonly class PlayerPages
         $small = Snaps::url($who['id'], $id, 'small');
         // The cards' copy (SnapImage::SMALL_W) on most screens, the picture itself where a card is wider than that.
         $srcset = $w > SnapImage::SMALL_W ? ' srcset="' . Html::attr($small . ' ' . SnapImage::SMALL_W . 'w, ' . Snaps::url($who['id'], $id) . " {$w}w") . '" sizes="' . Html::attr(self::SNAP_SIZES) . '"' : '';
-        return '<a class="profile-snap" href="' . Html::attr($who['base'] . "snaps/{$id}/") . '">'
+        $hooks = ' data-snap-open="" data-snap-src="' . Html::attr(Snaps::url($who['id'], $id)) . '" data-snap-download="' . Html::attr(Snaps::url($who['id'], $id, 'download')) . '"'
+            . ' data-snap-caption="' . Html::attr($caption) . '" data-snap-line="' . Html::attr(self::snapLine($who, $row)) . '"';
+        return '<a class="profile-snap" href="' . Html::attr($who['base'] . "snaps/{$id}/") . '"' . $hooks . '>'
             . '<img src="' . Html::attr($small) . '"' . $size . $srcset . ' alt="' . Html::attr($caption !== '' ? $caption : 'A snap') . '" loading="lazy" decoding="async" />'
             . ($caption !== '' ? '<span class="profile-snap-caption">' . Html::esc($caption) . '</span>' : '')
             . '<span class="profile-snap-meta">' . Html::esc(implode(' · ', array_filter([$where, $at ? gmdate('M j, Y', $at) : '']))) . '</span>'
             . '</a>';
+    }
+
+    /** A Snap's line, its page's and the pop-up's: the street and its region, the date, by whom. */
+    private static function snapLine(array $who, array $row): string
+    {
+        $place = BuddiesOnline::where((string) $row['street'], $who['streets']);
+        $where = implode(', ', array_filter([$place['street'], $place['hub']]));
+        $at = strtotime(((string) $row['created_at']) . ' UTC');
+        return implode(' · ', array_filter([$where, $at ? gmdate('F j, Y', $at) : '', 'by ' . $who['name']]));
+    }
+
+    /**
+     * A snaps grid's pop-up (ours, Austin's pick 2026-11-28; the Snap's page's and a Support report's
+     * dialog, style.css .snap-modal): drawn closed with the grid's first snap, its full picture, caption,
+     * line, an "Open snap page" link, Previous and Next when the page shows more than one, Download
+     * (the download route, which names the file) and Close. community/picture-dialog.js fills in the one
+     * clicked from its card (snapCard). Only the snaps the grid already shows, so only what this viewer
+     * may open (Snaps::publicOf, the owner's own view too).
+     *
+     * @param list<array<string, mixed>> $rows
+     */
+    private static function snapsDialog(array $who, array $rows): string
+    {
+        if ($rows === []) {
+            return '';
+        }
+        $row = $rows[0];
+        $id = (int) $row['id'];
+        $w = (int) $row['width'];
+        $h = (int) $row['height'];
+        $caption = trim((string) $row['caption']);
+        $alt = $caption !== '' ? $caption : 'A snap';
+        $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
+        $steps = count($rows) > 1
+            ? '<span class="snap-modal-steps"><button type="button" class="snap-modal-step" data-snap-prev="">Previous</button><button type="button" class="snap-modal-step" data-snap-next="">Next</button></span>'
+            : '';
+        return '      <dialog class="snap-modal profile-snaps-modal" data-snap-modal="" aria-label="' . Html::attr($alt) . '">'
+            . '<div class="snap-modal-inner">'
+            . '<img class="snap-modal-img" data-snap-img="" src="' . Html::attr(Snaps::url($who['id'], $id)) . '"' . $size . ' alt="' . Html::attr($alt) . '" decoding="async" />'
+            . '<div class="snap-modal-foot"><div class="snap-modal-words">'
+            . '<p class="snap-modal-caption" data-snap-caption=""' . ($caption === '' ? ' hidden=""' : '') . '>' . Html::esc($caption) . '</p>'
+            . '<p class="snap-modal-meta" data-snap-meta="">' . Html::esc(self::snapLine($who, $row)) . '</p>'
+            . '<p class="snap-modal-links"><a class="snap-modal-page" href="' . Html::attr($who['base'] . "snaps/{$id}/") . '" data-snap-page="">Open snap page</a></p>'
+            . '</div><div class="snap-modal-actions">' . $steps
+            . '<a class="snap-modal-download" data-snap-download="" href="' . Html::attr(Snaps::url($who['id'], $id, 'download')) . '" download="">Download</a>'
+            . '<button type="button" class="snap-modal-close" data-snap-close="">Close</button>'
+            . "</div></div></div></dialog>\n";
     }
 
     #[Route(Method::Get, '/players/{slug:[a-z0-9][a-z0-9.-]*}/snaps/{snap:\d+}', policy: new Policy(Access::Public))]
@@ -909,7 +967,7 @@ final readonly class PlayerPages
         $picture = Snaps::url($id, $sid);
         $size = $w > 0 && $h > 0 ? " width=\"{$w}\" height=\"{$h}\"" : '';
         $alt = $caption !== '' ? $caption : "A snap by {$name}";
-        $meta = implode(' · ', array_filter([$where, $at ? gmdate('F j, Y', $at) : '', "by {$name}"]));
+        $meta = self::snapLine($who, $row);
         $download = Snaps::url($id, $sid, 'download');
         $main = ($public ? '' : "    <p class=\"profile-private\">Only you can see this snap. Make it public in the game's Snaps to share this page.</p>\n")
             . "    <figure class=\"snap-page\">\n"

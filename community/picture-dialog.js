@@ -14,6 +14,12 @@
  *   Each link carries its line (data-snap-line: who sent it and when) and its download name
  *   (data-snap-name); the dialog's picture, count, line and Download follow the one shown.
  *   community.js wires it for each view (in-place moves around /chat/ bring a new one).
+ * - a profile's snaps grid and its All snaps page (src/PlayerPages.php snapsDialog): every snap on
+ *   the page, in order. Each card links its snap's page (no script, or a modifier click, goes there),
+ *   so it carries its full picture (data-snap-src), its download route (data-snap-download), its
+ *   caption (data-snap-caption) and line (data-snap-line: street, date, by-name); the dialog's caption
+ *   hides when a snap has none, and its "Open snap page" (data-snap-page) follows the one shown.
+ *   The page loads this file as its module script, as a Snap's page does.
  * The look is style.css's .snap-modal, the same on both.
  */
 
@@ -59,9 +65,11 @@ export function wirePictureDialog(root) {
     const link = links[at];
     const thumb = link.querySelector('img');
     const href = link.getAttribute('href');
+    // A snap card links its page; its picture is its data-snap-src. A report's thumbnail links the picture itself.
+    const src = link.getAttribute('data-snap-src') || href;
     const img = part('img');
     if (img) {
-      img.src = href;
+      img.src = src;
       for (const k of ['width', 'height']) {
         const v = thumb?.getAttribute(k);
         if (v) img.setAttribute(k, v); else img.removeAttribute(k);
@@ -70,14 +78,22 @@ export function wirePictureDialog(root) {
     }
     const count = part('count');
     if (count) count.textContent = countWords(at, links.length);
+    const caption = part('caption');
+    if (caption) {
+      caption.textContent = link.getAttribute('data-snap-caption') || '';
+      caption.hidden = caption.textContent === '';
+    }
     const line = part('meta');
     if (line) line.textContent = link.getAttribute('data-snap-line') || '';
     const download = part('download');
     if (download) {
-      download.href = href;
+      download.href = link.getAttribute('data-snap-download') || src;
       download.setAttribute('download', link.getAttribute('data-snap-name') || '');
     }
-    dialog.setAttribute('aria-label', countWords(at, links.length));
+    const page = part('page');
+    if (page) page.href = href;
+    // A report's pictures are named by their place; a snap by its caption (its picture's words).
+    dialog.setAttribute('aria-label', count ? countWords(at, links.length) : thumb?.getAttribute('alt') || '');
   }
 
   function open(i) {

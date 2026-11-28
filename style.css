@@ -352,7 +352,7 @@ svg.profile-mini-art { width: 82px; height: 118px; }
 .snap-tag-meteor::before { content: ''; width: 14px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--accent)); transform: rotate(-24deg); }
 .snap-page-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; font-weight: 700; }
 .snap-page-links a { color: var(--fg); }
-/* The site's picture pop-up (community/picture-dialog.js; ours), first the Snap's larger view (PlayerPages::snapModal), now a Support report's pictures too (SupportPages::pictureDialog, with Previous and Next): the picture fitted to the window, never past its own size, the words and buttons under it. The box has no padding, so a click on it is a click on the backdrop. */
+/* The site's picture pop-up (community/picture-dialog.js; ours), first the Snap's larger view (PlayerPages::snapModal), a Support report's pictures (SupportPages::pictureDialog, with Previous and Next) and a profile's snaps grids (PlayerPages::snapsDialog): the picture fitted to the window, never past its own size, the words and buttons under it. The box has no padding, so a click on it is a click on the backdrop. */
 html.snap-modal-open { overflow: hidden; }
 .snap-page-picture[data-snap-open] { cursor: zoom-in; }
 .snap-page-picture:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
@@ -371,13 +371,20 @@ html.snap-modal-open { overflow: hidden; }
 .snap-modal-close:hover, .snap-modal-step:hover { border-color: var(--fg); }
 .snap-modal-download:focus-visible, .snap-modal-close:focus-visible, .snap-modal-step:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .snap-modal-steps { display: inline-flex; gap: 8px; }
+.snap-modal-links { margin: 4px 0 0; font-size: 15px; font-weight: 700; }
+.snap-modal-page { color: var(--fg); }
+.snap-modal-page:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+/* A profile's snaps grids (PlayerPages::snapsDialog): a card opens its snap here; the words take one more line (Open snap page). */
+.profile-snap[data-snap-open] { cursor: zoom-in; }
+.profile-snaps-modal .snap-modal-img { max-height: calc(100dvh - 176px); }
 @media (max-width: 640px) {
   .snap-modal { max-width: calc(100vw - 16px); }
   .snap-modal-inner { padding: 8px; }
   .snap-modal-img { max-height: calc(100dvh - 190px); }
-  /* A report's four buttons on one line on a 390 px phone. */
-  .csupport-modal .snap-modal-actions, .csupport-modal .snap-modal-steps { gap: 6px; }
-  .csupport-modal .snap-modal-download, .csupport-modal .snap-modal-close, .csupport-modal .snap-modal-step { padding: 0 12px; }
+  /* A report's (and a snaps grid's) four buttons on one line on a 390 px phone. */
+  .csupport-modal .snap-modal-actions, .csupport-modal .snap-modal-steps, .profile-snaps-modal .snap-modal-actions, .profile-snaps-modal .snap-modal-steps { gap: 6px; }
+  .csupport-modal .snap-modal-download, .csupport-modal .snap-modal-close, .csupport-modal .snap-modal-step, .profile-snaps-modal .snap-modal-download, .profile-snaps-modal .snap-modal-close, .profile-snaps-modal .snap-modal-step { padding: 0 12px; }
+  .profile-snaps-modal .snap-modal-img { max-height: calc(100dvh - 216px); }
 }
 @media (prefers-reduced-motion: no-preference) {
   .snap-modal[open] { animation: snap-modal-in 0.18s ease-out; }
